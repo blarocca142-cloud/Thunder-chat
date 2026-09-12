@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0B0B0F" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <title>Thunder</title>
+  <style>
+    :root { --bg:#0B0B0F; --card:#16161C; --gold:#F5C542; --mute:#9A9AAA; --mine:#2A2416; --theirs:#1C1C24; }
+    * { box-sizing: border-box; }
+    html, body { margin:0; height:100%; background:var(--bg); color:#fff; font: 16px/1.4 system-ui, sans-serif; }
+    #app { display:flex; flex-direction:column; height:100%; max-width:520px; margin:0 auto; }
+    header { display:flex; align-items:center; padding:14px 16px; }
+    header b { letter-spacing:.18em; }
+    header span { color:var(--mute); font-size:12px; display:block; }
+    .grow { flex:1; }
+    button.icon { background:none; border:0; color:var(--mute); font-size:20px; }
+    #status { margin:0 16px 8px; background:var(--card); border-radius:12px; padding:12px; font-size:13px; }
+    .dot { width:10px; height:10px; border-radius:50%; display:inline-block; margin-right:8px; }
+    .ok { background:#3DDC84; } .stuck { background:#FF8A4C; } .dead { background:#666676; }
+    #log { flex:1; overflow:auto; padding:8px 16px 72px; }
+    .b { max-width:85%; margin:8px 0; padding:10px 12px; border-radius:16px; white-space:pre-wrap; }
+    .me { margin-left:auto; background:var(--mine); }
+    .th { background:var(--theirs); }
+    form { display:flex; gap:8px; padding:10px; background:var(--card); }
+    input, textarea { flex:1; background:#0B0B0F; color:#fff; border:1px solid #2A2A33; border-radius:10px; padding:10px; }
+    form button { background:var(--gold); border:0; border-radius:10px; padding:0 14px; font-weight:700; }
+    .fab { position:fixed; right:18px; bottom:72px; width:56px; height:56px; border-radius:50%; border:0; background:var(--gold); font-size:22px; }
+    dialog { border:0; border-radius:16px; background:var(--card); color:#fff; width:min(420px, 92vw); }
+    dialog input, dialog textarea { width:100%; margin:8px 0; }
+    .mute { color:var(--mute); font-size:13px; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <header>
+      <div class="grow"><b>THUNDER</b><span id="sub">set server URL</span></div>
+      <button class="icon" id="gear">⚙</button>
+    </header>
+    <div id="status"><span class="dot dead" id="dot"></span><span id="statxt">Odris waiting · demo</span></div>
+    <div id="log"></div>
+    <form id="f"><input id="m" placeholder="Talk to Thunder" autocomplete="off" /><button>Send</button></form>
+  </div>
+  <button class="fab" id="job">⚡</button>
+  <dialog id="setd">
+    <p>Thunder-Main URL</p>
+    <p class="mute">Tailscale or LAN. Example http://100.x.x.x:8080</p>
+    <input id="url" placeholder="http://thunder-main:8080" />
+    <form method="dialog"><button>Save</button></form>
+  </dialog>
+  <dialog id="jobd">
+    <p>Queue overnight job</p>
+    <input id="jt" value="overnight coding" />
+    <textarea id="jp" rows="4" placeholder="What Cache should do"></textarea>
+    <form method="dialog" style="display:flex;gap:8px">
+      <button id="jq" value="queue">Queue</button>
+      <button id="jc" value="cancel">Cancel active</button>
+    </form>
+  </dialog>
+  <script>
+    const log = document.getElementById('log');
+    const add = (t, me) => { const d=document.createElement('div'); d.className='b '+(me?'me':'th'); d.textContent=t; log.appendChild(d); log.scrollTop=log.scrollHeight; };
+    const url = () => localStorage.thunderUrl || '';
+    add("Thunder phone shell. Set the Main URL, then we talk. Same API the Android app uses.");
+    async function status() {
+      const u = url();
+      document.getElementById('sub').textContent = u ? u : 'demo · not on Main';
+      if (!u) return;
+      try {
+        const s = await (await fetch(u.replace(/\/$/,'')+'/status')).json();
+        document.getElementById('dot').className = 'dot ' + (s.odriss==='ok'?'ok':s.odriss==='stuck'?'stuck':'dead');
+        document.getElementById('statxt').textContent = `Odris ${s.odriss} · cache ${s.cache}` + (s.job_title?` · ${s.job_title}`:'');
+      } catch(e) {
+        document.getElementById('statxt').textContent = 'Main unreachable';
+      }
+    }
+    setInterval(status, 8000); status();
+    document.getElementById('gear').onclick = () => { document.getElementById('url').value = url(); document.getElementById('setd').showModal(); };
+    document.getElementById('setd').addEventListener('close', () => { localStorage.thunderUrl = document.getElementById('url').value.trim(); status(); });
+    document.getElementById('f').onsubmit = async (e) => {
+      e.preventDefault();
+      const t = document.getElementById('m').value.trim(); if (!t) return;
+      document.getElementById('m').value=''; add(t, true);
+      const u = url();
+      if (!u) { add("Set server URL first."); return; }
+      try {
+        const r = await (await fetch(u.replace(/\/$/,'')+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:t})})).json();
+        add(r.reply || JSON.stringify(r));
+      } catch(err) { add("Main offline. Wire /chat at 12:45."); }
+    };
+    document.getElementById('job').onclick = () => document.getElementById('jobd').showModal();
+    document.getElementById('jq').onclick = async () => {
+      const u = url(); if (!u) return;
+      const body = {title:document.getElementById('jt').value, prompt:document.getElementById('jp').value};
+      try {
+        const r = await (await fetch(u.replace(/\/$/,'')+'/job',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
+        add("Queued "+(r.job_id||r.status));
+      } catch(e) { add("Queue failed"); }
+    };
+    document.getElementById('jc').onclick = async () => {
+      const u = url(); if (!u) return;
+      try { await fetch(u.replace(/\/$/,'')+'/job/cancel',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({job_id:''})}); add("Cancel sent"); } catch(e) {}
+    };
+  </script>
+</body>
+</html>
