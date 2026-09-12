@@ -1,27 +1,59 @@
 package com.thunder.app.ui
 
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Button
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.thunder.app.data.ThunderApi
@@ -29,70 +61,220 @@ import kotlinx.coroutines.launch
 
 data class Line(val who: String, val text: String)
 
+private val Bg = Color(0xFF0A0A0A)
+private val Surface = Color(0xFF161616)
+private val YouBubble = Color(0xFF2A2A2E)
+private val Ink = Color(0xFFF4F4F5)
+private val Mute = Color(0xFF8B8B8B)
+private val Gold = Color(0xFFE8C547)
+
 @Composable
 fun ThunderRoot() {
     val api = remember { ThunderApi() }
     var server by remember { mutableStateOf("") }
     var draft by remember { mutableStateOf("") }
-    val lines = remember { mutableStateListOf(Line("thunder", "Shell is up. Server can stay empty.")) }
+    var showSettings by remember { mutableStateOf(false) }
+    var waiting by remember { mutableStateOf(false) }
+    val lines = remember { mutableStateListOf<Line>() }
     val scope = rememberCoroutineScope()
-    val bg = Color(0xFF0B0B0F)
-    val ink = Color(0xFFE8EDF2)
+    val listState = rememberLazyListState()
+
+    LaunchedEffect(lines.size, waiting) {
+        val last = lines.lastIndex + if (waiting) 1 else 0
+        if (last >= 0) listState.animateScrollToItem(last.coerceAtLeast(0))
+    }
+
+    fun send() {
+        val msg = draft.trim()
+        if (msg.isEmpty() || waiting) return
+        draft = ""
+        lines.add(Line("you", msg))
+        waiting = true
+        scope.launch {
+            val reply = api.chat(server, msg)
+            lines.add(Line("thunder", reply))
+            waiting = false
+        }
+    }
 
     Column(
         Modifier
             .fillMaxSize()
-            .background(bg)
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+            .background(Bg)
+            .statusBarsPadding()
+            .imePadding()
     ) {
-        Text("THUNDER", color = Color(0xFFF5C542), fontSize = 22.sp)
-        OutlinedTextField(
-            value = server,
-            onValueChange = { server = it },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("Server URL (optional)") },
-            colors = fieldColors(ink)
-        )
-        LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
-            items(lines) { line ->
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "Thunder",
+                color = Gold,
+                fontSize = 22.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(start = 12.dp)
+            )
+            Spacer(Modifier.weight(1f))
+            Box(
+                Modifier
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(Color(0xFF1C1C1C))
+                    .padding(horizontal = 10.dp, vertical = 5.dp)
+            ) {
                 Text(
-                    "${line.who}: ${line.text}",
-                    color = if (line.who == "you") Color(0xFF8EC8FF) else Color(0xFFC8F0C0),
-                    modifier = Modifier.padding(vertical = 4.dp)
+                    if (server.isBlank()) "shell" else "main",
+                    color = if (server.isBlank()) Mute else Color(0xFF7DDA88),
+                    fontSize = 11.sp
+                )
+            }
+            IconButton(onClick = { showSettings = true }) {
+                Icon(Icons.Filled.Settings, contentDescription = "settings", tint = Mute)
+            }
+        }
+
+        if (lines.isEmpty() && !waiting) {
+            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("Thunder", color = Ink, fontSize = 34.sp, fontWeight = FontWeight.Medium)
+                    Spacer(Modifier.height(8.dp))
+                    Text("What do you want to work on?", color = Mute, fontSize = 16.sp)
+                }
+            }
+        } else {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                items(lines) { line -> Bubble(line) }
+                if (waiting) item { TypingDots() }
+            }
+        }
+
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.Bottom
+        ) {
+            Row(
+                Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(28.dp))
+                    .background(Surface)
+                    .padding(horizontal = 18.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                BasicTextField(
+                    value = draft,
+                    onValueChange = { draft = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    textStyle = TextStyle(color = Ink, fontSize = 16.sp),
+                    cursorBrush = SolidColor(Gold),
+                    maxLines = 6,
+                    decorationBox = { inner ->
+                        if (draft.isEmpty()) Text("Message Thunder", color = Mute, fontSize = 16.sp)
+                        inner()
+                    }
+                )
+            }
+            Spacer(Modifier.size(8.dp))
+            IconButton(
+                onClick = { send() },
+                enabled = draft.isNotBlank() && !waiting,
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(CircleShape)
+                    .background(if (draft.isNotBlank() && !waiting) Ink else Color(0xFF2A2A2A))
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Filled.Send,
+                    contentDescription = "send",
+                    tint = if (draft.isNotBlank() && !waiting) Color.Black else Mute,
+                    modifier = Modifier.size(20.dp)
                 )
             }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(
-                value = draft,
-                onValueChange = { draft = it },
-                modifier = Modifier.weight(1f),
-                label = { Text("message") },
-                colors = fieldColors(ink)
-            )
-            Button(onClick = {
-                val msg = draft.trim()
-                if (msg.isEmpty()) return@Button
-                draft = ""
-                lines.add(Line("you", msg))
-                scope.launch {
-                    val reply = api.chat(server, msg)
-                    lines.add(Line("thunder", reply))
+    }
+
+    if (showSettings) {
+        AlertDialog(
+            onDismissRequest = { showSettings = false },
+            containerColor = Surface,
+            title = { Text("Main server", color = Ink) },
+            text = {
+                Column {
+                    Text(
+                        "Leave empty to stay in shell mode. Paste the Thunder Main URL when that box is running.",
+                        color = Mute,
+                        fontSize = 13.sp
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    TextField(
+                        value = server,
+                        onValueChange = { server = it },
+                        placeholder = { Text("http://192.168.x.x:8080") },
+                        singleLine = true,
+                        colors = TextFieldDefaults.colors(
+                            focusedTextColor = Ink,
+                            unfocusedTextColor = Ink,
+                            focusedContainerColor = Bg,
+                            unfocusedContainerColor = Bg,
+                            cursorColor = Gold,
+                            focusedIndicatorColor = Gold,
+                            unfocusedIndicatorColor = Color(0xFF333333)
+                        )
+                    )
                 }
-            }) { Text("send") }
+            },
+            confirmButton = {
+                TextButton(onClick = { showSettings = false }) {
+                    Text("Done", color = Gold)
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun Bubble(line: Line) {
+    val mine = line.who == "you"
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start
+    ) {
+        Box(
+            Modifier
+                .widthIn(max = 320.dp)
+                .clip(
+                    RoundedCornerShape(
+                        topStart = 18.dp,
+                        topEnd = 18.dp,
+                        bottomStart = if (mine) 18.dp else 4.dp,
+                        bottomEnd = if (mine) 4.dp else 18.dp
+                    )
+                )
+                .background(if (mine) YouBubble else Color.Transparent)
+                .padding(horizontal = if (mine) 14.dp else 4.dp, vertical = 10.dp)
+        ) {
+            Text(line.text, color = Ink, fontSize = 16.sp, lineHeight = 22.sp)
         }
     }
 }
 
 @Composable
-private fun fieldColors(ink: Color) = TextFieldDefaults.colors(
-    focusedTextColor = ink,
-    unfocusedTextColor = ink,
-    focusedContainerColor = Color(0xFF15181D),
-    unfocusedContainerColor = Color(0xFF15181D),
-    focusedIndicatorColor = Color(0xFFF5C542),
-    unfocusedIndicatorColor = Color(0xFF333333),
-    focusedLabelColor = ink,
-    unfocusedLabelColor = Color(0xFF888888)
-)
+private fun TypingDots() {
+    val pulse = rememberInfiniteTransition(label = "dots")
+    val a by pulse.animateFloat(
+        initialValue = 0.25f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(700), RepeatMode.Reverse),
+        label = "a"
+    )
+    Text("Thunder is thinking", color = Mute, fontSize = 13.sp, modifier = Modifier.alpha(a).padding(start = 6.dp))
+}
