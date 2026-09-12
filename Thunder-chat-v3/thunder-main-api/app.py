@@ -1,12 +1,4 @@
-"""Thunder-Main API.
-
-Run on Main:
-  pip install -r requirements.txt
-  uvicorn app:app --host 0.0.0.0 --port 8080
-
-/chat talks to local Ollama if it's up.
-If Ollama is down, it still answers so the phone UI works.
-"""
+"""Thunder-Main API + tiny chat page at /"""
 from __future__ import annotations
 
 import json
@@ -18,6 +10,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 OLLAMA = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
@@ -36,6 +29,38 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+PAGE = """<!doctype html>
+<html><head><meta charset="utf-8"><title>Thunder</title>
+<style>
+body{margin:0;background:#0b0d10;color:#e8edf2;font:16px/1.4 system-ui,sans-serif}
+#log{height:70vh;overflow:auto;padding:16px}
+.row{margin:8px 0;white-space:pre-wrap}
+.me{color:#8ec8ff}.bot{color:#c8f0c0}
+form{display:flex;gap:8px;padding:12px;border-top:1px solid #222}
+input{flex:1;padding:10px;border-radius:8px;border:1px solid #333;background:#15181d;color:#fff}
+button{padding:10px 16px;border:0;border-radius:8px;background:#3b82f6;color:#fff}
+</style></head><body>
+<div id="log"></div>
+<form id="f"><input id="m" autofocus placeholder="talk to Thunder"><button>send</button></form>
+<script>
+const log=document.getElementById('log');
+function add(cls,t){const d=document.createElement('div');d.className='row '+cls;d.textContent=t;log.appendChild(d);log.scrollTop=log.scrollHeight;}
+add('bot','Thunder local. Model talks through /chat.');
+document.getElementById('f').onsubmit=async(e)=>{
+  e.preventDefault();
+  const v=document.getElementById('m').value.trim();
+  if(!v)return;
+  document.getElementById('m').value='';
+  add('me','you: '+v);
+  add('bot','...');
+  try{
+    const r=await fetch('/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:v})});
+    const j=await r.json();
+    log.lastChild.textContent='thunder: '+(j.reply||JSON.stringify(j));
+  }catch(err){log.lastChild.textContent='error: '+err;}
+};
+</script></body></html>"""
 
 
 class ChatIn(BaseModel):
@@ -73,10 +98,7 @@ def ollama_chat(message: str) -> str:
             "messages": [
                 {
                     "role": "system",
-                    "content": (
-                        "You are Thunder, a local coding and chat agent. "
-                        "Be direct. Write working code. One job at a time."
-                    ),
+                    "content": "You are Thunder, a local coding and chat agent. Be direct.",
                 },
                 {"role": "user", "content": message},
             ],
@@ -88,13 +110,9 @@ def ollama_chat(message: str) -> str:
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=180) as r:
+    with urllib.request.urlopen(req, timeout=300) as r:
         body = json.loads(r.read().decode())
-    return (
-        body.get("message", {}).get("content")
-        or body.get("response")
-        or json.dumps(body)
-    )
+    return body.get("message", {}).get("content") or body.get("response") or json.dumps(body)
 
 
 def read_status() -> dict:
@@ -130,6 +148,11 @@ def write_status(**extra) -> dict:
     return cur
 
 
+@app.get("/", response_class=HTMLResponse)
+def home():
+    return PAGE
+
+
 @app.get("/status")
 def status():
     return read_status()
@@ -146,16 +169,10 @@ def chat(body: ChatIn):
             write_status(mode="code", message="chat ok")
             return {"reply": reply}
         except urllib.error.URLError as e:
-            return {"reply": f"Ollama reachable then dropped: {e}"}
+            return {"reply": f"Ollama dropped: {e}"}
         except Exception as e:
             return {"reply": f"Ollama error: {e}"}
-    return {
-        "reply": (
-            f"Main heard you: {msg!r}. "
-            f"Ollama is not up on {OLLAMA}. "
-            f"Start it, then pull {MODEL}."
-        )
-    }
+    return {"reply": f"Main heard you: {msg!r}. Ollama is not up."}
 
 
 @app.post("/job")
@@ -163,13 +180,7 @@ def queue_job(body: JobIn):
     title = body.title or "overnight coding"
     prompt = body.prompt or body.task or ""
     job_id = "job_" + datetime.now().strftime("%Y%m%d_%H%M%S")
-    rec = {
-        "id": job_id,
-        "title": title,
-        "prompt": prompt,
-        "status": "queued",
-        "created": utc_ts(),
-    }
+    rec = {"id": job_id, "title": title, "prompt": prompt, "status": "queued", "created": utc_ts()}
     (JOBS / f"{job_id}.json").write_text(json.dumps(rec, indent=2))
     st = write_status(
         mode="code",
@@ -177,7 +188,7 @@ def queue_job(body: JobIn):
         job_id=job_id,
         job_title=title,
         progress="queued",
-        message=f"Queued {job_id}. Cache worker not attached yet.",
+        message=f"Queued {job_id}.",
         odriss="no_heartbeat",
         state="no_heartbeat",
     )
@@ -189,13 +200,6 @@ def queue_job(body: JobIn):
 def cancel(body: CancelIn):
     job_id = body.job_id or body.id or ""
     CANCEL.write_text(json.dumps({"job_id": job_id, "at": utc_ts()}))
-    st = write_status(
-        job_id=None,
-        job_title=None,
-        cache="idle",
-        mode="idle",
-        progress=None,
-        message="Cancel requested",
-    )
+    st = write_status(job_id=None, job_title=None, cache="idle", mode="idle", progress=None, message="Cancel requested")
     st.update({"status": "cancelled", "cancelled": True, "id": job_id, "job_id": job_id})
     return st
