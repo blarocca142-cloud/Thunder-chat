@@ -55,7 +55,7 @@ class ThunderApi(
 
     suspend fun chat(server: String, message: String): String = withContext(Dispatchers.IO) {
         if (server.isBlank()) {
-            return@withContext "Shell mode. I heard \"$message\". Point Settings at Main when it's up."
+            return@withContext "I'm here in shell mode — heard \"$message\". Point Settings at Main when that box is up and I'll really talk."
         }
         try {
             val payload = JSONObject().put("message", message).toString()

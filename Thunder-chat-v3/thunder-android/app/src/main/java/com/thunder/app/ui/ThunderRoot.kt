@@ -5,6 +5,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -12,7 +13,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -41,6 +42,7 @@ import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,15 +50,20 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.thunder.app.R
 import com.thunder.app.data.ThunderApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 data class Line(val who: String, val text: String)
@@ -140,7 +147,7 @@ fun ThunderRoot() {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("Thunder", color = Ink, fontSize = 34.sp, fontWeight = FontWeight.Medium)
                     Spacer(Modifier.height(8.dp))
-                    Text("What do you want to work on?", color = Mute, fontSize = 16.sp)
+                    Text(stringResource(R.string.empty_state_line), color = Mute, fontSize = 16.sp)
                 }
             }
         } else {
@@ -151,7 +158,7 @@ fun ThunderRoot() {
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 items(lines) { line -> Bubble(line) }
-                if (waiting) item { TypingDots() }
+                if (waiting) item { ThunderThinking() }
             }
         }
 
@@ -178,7 +185,7 @@ fun ThunderRoot() {
                     cursorBrush = SolidColor(Gold),
                     maxLines = 6,
                     decorationBox = { inner ->
-                        if (draft.isEmpty()) Text("Message Thunder", color = Mute, fontSize = 16.sp)
+                        if (draft.isEmpty()) Text(stringResource(R.string.composer_hint), color = Mute, fontSize = 16.sp)
                         inner()
                     }
                 )
@@ -268,13 +275,38 @@ private fun Bubble(line: Line) {
 }
 
 @Composable
-private fun TypingDots() {
-    val pulse = rememberInfiniteTransition(label = "dots")
-    val a by pulse.animateFloat(
-        initialValue = 0.25f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(700), RepeatMode.Reverse),
-        label = "a"
+private fun ThunderThinking() {
+    val frames = remember {
+        listOf(
+            R.drawable.thunder_think_1,
+            R.drawable.thunder_think_2,
+            R.drawable.thunder_think_3
+        )
+    }
+    var frame by remember { mutableIntStateOf(0) }
+    val bob = rememberInfiniteTransition(label = "thunder-toy")
+    val lift by bob.animateFloat(
+        initialValue = 0f,
+        targetValue = -2.5f,
+        animationSpec = infiniteRepeatable(tween(380), RepeatMode.Reverse),
+        label = "lift"
     )
-    Text("Thunder is thinking", color = Mute, fontSize = 13.sp, modifier = Modifier.alpha(a).padding(start = 6.dp))
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(320)
+            frame = (frame + 1) % frames.size
+        }
+    }
+
+    Image(
+        painter = painterResource(frames[frame]),
+        contentDescription = stringResource(R.string.thinking_cd),
+        contentScale = ContentScale.Fit,
+        modifier = Modifier
+            .padding(start = 6.dp, top = 2.dp, bottom = 2.dp)
+            .height(28.dp)
+            .aspectRatio(1f)
+            .graphicsLayer { translationY = lift }
+    )
 }
