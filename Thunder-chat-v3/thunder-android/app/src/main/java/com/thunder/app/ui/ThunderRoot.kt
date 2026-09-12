@@ -1,12 +1,13 @@
 package com.thunder.app.ui
 
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,16 +23,16 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -51,6 +52,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
@@ -59,6 +61,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.thunder.app.R
@@ -68,12 +71,14 @@ import kotlinx.coroutines.launch
 
 data class Line(val who: String, val text: String)
 
-private val Bg = Color(0xFF0A0A0A)
-private val Surface = Color(0xFF161616)
-private val YouBubble = Color(0xFF2A2A2E)
-private val Ink = Color(0xFFF4F4F5)
-private val Mute = Color(0xFF8B8B8B)
-private val Gold = Color(0xFFE8C547)
+private val Bg = Color(0xFF141416)
+private val BgLift = Color(0xFF1A1A1E)
+private val Surface = Color(0xFF1C1C21)
+private val YouBubble = Color(0xFF26262C)
+private val Hairline = Color(0xFF2C2C32)
+private val Ink = Color(0xFFE8E8EA)
+private val Mute = Color(0xFF8E8E94)
+private val Gold = Color(0xFFC4A35A)
 
 @Composable
 fun ThunderRoot() {
@@ -107,103 +112,135 @@ fun ThunderRoot() {
     Column(
         Modifier
             .fillMaxSize()
-            .background(Bg)
+            .background(
+                Brush.verticalGradient(
+                    0f to BgLift,
+                    0.22f to Bg,
+                    1f to Bg
+                )
+            )
             .statusBarsPadding()
             .imePadding()
     ) {
         Row(
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 6.dp),
+                .padding(start = 16.dp, end = 4.dp, top = 10.dp, bottom = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            ThunderWordmark(Modifier.weight(1f))
             Text(
-                "Thunder",
-                color = Gold,
-                fontSize = 22.sp,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(start = 12.dp)
+                if (server.isBlank()) "shell" else "main",
+                color = if (server.isBlank()) Mute else Color(0xFF8FCB9B),
+                fontSize = 11.sp,
+                letterSpacing = 0.6.sp,
+                modifier = Modifier.padding(end = 2.dp)
             )
-            Spacer(Modifier.weight(1f))
-            Box(
-                Modifier
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(Color(0xFF1C1C1C))
-                    .padding(horizontal = 10.dp, vertical = 5.dp)
-            ) {
-                Text(
-                    if (server.isBlank()) "shell" else "main",
-                    color = if (server.isBlank()) Mute else Color(0xFF7DDA88),
-                    fontSize = 11.sp
-                )
-            }
             IconButton(onClick = { showSettings = true }) {
-                Icon(Icons.Filled.Settings, contentDescription = "settings", tint = Mute)
+                Icon(Icons.Outlined.Settings, contentDescription = "settings", tint = Mute)
             }
         }
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(Hairline)
+        )
 
         if (lines.isEmpty() && !waiting) {
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("Thunder", color = Ink, fontSize = 34.sp, fontWeight = FontWeight.Medium)
+                    Image(
+                        painter = painterResource(R.drawable.thunder_face),
+                        contentDescription = null,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.size(88.dp)
+                    )
+                    Spacer(Modifier.height(22.dp))
+                    Text(
+                        stringResource(R.string.brand_name),
+                        color = Ink,
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Medium,
+                        letterSpacing = 1.6.sp
+                    )
                     Spacer(Modifier.height(8.dp))
-                    Text(stringResource(R.string.empty_state_line), color = Mute, fontSize = 16.sp)
+                    Text(
+                        stringResource(R.string.empty_state_line),
+                        color = Mute,
+                        fontSize = 15.sp,
+                        letterSpacing = 0.2.sp
+                    )
                 }
             }
         } else {
             LazyColumn(
                 state = listState,
                 modifier = Modifier.weight(1f).fillMaxWidth(),
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(lines) { line -> Bubble(line) }
                 if (waiting) item { ThunderThinking() }
             }
         }
 
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(Hairline.copy(alpha = 0.7f))
+        )
         Row(
             Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
+                .padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.Bottom
         ) {
             Row(
                 Modifier
                     .weight(1f)
-                    .clip(RoundedCornerShape(28.dp))
+                    .clip(RoundedCornerShape(12.dp))
                     .background(Surface)
-                    .padding(horizontal = 18.dp, vertical = 14.dp),
+                    .border(1.dp, Hairline, RoundedCornerShape(12.dp))
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 BasicTextField(
                     value = draft,
                     onValueChange = { draft = it },
                     modifier = Modifier.fillMaxWidth(),
-                    textStyle = TextStyle(color = Ink, fontSize = 16.sp),
+                    textStyle = TextStyle(color = Ink, fontSize = 15.sp, lineHeight = 21.sp),
                     cursorBrush = SolidColor(Gold),
                     maxLines = 6,
                     decorationBox = { inner ->
-                        if (draft.isEmpty()) Text(stringResource(R.string.composer_hint), color = Mute, fontSize = 16.sp)
+                        if (draft.isEmpty()) {
+                            Text(
+                                stringResource(R.string.composer_hint),
+                                color = Mute,
+                                fontSize = 15.sp,
+                                letterSpacing = 0.15.sp
+                            )
+                        }
                         inner()
                     }
                 )
             }
-            Spacer(Modifier.size(8.dp))
+            Spacer(Modifier.size(10.dp))
             IconButton(
                 onClick = { send() },
                 enabled = draft.isNotBlank() && !waiting,
                 modifier = Modifier
-                    .size(48.dp)
-                    .clip(CircleShape)
-                    .background(if (draft.isNotBlank() && !waiting) Ink else Color(0xFF2A2A2A))
+                    .size(44.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(if (draft.isNotBlank() && !waiting) Ink else Color(0xFF242428))
             ) {
                 Icon(
                     Icons.AutoMirrored.Filled.Send,
                     contentDescription = "send",
-                    tint = if (draft.isNotBlank() && !waiting) Color.Black else Mute,
-                    modifier = Modifier.size(20.dp)
+                    tint = if (draft.isNotBlank() && !waiting) Color(0xFF141416) else Mute,
+                    modifier = Modifier.size(18.dp)
                 )
             }
         }
@@ -213,15 +250,24 @@ fun ThunderRoot() {
         AlertDialog(
             onDismissRequest = { showSettings = false },
             containerColor = Surface,
-            title = { Text("Main server", color = Ink) },
+            shape = RoundedCornerShape(12.dp),
+            title = {
+                Text(
+                    "Server",
+                    color = Ink,
+                    fontWeight = FontWeight.Medium,
+                    letterSpacing = 0.4.sp
+                )
+            },
             text = {
                 Column {
                     Text(
-                        "Leave empty to stay in shell mode. Paste the Thunder Main URL when that box is running.",
+                        "Leave empty for shell mode. Paste the Thunder Main URL when that box is running.",
                         color = Mute,
-                        fontSize = 13.sp
+                        fontSize = 13.sp,
+                        lineHeight = 18.sp
                     )
-                    Spacer(Modifier.height(12.dp))
+                    Spacer(Modifier.height(14.dp))
                     TextField(
                         value = server,
                         onValueChange = { server = it },
@@ -233,18 +279,83 @@ fun ThunderRoot() {
                             focusedContainerColor = Bg,
                             unfocusedContainerColor = Bg,
                             cursorColor = Gold,
-                            focusedIndicatorColor = Gold,
-                            unfocusedIndicatorColor = Color(0xFF333333)
+                            focusedIndicatorColor = Gold.copy(alpha = 0.7f),
+                            unfocusedIndicatorColor = Hairline
                         )
                     )
                 }
             },
             confirmButton = {
                 TextButton(onClick = { showSettings = false }) {
-                    Text("Done", color = Gold)
+                    Text("Done", color = Gold, letterSpacing = 0.4.sp)
                 }
             }
         )
+    }
+}
+
+@Composable
+private fun ThunderWordmark(modifier: Modifier = Modifier) {
+    val progress = remember { Animatable(0f) }
+    val scope = rememberCoroutineScope()
+
+    suspend fun play() {
+        progress.snapTo(0f)
+        delay(280)
+        progress.animateTo(
+            1f,
+            tween(durationMillis = 1100, easing = FastOutSlowInEasing)
+        )
+    }
+
+    LaunchedEffect(Unit) { play() }
+
+    val p = progress.value
+    Row(
+        modifier
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) { scope.launch { play() } },
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Image(
+            painter = painterResource(R.drawable.thunder_face),
+            contentDescription = stringResource(R.string.brand_name),
+            contentScale = ContentScale.Fit,
+            modifier = Modifier
+                .size((34f - 4f * p).dp)
+                .graphicsLayer {
+                    translationX = -4f * p
+                    alpha = 0.96f
+                }
+        )
+        Row(
+            Modifier.graphicsLayer {
+                alpha = p
+                translationX = (1f - p) * 14f
+            },
+            verticalAlignment = Alignment.Bottom
+        ) {
+            Spacer(Modifier.width(8.dp))
+            Text(
+                "Thunder",
+                color = Ink,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Medium,
+                letterSpacing = 1.5.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Clip
+            )
+            Text(
+                " AI",
+                color = Gold.copy(alpha = 0.88f),
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Light,
+                letterSpacing = 1.2.sp,
+                maxLines = 1
+            )
+        }
     }
 }
 
@@ -258,18 +369,11 @@ private fun Bubble(line: Line) {
         Box(
             Modifier
                 .widthIn(max = 320.dp)
-                .clip(
-                    RoundedCornerShape(
-                        topStart = 18.dp,
-                        topEnd = 18.dp,
-                        bottomStart = if (mine) 18.dp else 4.dp,
-                        bottomEnd = if (mine) 4.dp else 18.dp
-                    )
-                )
+                .clip(RoundedCornerShape(10.dp))
                 .background(if (mine) YouBubble else Color.Transparent)
-                .padding(horizontal = if (mine) 14.dp else 4.dp, vertical = 10.dp)
+                .padding(horizontal = if (mine) 14.dp else 2.dp, vertical = 9.dp)
         ) {
-            Text(line.text, color = Ink, fontSize = 16.sp, lineHeight = 22.sp)
+            Text(line.text, color = Ink, fontSize = 15.sp, lineHeight = 22.sp)
         }
     }
 }
@@ -284,17 +388,10 @@ private fun ThunderThinking() {
         )
     }
     var frame by remember { mutableIntStateOf(0) }
-    val bob = rememberInfiniteTransition(label = "thunder-toy")
-    val lift by bob.animateFloat(
-        initialValue = 0f,
-        targetValue = -2.5f,
-        animationSpec = infiniteRepeatable(tween(380), RepeatMode.Reverse),
-        label = "lift"
-    )
 
     LaunchedEffect(Unit) {
         while (true) {
-            delay(320)
+            delay(420)
             frame = (frame + 1) % frames.size
         }
     }
@@ -304,9 +401,8 @@ private fun ThunderThinking() {
         contentDescription = stringResource(R.string.thinking_cd),
         contentScale = ContentScale.Fit,
         modifier = Modifier
-            .padding(start = 6.dp, top = 2.dp, bottom = 2.dp)
-            .height(32.dp)
+            .padding(start = 2.dp, top = 2.dp, bottom = 2.dp)
+            .height(26.dp)
             .aspectRatio(1f)
-            .graphicsLayer { translationY = lift }
     )
 }

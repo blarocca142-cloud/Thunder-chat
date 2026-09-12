@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Thunder</string>
-    <string name="empty_state_line">I\'m here. What\'s up?</string>
-    <string name="composer_hint">Talk to me</string>
+    <string name="brand_name">Thunder AI</string>
+    <string name="empty_state_line">Ready when you are.</string>
+    <string name="composer_hint">Ask Thunder</string>
     <string name="thinking_cd">Thunder is thinking</string>
 </resources>
