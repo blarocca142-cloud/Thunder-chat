@@ -6,9 +6,9 @@ The missing `gradle-wrapper.jar` is a binary. GitHub file tools cannot store it 
 
 Tap this on the phone and install over the existing Thunder app (allow unknown sources):
 
-https://github.com/blarocca142-cloud/Thunder-chat/releases/download/v0.4.0-thunder-face/Thunder-v0.4.0-thunder-face-debug.apk
+https://github.com/blarocca142-cloud/Thunder-chat/releases/download/v0.4.1-thunder-face/Thunder-v0.4.1-thunder-face-debug.apk
 
-Release page: https://github.com/blarocca142-cloud/Thunder-chat/releases/tag/v0.4.0-thunder-face
+Release page: https://github.com/blarocca142-cloud/Thunder-chat/releases/tag/v0.4.1-thunder-face
 
 ## Get a newer APK from Actions
 

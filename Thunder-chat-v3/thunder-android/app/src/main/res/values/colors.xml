@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ic_launcher_background">#141416</color>
+    <!-- Adaptive icon XML was removed so launchers can honor PNG alpha.
+         Do not add a solid ic_launcher_background — that becomes the black disc. -->
 </resources>
