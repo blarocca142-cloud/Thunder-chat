@@ -39,12 +39,16 @@ jobs:
           OUT="Thunder-${GITHUB_REF_NAME}-debug.apk"
           test -f "$SRC"
           cp "$SRC" "$OUT"
+          NOTES="$(mktemp)"
+          {
+            echo "Sideload this debug APK over the existing Thunder app (allow unknown sources)."
+            echo
+            echo "Cartoon Thunder launcher with the silver-gray eye patch, plus the toy-play thinking loop."
+            echo
+            echo "Direct phone download (no GitHub login):"
+            echo "https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/${OUT}"
+          } > "$NOTES"
           gh release create "${GITHUB_REF_NAME}" "$OUT" \
             --repo "${GITHUB_REPOSITORY}" \
             --title "Thunder ${GITHUB_REF_NAME}" \
-            --notes "Sideload this debug APK over the existing Thunder app (allow unknown sources).
-
-This build has the cartoon Thunder launcher (silver-gray eye patch) and the toy-play thinking loop.
-
-Direct download (no GitHub login):
-https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/${OUT}"
+            --notes-file "$NOTES"
