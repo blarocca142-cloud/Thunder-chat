@@ -305,7 +305,7 @@ private fun ThunderThinking() {
         contentScale = ContentScale.Fit,
         modifier = Modifier
             .padding(start = 6.dp, top = 2.dp, bottom = 2.dp)
-            .height(28.dp)
+            .height(32.dp)
             .aspectRatio(1f)
             .graphicsLayer { translationY = lift }
     )
