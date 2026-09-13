@@ -5,14 +5,41 @@ own system prompt and its own context (live system data, not user chat
 history), so it's a genuinely separate assistant, not Thunder wearing a
 different hat. Stdlib only, no deps.
 """
+import base64
 import json
+import re
+import secrets
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 PORT = 9005
 MAIN = "http://10.168.168.10:8080"
 OLLAMA = "http://10.168.168.10:11434"
 SERVERUS = "http://10.168.168.13:9001"
+
+# Whole-dashboard auth - nobody on the LAN gets in without this, not just
+# the apply-fix action. Generated once, on disk, never in code or git.
+DASHBOARD_PASSWORD_FILE = Path.home() / "dashboard_password.txt"
+
+
+def get_dashboard_password() -> str:
+    if not DASHBOARD_PASSWORD_FILE.exists():
+        DASHBOARD_PASSWORD_FILE.write_text(secrets.token_urlsafe(16))
+        DASHBOARD_PASSWORD_FILE.chmod(0o600)
+    return DASHBOARD_PASSWORD_FILE.read_text().strip()
+
+
+def check_auth(handler) -> bool:
+    header = handler.headers.get("Authorization", "")
+    if not header.startswith("Basic "):
+        return False
+    try:
+        decoded = base64.b64decode(header[6:]).decode()
+        _, _, password = decoded.partition(":")
+    except Exception:
+        return False
+    return password == get_dashboard_password()
 
 ODRIS_SYSTEM_PROMPT = (
     "You are Odris, Blayne's ops/admin assistant for the Thunder AI stack. "
@@ -112,9 +139,13 @@ async function refresh(){
   jobsEl.innerHTML = '<tr><th>title</th><th>status</th><th>review</th><th></th></tr>';
   (d.jobs || []).forEach(j => {
     const needsReview = (j.status==='done'||j.status==='error') && j.review_status==='pending';
+    const canApply = j.review_status==='approved';
+    let actions = '';
+    if (needsReview) actions = `<button onclick="review('${j.id}','approved')">approve</button><button class="reject" onclick="review('${j.id}','rejected')">reject</button>`;
+    else if (canApply) actions = `<button onclick="applyFix('${j.id}')">apply to live code</button>`;
     jobsEl.innerHTML += `<tr><td>${j.title}</td><td><span class="pill ${j.status}">${j.status}</span></td>
       <td><span class="pill ${j.review_status||'pending'}">${j.review_status||'pending'}</span></td>
-      <td>${needsReview ? `<button onclick="review('${j.id}','approved')">approve</button><button class="reject" onclick="review('${j.id}','rejected')">reject</button>` : ''}</td></tr>`;
+      <td>${actions}</td></tr>`;
   });
 
   const errEl = document.getElementById('errors');
@@ -142,6 +173,14 @@ async function stopMaint(){
 
 async function review(job_id, decision){
   await fetch('/api/job/review', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({job_id, decision})});
+  refresh();
+}
+async function applyFix(job_id){
+  const admin_secret = prompt("Admin secret to deploy this to live code (one-time setup: cat thunder-data/admin_secret.txt on Main):");
+  if (!admin_secret) return;
+  const r = await fetch('/api/job/apply', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({job_id, admin_secret})});
+  const j = await r.json();
+  alert(j.ok ? j.message : ('Failed: ' + j.error));
   refresh();
 }
 async function requestFix(error_id){
@@ -209,6 +248,64 @@ def build_overview() -> dict:
     return overview
 
 
+JOB_ID_RE = re.compile(r"(job_\d{8}_\d{6}(?:_\d+)?)")
+
+
+def latest_job_id():
+    jobs = get_json(f"{MAIN}/jobs?limit=1").get("jobs", [])
+    return jobs[0]["id"] if jobs else None
+
+
+def parse_and_execute_command(msg: str) -> str | None:
+    """Deterministic command handling, checked before the message ever
+    reaches the LLM - actions with real consequences (approve/reject/apply/
+    maintenance) are never left to a model's interpretation, only exact
+    pattern matches execute. Returns a reply string if this was a command,
+    None if it wasn't (falls through to normal chat)."""
+    lower = msg.lower().strip()
+    id_match = JOB_ID_RE.search(msg)
+    job_id = id_match.group(1) if id_match else None
+
+    if lower.startswith("approve"):
+        jid = job_id or latest_job_id()
+        if not jid:
+            return "No job found to approve."
+        r = post_json(f"{MAIN}/job/review", {"job_id": jid, "decision": "approved"})
+        return f"Approved {jid}." if r.get("ok") else f"Failed: {r.get('error')}"
+
+    if lower.startswith("reject"):
+        jid = job_id or latest_job_id()
+        if not jid:
+            return "No job found to reject."
+        r = post_json(f"{MAIN}/job/review", {"job_id": jid, "decision": "rejected"})
+        return f"Rejected {jid}." if r.get("ok") else f"Failed: {r.get('error')}"
+
+    if lower.startswith("apply"):
+        secret_match = re.search(r"secret[: ]+([A-Za-z0-9_\-]{15,})", msg, re.IGNORECASE)
+        if not secret_match:
+            return "To apply, include the admin secret, e.g. 'apply job_xxx secret YOURSECRET'."
+        jid = job_id or latest_job_id()
+        if not jid:
+            return "No job found to apply."
+        r = post_json(f"{MAIN}/job/apply", {"job_id": jid, "admin_secret": secret_match.group(1)})
+        return r.get("message") if r.get("ok") else f"Failed: {r.get('error')}"
+
+    if "stop maintenance" in lower:
+        post_json(f"{MAIN}/maintenance/stop", {})
+        return "Maintenance stopped, back to normal."
+
+    if "start maintenance" in lower:
+        mins_match = re.search(r"(\d+)\s*min", lower)
+        duration = int(mins_match.group(1)) * 60 if mins_match else None
+        msg_match = re.search(r":\s*(.+)$", msg)
+        message = msg_match.group(1).strip() if msg_match else "Thunder's down for maintenance, back shortly."
+        post_json(f"{MAIN}/maintenance/start", {"message": message, "duration_seconds": duration})
+        when = f"{mins_match.group(1)} min" if mins_match else "indefinitely"
+        return f"Maintenance started for {when}: {message}"
+
+    return None
+
+
 def odris_chat(message: str) -> str:
     overview = build_overview()
     context = (
@@ -240,7 +337,21 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _require_auth(self) -> bool:
+        if check_auth(self):
+            return True
+        body = json.dumps({"error": "auth required"}).encode()
+        self.send_response(401)
+        self.send_header("WWW-Authenticate", 'Basic realm="Thunder Admin"')
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+        return False
+
     def do_GET(self):
+        if not self._require_auth():
+            return
         if self.path == "/":
             return self._send(200, PAGE, content_type="text/html")
         if self.path == "/api/overview":
@@ -248,6 +359,8 @@ class Handler(BaseHTTPRequestHandler):
         return self._send(404, {"error": "not found"})
 
     def do_POST(self):
+        if not self._require_auth():
+            return
         length = int(self.headers.get("Content-Length", 0))
         try:
             body = json.loads(self.rfile.read(length) or b"{}") if length else {}
@@ -259,6 +372,9 @@ class Handler(BaseHTTPRequestHandler):
             if not msg:
                 return self._send(400, {"error": "missing message"})
             try:
+                cmd_reply = parse_and_execute_command(msg)
+                if cmd_reply is not None:
+                    return self._send(200, {"reply": cmd_reply})
                 return self._send(200, {"reply": odris_chat(msg)})
             except Exception as e:
                 return self._send(502, {"reply": f"Odris couldn't reach Main: {e}"})
@@ -266,6 +382,12 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/api/job/review":
             try:
                 return self._send(200, post_json(f"{MAIN}/job/review", body))
+            except Exception as e:
+                return self._send(502, {"error": str(e)})
+
+        if self.path == "/api/job/apply":
+            try:
+                return self._send(200, post_json(f"{MAIN}/job/apply", body, timeout=15))
             except Exception as e:
                 return self._send(502, {"error": str(e)})
 

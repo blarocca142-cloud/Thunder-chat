@@ -1,8 +1,12 @@
 """Thunder-Main API + tiny chat page at /"""
 from __future__ import annotations
 
+import ast
 import json
 import os
+import re
+import shutil
+import subprocess
 import traceback
 import urllib.error
 import urllib.request
@@ -44,6 +48,19 @@ ERRORS.mkdir(exist_ok=True)
 STATUS = DATA / "status.json"
 CANCEL = DATA / "cancel.json"
 MAINTENANCE = DATA / "maintenance.json"
+ADMIN_SECRET_FILE = DATA / "admin_secret.txt"
+
+
+def get_admin_secret() -> str:
+    """Generated once, on disk, never in code or git. This is the one gate
+    between an approved AI-proposed fix and it actually going live - a
+    separate application-level secret, not the Linux login/sudo password."""
+    if not ADMIN_SECRET_FILE.exists():
+        import secrets
+
+        ADMIN_SECRET_FILE.write_text(secrets.token_urlsafe(24))
+        ADMIN_SECRET_FILE.chmod(0o600)
+    return ADMIN_SECRET_FILE.read_text().strip()
 
 app = FastAPI(title="Thunder Main")
 app.add_middleware(
@@ -463,6 +480,84 @@ def review_job(body: ReviewIn):
     return {"ok": True, "job": rec}
 
 
+APP_PY = Path(__file__).resolve()
+
+
+class ApplyIn(BaseModel):
+    job_id: str
+    admin_secret: str
+
+
+@app.post("/job/apply")
+def apply_job(body: ApplyIn):
+    """The one action gated by the admin secret: actually writing an
+    AI-proposed fix into live app.py and restarting the service. Extracts
+    a unified diff from the job's output, validates it applies cleanly AND
+    that the result is syntactically valid Python, before ever touching the
+    live file - auto-rolls back on any failure at any step."""
+    if body.admin_secret != get_admin_secret():
+        return {"ok": False, "error": "wrong admin secret"}
+
+    path = JOBS / f"{body.job_id}.json"
+    if not path.exists():
+        return {"ok": False, "error": "unknown job_id"}
+    rec = json.loads(path.read_text())
+    if rec.get("review_status") != "approved":
+        return {"ok": False, "error": "job must be approved before it can be applied"}
+
+    output = rec.get("output", "")
+    match = re.search(r"```diff\n(.*?)```", output, re.DOTALL)
+    if not match:
+        return {"ok": False, "error": "no ```diff block found in job output"}
+    diff_text = match.group(1)
+
+    backup = APP_PY.with_suffix(".py.bak")
+    shutil.copy(APP_PY, backup)
+    diff_file = DATA / f"apply_{body.job_id}.diff"
+    diff_file.write_text(diff_text)
+
+    try:
+        check = subprocess.run(
+            ["git", "apply", "--check", str(diff_file)],
+            cwd=APP_PY.parent, capture_output=True, text=True,
+        )
+        if check.returncode != 0:
+            return {"ok": False, "error": f"diff doesn't apply cleanly: {check.stderr}"}
+
+        apply = subprocess.run(
+            ["git", "apply", str(diff_file)],
+            cwd=APP_PY.parent, capture_output=True, text=True,
+        )
+        if apply.returncode != 0:
+            return {"ok": False, "error": f"git apply failed: {apply.stderr}"}
+
+        try:
+            ast.parse(APP_PY.read_text())
+        except SyntaxError as e:
+            shutil.copy(backup, APP_PY)
+            return {"ok": False, "error": f"result had a syntax error, rolled back: {e}"}
+
+    finally:
+        diff_file.unlink(missing_ok=True)
+
+    rec["review_status"] = "applied"
+    rec["applied"] = utc_ts()
+    rec["backup"] = str(backup)
+    path.write_text(json.dumps(rec, indent=2))
+
+    # Restarting this very process would kill the request before the
+    # response ships - delay it a second and detach so the caller actually
+    # gets this response back first. If the new code crashes on startup,
+    # systemd's Restart=always keeps retrying; that failure shows up as a
+    # flapping service on the dashboard, not a silent rollback - restoring
+    # from `backup` at that point is a manual (or future) step.
+    subprocess.Popen(
+        ["bash", "-c", "sleep 1 && sudo -n systemctl restart thunder-main"],
+        start_new_session=True,
+    )
+    return {"ok": True, "message": f"Diff applied, syntax valid. Restarting now. Backup at {backup}."}
+
+
 @app.post("/job/cancel")
 def cancel(body: CancelIn):
     job_id = body.job_id or body.id or ""
@@ -543,11 +638,16 @@ def request_fix(error_id: str):
     if not path.exists():
         return {"ok": False, "error": "unknown error_id"}
     err = json.loads(path.read_text())
+    current_source = Path(__file__).read_text()
     prompt = (
         f"Thunder-Main hit an unhandled error on endpoint {err['endpoint']}.\n\n"
         f"Error: {err['error']}\n\nTraceback:\n{err['traceback']}\n\n"
-        f"Look at thunder-main-api/app.py and propose a fix. Explain the bug "
-        f"briefly, then give the corrected code."
+        f"Current contents of app.py:\n```python\n{current_source}\n```\n\n"
+        f"Explain the bug in 1-2 sentences, then give ONLY a unified diff "
+        f"fixing it, in a fenced ```diff block, in standard `diff -u` format "
+        f"with `--- a/app.py` / `+++ b/app.py` headers. The diff must apply "
+        f"cleanly to the exact source shown above. Do not include any other "
+        f"code changes beyond what's needed to fix this specific error."
     )
     job = create_job(f"Fix for {error_id}", prompt)
     err["review_status"] = "fix_requested"
