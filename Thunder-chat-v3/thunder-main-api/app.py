@@ -15,6 +15,9 @@ from pydantic import BaseModel
 
 OLLAMA = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
 MODEL = os.environ.get("THUNDER_MODEL", "dolphin3")  # never default to a Qwen/Alibaba model
+SERVERUS = os.environ.get("SERVERUS_URL", "http://10.168.168.13:9001")
+ENGINE = os.environ.get("ENGINE_URL", "http://10.168.168.12:9002")
+ODRIS = os.environ.get("ODRIS_URL", "http://10.168.168.15:9003")
 DATA = Path(os.environ.get("THUNDER_DATA", "./thunder-data"))
 DATA.mkdir(exist_ok=True)
 JOBS = DATA / "jobs"
@@ -90,33 +93,72 @@ def ollama_up() -> bool:
         return False
 
 
+SYSTEM_PROMPT = (
+    "You are Thunder, Blayne's personal local AI, running privately on his "
+    "own hardware for him alone. Be direct and casual, like a sharp friend - "
+    "not a corporate chatbot. Don't lecture, moralize, or add unsolicited "
+    "disclaimers about respect or appropriateness for ordinary casual "
+    "language. Just answer what's actually asked.\n\n"
+    "One hard rule, no exceptions: never generate sexual or romantic content "
+    "involving minors, in any style or context. Beyond that single line, "
+    "don't over-restrict - all-ages creative work like anime concepts, kids' "
+    "shows, and stories or characters that are children in ordinary, "
+    "non-sexual contexts are completely fine to write, brainstorm, and "
+    "develop. Never refuse or water down a kids' show or anime idea just "
+    "because it involves child characters."
+)
+
+
+def serverus_recent(limit: int = 10) -> list[dict]:
+    try:
+        with urllib.request.urlopen(f"{SERVERUS}/recent?limit={limit}", timeout=2) as r:
+            return json.loads(r.read().decode()).get("turns", [])
+    except Exception:
+        return []  # Serverus down - chat still works, just without memory
+
+
+def serverus_append(user_msg: str, reply: str) -> None:
+    try:
+        payload = json.dumps({"user": user_msg, "reply": reply}).encode()
+        req = urllib.request.Request(
+            f"{SERVERUS}/append",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        urllib.request.urlopen(req, timeout=2)
+    except Exception:
+        pass  # best-effort; never let memory storage break chat
+
+
+def engine_check(message: str) -> dict:
+    try:
+        payload = json.dumps({"message": message}).encode()
+        req = urllib.request.Request(
+            f"{ENGINE}/check",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=2) as r:
+            return json.loads(r.read().decode())
+    except Exception:
+        return {"allow": True, "reason": ""}  # Engine down - fail open, don't block chat
+
+
+def odris_heartbeat() -> dict | None:
+    try:
+        with urllib.request.urlopen(f"{ODRIS}/heartbeat", timeout=2) as r:
+            return json.loads(r.read().decode())
+    except Exception:
+        return None
+
+
 def ollama_chat(message: str) -> str:
-    payload = json.dumps(
-        {
-            "model": MODEL,
-            "stream": False,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": (
-                        "You are Thunder, Blayne's personal local AI, running privately on his "
-                        "own hardware for him alone. Be direct and casual, like a sharp friend - "
-                        "not a corporate chatbot. Don't lecture, moralize, or add unsolicited "
-                        "disclaimers about respect or appropriateness for ordinary casual "
-                        "language. Just answer what's actually asked.\n\n"
-                        "One hard rule, no exceptions: never generate sexual or romantic content "
-                        "involving minors, in any style or context. Beyond that single line, "
-                        "don't over-restrict - all-ages creative work like anime concepts, kids' "
-                        "shows, and stories or characters that are children in ordinary, "
-                        "non-sexual contexts are completely fine to write, brainstorm, and "
-                        "develop. Never refuse or water down a kids' show or anime idea just "
-                        "because it involves child characters."
-                    ),
-                },
-                {"role": "user", "content": message},
-            ],
-        }
-    ).encode()
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages.extend(serverus_recent(10))
+    messages.append({"role": "user", "content": message})
+    payload = json.dumps({"model": MODEL, "stream": False, "messages": messages}).encode()
     req = urllib.request.Request(
         f"{OLLAMA}/api/chat",
         data=payload,
@@ -125,7 +167,9 @@ def ollama_chat(message: str) -> str:
     )
     with urllib.request.urlopen(req, timeout=300) as r:
         body = json.loads(r.read().decode())
-    return body.get("message", {}).get("content") or body.get("response") or json.dumps(body)
+    reply = body.get("message", {}).get("content") or body.get("response") or json.dumps(body)
+    serverus_append(message, reply)
+    return reply
 
 
 def read_status() -> dict:
@@ -149,6 +193,12 @@ def read_status() -> dict:
             pass
     base["ollama"] = ollama_up()
     base["model"] = MODEL
+    heartbeat = odris_heartbeat()
+    if heartbeat:
+        base["odriss"] = "ok"
+        base["odris_nodes"] = heartbeat.get("nodes", {})
+        if heartbeat.get("nodes", {}).get("cache") == "down":
+            base["cache"] = "no_heartbeat"
     if base.get("odriss") == "ok":
         base["state"] = "ok"
     return base
@@ -177,6 +227,9 @@ def chat(body: ChatIn):
     msg = (body.message or "").strip()
     if not msg:
         return {"reply": "Say something."}
+    verdict = engine_check(msg)
+    if not verdict.get("allow", True):
+        return {"reply": verdict.get("reason") or "Blocked by Thunder-Engine."}
     if ollama_up():
         try:
             reply = ollama_chat(msg)
