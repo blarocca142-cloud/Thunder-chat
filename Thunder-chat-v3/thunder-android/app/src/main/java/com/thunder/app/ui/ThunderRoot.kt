@@ -35,6 +35,8 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
@@ -45,6 +47,9 @@ import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
@@ -78,6 +83,7 @@ import com.thunder.app.R
 import com.thunder.app.data.Chat
 import com.thunder.app.data.ChatMessage
 import com.thunder.app.data.ChatStore
+import com.thunder.app.data.CreationStore
 import com.thunder.app.data.ThunderApi
 import com.thunder.app.data.ThunderPrefs
 import com.thunder.app.data.titleFromMessage
@@ -86,11 +92,14 @@ import kotlinx.coroutines.launch
 
 data class Line(val who: String, val text: String)
 
+private enum class ThunderTab { Chat, Studio }
+
 @Composable
 fun ThunderRoot() {
     val context = LocalContext.current
     val api = remember { ThunderApi() }
     val store = remember { ChatStore(context) }
+    val creations = remember { CreationStore(context) }
     val prefs = remember { ThunderPrefs(context) }
     val scope = rememberCoroutineScope()
     val drawerState = rememberDrawerState(DrawerValue.Closed)
@@ -105,6 +114,7 @@ fun ThunderRoot() {
     var renameChat by remember { mutableStateOf<Chat?>(null) }
     var renameDraft by remember { mutableStateOf("") }
     var deleteChat by remember { mutableStateOf<Chat?>(null) }
+    var tab by remember { mutableStateOf(ThunderTab.Chat) }
     val lines = remember { mutableStateListOf<Line>() }
 
     fun refreshChats() {
@@ -137,6 +147,7 @@ fun ThunderRoot() {
         store.get(id)?.messages?.forEach { lines.add(Line(it.who, it.text)) }
         draft = ""
         waiting = false
+        tab = ThunderTab.Chat
     }
 
     fun startNewChat() {
@@ -145,6 +156,7 @@ fun ThunderRoot() {
         lines.clear()
         draft = ""
         waiting = false
+        tab = ThunderTab.Chat
     }
 
     fun leaveChat() {
@@ -175,9 +187,10 @@ fun ThunderRoot() {
         if (last >= 0) listState.animateScrollToItem(last.coerceAtLeast(0))
     }
 
-    BackHandler(enabled = drawerState.isOpen || activeId != null) {
+    BackHandler(enabled = drawerState.isOpen || tab == ThunderTab.Studio || activeId != null) {
         when {
             drawerState.isOpen -> scope.launch { drawerState.close() }
+            tab == ThunderTab.Studio -> tab = ThunderTab.Chat
             activeId != null -> leaveChat()
         }
     }
@@ -206,7 +219,7 @@ fun ThunderRoot() {
             )
         }
     ) {
-        ThunderAtmosphere(bloomY = if (activeId == null) 0.30f else 0.10f) {
+        ThunderAtmosphere(bloomY = if (tab == ThunderTab.Studio) 0.16f else if (activeId == null) 0.30f else 0.10f) {
             Column(
                 Modifier
                     .fillMaxSize()
@@ -214,7 +227,7 @@ fun ThunderRoot() {
                     .imePadding()
             ) {
                 ThunderTopBar(
-                    inChat = activeId != null,
+                    inChat = tab == ThunderTab.Chat && activeId != null,
                     chatTitle = activeId?.let { id -> chats.find { it.id == id }?.title },
                     serverBlank = server.isBlank(),
                     onMenu = { scope.launch { drawerState.open() } },
@@ -222,7 +235,14 @@ fun ThunderRoot() {
                 )
                 Hairline()
 
-                if (activeId == null) {
+                if (tab == ThunderTab.Studio) {
+                    CreativeStudio(
+                        server = server,
+                        api = api,
+                        store = creations,
+                        modifier = Modifier.weight(1f)
+                    )
+                } else if (activeId == null) {
                     ThunderHome(
                         modifier = Modifier.weight(1f),
                         hasChats = chats.isNotEmpty(),
@@ -245,6 +265,34 @@ fun ThunderRoot() {
                         waiting = waiting,
                         onDraft = { draft = it },
                         onSend = { send() }
+                    )
+                }
+
+                NavigationBar(
+                    containerColor = ThunderInk.Drawer,
+                    contentColor = ThunderInk.Ink,
+                    modifier = Modifier.navigationBarsPadding()
+                ) {
+                    val colors = NavigationBarItemDefaults.colors(
+                        selectedIconColor = ThunderInk.Gold,
+                        selectedTextColor = ThunderInk.Gold,
+                        indicatorColor = ThunderInk.Surface,
+                        unselectedIconColor = ThunderInk.Mute,
+                        unselectedTextColor = ThunderInk.Mute
+                    )
+                    NavigationBarItem(
+                        selected = tab == ThunderTab.Chat,
+                        onClick = { tab = ThunderTab.Chat },
+                        icon = { Icon(Icons.Outlined.ChatBubbleOutline, contentDescription = null) },
+                        label = { Text(stringResource(R.string.tab_chat)) },
+                        colors = colors
+                    )
+                    NavigationBarItem(
+                        selected = tab == ThunderTab.Studio,
+                        onClick = { tab = ThunderTab.Studio },
+                        icon = { Icon(Icons.Outlined.AutoAwesome, contentDescription = null) },
+                        label = { Text(stringResource(R.string.tab_studio)) },
+                        colors = colors
                     )
                 }
             }
@@ -597,7 +645,6 @@ private fun ThunderComposer(
     Row(
         Modifier
             .fillMaxWidth()
-            .navigationBarsPadding()
             .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.Bottom
     ) {

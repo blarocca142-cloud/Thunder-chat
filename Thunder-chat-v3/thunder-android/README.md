@@ -1,10 +1,10 @@
-# Thunder Android (shell)
+# Thunder Android
 
-This is the phone app. It is supposed to open and look like Thunder even if Main is offline.
+Phone app: Chat tab (saved chats drawer) and Studio tab (photo / video / history).
 
-Open this folder in Android Studio → Run on a phone or emulator → Build → Generate Signed Bundle / APK if you want an APK.
+Build the private APK with GitHub Actions (`thunder-debug-apk`). Do not publish a Release.
 
-Default server URL is empty. Chat still works in demo mode until Claude wires Main.
+Gear → Server URL = `http://MAIN-LAN-IP:8080`. Empty URL is shell mode. Chat and Studio still open.
 
 ## Claude
 

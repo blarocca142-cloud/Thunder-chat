@@ -1,0 +1,14 @@
+{
+  "name": "thunder-desktop",
+  "version": "0.7.0",
+  "private": true,
+  "description": "Thunder desktop — chat, studio, local Main control",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "pack:dir": "electron-packager . Thunder --overwrite --out dist --icon=icon.png --ignore=dist"
+  },
+  "devDependencies": {
+    "electron": "^33.2.1"
+  }
+}

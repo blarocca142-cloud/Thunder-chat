@@ -9,6 +9,18 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
+data class Creation(
+    val id: String,
+    val kind: String,
+    val prompt: String,
+    val style: String,
+    val aspect: String,
+    val duration: Int?,
+    val url: String,
+    val stub: Boolean,
+    val message: String
+)
+
 data class ThunderStatus(
     val mode: String,
     val odriss: String,
@@ -72,6 +84,114 @@ class ThunderApi(
             "Main offline. Demo: heard \"$message\"."
         }
     }
+
+    suspend fun image(server: String, prompt: String, style: String, aspect: String): Creation =
+        withContext(Dispatchers.IO) {
+            studioPost(server, "/image", JSONObject()
+                .put("prompt", prompt)
+                .put("style", style)
+                .put("aspect", aspect))
+        }
+
+    suspend fun video(server: String, prompt: String, style: String, duration: Int): Creation =
+        withContext(Dispatchers.IO) {
+            studioPost(server, "/video", JSONObject()
+                .put("prompt", prompt)
+                .put("style", style)
+                .put("duration", duration))
+        }
+
+    suspend fun creations(server: String): List<Creation> = withContext(Dispatchers.IO) {
+        if (server.isBlank()) return@withContext emptyList()
+        try {
+            val req = Request.Builder().url("${base(server)}/creations").get().build()
+            client.newCall(req).execute().use { res ->
+                val body = res.body?.string().orEmpty()
+                if (!res.isSuccessful) return@use emptyList()
+                val arr = JSONObject(body).optJSONArray("items") ?: return@use emptyList()
+                buildList {
+                    for (i in 0 until arr.length()) add(parseCreation(arr.getJSONObject(i)))
+                }
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    suspend fun fetchBytes(server: String, pathOrUrl: String): ByteArray? = withContext(Dispatchers.IO) {
+        if (server.isBlank()) return@withContext null
+        val href = if (pathOrUrl.startsWith("http")) pathOrUrl else "${base(server)}$pathOrUrl"
+        try {
+            val req = Request.Builder().url(href).get().build()
+            client.newCall(req).execute().use { res ->
+                if (!res.isSuccessful) null else res.body?.bytes()
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun studioPost(server: String, path: String, payload: JSONObject): Creation {
+        if (server.isBlank()) {
+            return Creation(
+                id = "shell_${System.currentTimeMillis()}",
+                kind = if (path.endsWith("video")) "video" else "image",
+                prompt = payload.optString("prompt"),
+                style = payload.optString("style", "Cinematic"),
+                aspect = payload.optString("aspect", "1:1"),
+                duration = payload.optInt("duration").takeIf { it > 0 },
+                url = "",
+                stub = true,
+                message = "Shell mode — point Settings at Main to hit Studio hooks."
+            )
+        }
+        return try {
+            val req = Request.Builder()
+                .url("${base(server)}$path")
+                .post(payload.toString().toRequestBody(jsonType))
+                .build()
+            client.newCall(req).execute().use { res ->
+                val body = res.body?.string().orEmpty()
+                if (!res.isSuccessful) {
+                    Creation(
+                        id = "err",
+                        kind = "image",
+                        prompt = payload.optString("prompt"),
+                        style = payload.optString("style"),
+                        aspect = payload.optString("aspect", "1:1"),
+                        duration = null,
+                        url = "",
+                        stub = true,
+                        message = "Main ${res.code}: $body"
+                    )
+                } else parseCreation(JSONObject(body))
+            }
+        } catch (e: Exception) {
+            Creation(
+                id = "err",
+                kind = "image",
+                prompt = payload.optString("prompt"),
+                style = payload.optString("style"),
+                aspect = payload.optString("aspect", "1:1"),
+                duration = null,
+                url = "",
+                stub = true,
+                message = "Studio offline. ${e.message ?: ""}"
+            )
+        }
+    }
+
+    private fun parseCreation(o: JSONObject) = Creation(
+        id = o.optString("id"),
+        kind = o.optString("kind", "image"),
+        prompt = o.optString("prompt"),
+        style = o.optString("style"),
+        aspect = o.optString("aspect", "1:1"),
+        duration = o.optInt("duration").takeIf { it > 0 },
+        url = o.optString("url"),
+        stub = o.optBoolean("stub", true),
+        message = o.optString("message")
+    )
 
     private fun demoStatus(message: String) = ThunderStatus(
         mode = "idle",
