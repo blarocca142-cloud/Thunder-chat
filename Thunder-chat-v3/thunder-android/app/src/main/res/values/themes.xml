@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Theme.Thunder" parent="android:Theme.Material.NoActionBar">
-        <item name="android:statusBarColor">#141416</item>
-        <item name="android:navigationBarColor">#141416</item>
-        <item name="android:windowBackground">#141416</item>
+        <item name="android:statusBarColor">#1E232B</item>
+        <item name="android:navigationBarColor">#16191F</item>
+        <item name="android:windowBackground">#1E232B</item>
+        <item name="android:navigationBarDividerColor">#16191F</item>
     </style>
 </resources>
