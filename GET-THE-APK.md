@@ -2,14 +2,15 @@
 
 The missing `gradle-wrapper.jar` is a binary. GitHub file tools cannot store it as text. GitHub Actions downloads it and builds the APK for you.
 
+APKs are **private Actions artifacts only**. They require a GitHub login. Do not publish GitHub Releases or public `releases/download` links.
+
 ## Get the APK
 
 1. Open https://github.com/blarocca142-cloud/Thunder-chat/actions
-2. Click **Build Thunder APK**
-3. Click **Run workflow** → **Run workflow**
-4. Wait until the green check appears
-5. Open that run → **Artifacts** → download **thunder-debug-apk**
-6. Unzip it. Install `app-debug.apk` on the phone (allow unknown sources)
+2. Open the latest **Build Thunder APK** run on this PR (or click **Run workflow**)
+3. Wait for the green check
+4. **Artifacts** → download **thunder-debug-apk** (GitHub login required)
+5. Unzip and install `app-debug.apk` over the existing app (allow unknown sources)
 
 The first run can take 5–10 minutes.
 
