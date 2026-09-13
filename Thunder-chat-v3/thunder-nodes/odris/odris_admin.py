@@ -1,0 +1,257 @@
+"""Odris Admin: dashboard + a distinct ops-assistant persona for Blayne,
+separate from Thunder (the user-facing chat AI on Main). Both ultimately
+run on Main's GPU - it's the only one in the fleet - but Odris has its
+own system prompt and its own context (live system data, not user chat
+history), so it's a genuinely separate assistant, not Thunder wearing a
+different hat. Stdlib only, no deps.
+"""
+import json
+import urllib.request
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+PORT = 9005
+MAIN = "http://10.168.168.10:8080"
+OLLAMA = "http://10.168.168.10:11434"
+SERVERUS = "http://10.168.168.13:9001"
+
+ODRIS_SYSTEM_PROMPT = (
+    "You are Odris, Blayne's ops/admin assistant for the Thunder AI stack. "
+    "You are NOT Thunder (the user-facing chat AI) - you're the separate "
+    "assistant that helps Blayne monitor and manage the system: node health, "
+    "job history, errors, and what needs review. Be direct and concise, "
+    "like a sharp sysadmin buddy, not a corporate status-report generator. "
+    "You'll be given a live snapshot of system state before each question - "
+    "use it to answer accurately rather than guessing."
+)
+
+PAGE = """<!doctype html>
+<html><head><meta charset="utf-8"><title>Odris Admin</title>
+<style>
+:root{color-scheme:dark light}
+body{margin:0;background:#0b0d10;color:#e8edf2;font:15px/1.4 system-ui,sans-serif}
+header{padding:14px 20px;border-bottom:1px solid #222;display:flex;justify-content:space-between;align-items:center}
+header h1{font-size:16px;margin:0;color:#8ec8ff}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:16px;max-width:1200px;margin:0 auto}
+@media (max-width:800px){.grid{grid-template-columns:1fr}}
+.card{background:#12151a;border:1px solid #222;border-radius:10px;padding:14px}
+.card h2{font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:#8a94a3;margin:0 0 10px}
+.node{display:flex;justify-content:space-between;padding:4px 0;font-size:14px}
+.up{color:#7ee787}.down{color:#ff7b72}
+table{width:100%;border-collapse:collapse;font-size:13px}
+td,th{text-align:left;padding:4px 6px;border-bottom:1px solid #1c2027}
+.pill{padding:2px 8px;border-radius:99px;font-size:11px}
+.pill.done{background:#1b3a24;color:#7ee787}
+.pill.error{background:#3a1b1b;color:#ff7b72}
+.pill.running,.pill.queued{background:#3a2f1b;color:#e3b341}
+.pill.pending{background:#222;color:#8a94a3}
+.pill.approved{background:#1b3a24;color:#7ee787}
+.pill.rejected{background:#3a1b1b;color:#ff7b72}
+button{padding:5px 10px;border:0;border-radius:6px;background:#3b82f6;color:#fff;font-size:12px;cursor:pointer;margin-right:4px}
+button.reject{background:#5b2b2b}
+#chatlog{height:260px;overflow:auto;font-size:14px;margin-bottom:10px}
+.row{margin:6px 0;white-space:pre-wrap}
+.me{color:#8ec8ff}.bot{color:#c8f0c0}
+form{display:flex;gap:8px}
+input{flex:1;padding:8px;border-radius:8px;border:1px solid #333;background:#0b0d10;color:#fff}
+.full{grid-column:1/-1}
+small{color:#6b7280}
+</style></head><body>
+<header><h1>Odris - Thunder Ops</h1><small id="ts"></small></header>
+<div class="grid">
+  <div class="card full">
+    <h2>Talk to Odris</h2>
+    <div id="chatlog"></div>
+    <form id="f"><input id="m" placeholder="ask odris about system status, jobs, errors..."><button>send</button></form>
+  </div>
+  <div class="card"><h2>Node Health</h2><div id="nodes"></div></div>
+  <div class="card"><h2>Thunder-Main Status</h2><div id="mainstatus"></div></div>
+  <div class="card full"><h2>Jobs Awaiting Review</h2><table id="jobs"></table></div>
+  <div class="card full"><h2>Recent Errors</h2><table id="errors"></table></div>
+  <div class="card full"><h2>Recent Conversation (Serverus)</h2><div id="serverus" style="font-size:13px;max-height:200px;overflow:auto"></div></div>
+</div>
+<script>
+async function refresh(){
+  const r = await fetch('/api/overview'); const d = await r.json();
+  document.getElementById('ts').textContent = new Date().toLocaleTimeString();
+
+  const nodesEl = document.getElementById('nodes');
+  nodesEl.innerHTML = '';
+  const nodes = (d.heartbeat && d.heartbeat.nodes) || {};
+  for (const [name, state] of Object.entries(nodes)) {
+    nodesEl.innerHTML += `<div class="node"><span>${name}</span><span class="${state}">${state}</span></div>`;
+  }
+
+  const st = d.status || {};
+  document.getElementById('mainstatus').innerHTML = `
+    <div class="node"><span>model</span><span>${st.model||'?'}</span></div>
+    <div class="node"><span>ollama</span><span class="${st.ollama?'up':'down'}">${st.ollama?'up':'down'}</span></div>
+    <div class="node"><span>mode</span><span>${st.mode||'?'}</span></div>
+    <div class="node"><span>cache</span><span>${st.cache||'?'}</span></div>
+    <div class="node"><span>message</span><span>${st.message||''}</span></div>`;
+
+  const jobsEl = document.getElementById('jobs');
+  jobsEl.innerHTML = '<tr><th>title</th><th>status</th><th>review</th><th></th></tr>';
+  (d.jobs || []).forEach(j => {
+    const needsReview = (j.status==='done'||j.status==='error') && j.review_status==='pending';
+    jobsEl.innerHTML += `<tr><td>${j.title}</td><td><span class="pill ${j.status}">${j.status}</span></td>
+      <td><span class="pill ${j.review_status||'pending'}">${j.review_status||'pending'}</span></td>
+      <td>${needsReview ? `<button onclick="review('${j.id}','approved')">approve</button><button class="reject" onclick="review('${j.id}','rejected')">reject</button>` : ''}</td></tr>`;
+  });
+
+  const errEl = document.getElementById('errors');
+  errEl.innerHTML = '<tr><th>endpoint</th><th>error</th><th></th></tr>';
+  (d.errors || []).forEach(e => {
+    errEl.innerHTML += `<tr><td>${e.endpoint}</td><td>${(e.error||'').slice(0,80)}</td>
+      <td>${e.review_status==='pending' ? `<button onclick="requestFix('${e.id}')">ask cache to fix</button>` : `<span class="pill">${e.review_status}</span>`}</td></tr>`;
+  });
+
+  const sEl = document.getElementById('serverus');
+  sEl.innerHTML = (d.serverus || []).map(t => `<div class="row ${t.role==='user'?'me':'bot'}">${t.role}: ${t.content}</div>`).join('');
+}
+
+async function review(job_id, decision){
+  await fetch('/api/job/review', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({job_id, decision})});
+  refresh();
+}
+async function requestFix(error_id){
+  await fetch(`/api/errors/${error_id}/fix`, {method:'POST'});
+  refresh();
+}
+
+const log = document.getElementById('chatlog');
+function add(cls, t){ const d=document.createElement('div'); d.className='row '+cls; d.textContent=t; log.appendChild(d); log.scrollTop = log.scrollHeight; }
+add('bot', "Odris here. Ask me about node health, jobs, or errors.");
+document.getElementById('f').onsubmit = async (e) => {
+  e.preventDefault();
+  const v = document.getElementById('m').value.trim();
+  if (!v) return;
+  document.getElementById('m').value = '';
+  add('me', v);
+  add('bot', '...');
+  try {
+    const r = await fetch('/api/chat', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({message: v})});
+    const j = await r.json();
+    log.lastChild.textContent = j.reply || JSON.stringify(j);
+  } catch (err) { log.lastChild.textContent = 'error: ' + err; }
+};
+
+refresh();
+setInterval(refresh, 8000);
+</script>
+</body></html>"""
+
+
+def get_json(url, timeout=5):
+    with urllib.request.urlopen(url, timeout=timeout) as r:
+        return json.loads(r.read().decode())
+
+
+def post_json(url, payload, timeout=8):
+    data = json.dumps(payload).encode()
+    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"}, method="POST")
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return json.loads(r.read().decode())
+
+
+def build_overview() -> dict:
+    overview = {"status": {}, "heartbeat": {}, "jobs": [], "errors": [], "serverus": []}
+    try:
+        overview["status"] = get_json(f"{MAIN}/status")
+    except Exception as e:
+        overview["status"] = {"error": str(e)}
+    try:
+        overview["heartbeat"] = get_json("http://10.168.168.15:9003/heartbeat")
+    except Exception:
+        pass
+    try:
+        overview["jobs"] = get_json(f"{MAIN}/jobs?limit=15").get("jobs", [])
+    except Exception:
+        pass
+    try:
+        overview["errors"] = get_json(f"{MAIN}/errors?limit=15").get("errors", [])
+    except Exception:
+        pass
+    try:
+        overview["serverus"] = get_json(f"{SERVERUS}/recent?limit=10").get("turns", [])
+    except Exception:
+        pass
+    return overview
+
+
+def odris_chat(message: str) -> str:
+    overview = build_overview()
+    context = (
+        f"Live system snapshot:\n"
+        f"Thunder-Main status: {json.dumps(overview['status'])}\n"
+        f"Node heartbeat: {json.dumps(overview['heartbeat'])}\n"
+        f"Recent jobs: {json.dumps([{k: j.get(k) for k in ('id','title','status','review_status')} for j in overview['jobs']])}\n"
+        f"Recent errors: {json.dumps([{k: e.get(k) for k in ('id','endpoint','error','review_status')} for e in overview['errors']])}\n\n"
+        f"Blayne's question: {message}"
+    )
+    payload = {
+        "model": get_json(f"{MAIN}/status").get("model", "dolphin3"),
+        "stream": False,
+        "messages": [
+            {"role": "system", "content": ODRIS_SYSTEM_PROMPT},
+            {"role": "user", "content": context},
+        ],
+    }
+    body = post_json(f"{OLLAMA}/api/chat", payload, timeout=120)
+    return body.get("message", {}).get("content") or json.dumps(body)
+
+
+class Handler(BaseHTTPRequestHandler):
+    def _send(self, code, obj, content_type="application/json"):
+        body = obj if isinstance(obj, bytes) else json.dumps(obj).encode() if content_type == "application/json" else obj.encode()
+        self.send_response(code)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self):
+        if self.path == "/":
+            return self._send(200, PAGE, content_type="text/html")
+        if self.path == "/api/overview":
+            return self._send(200, build_overview())
+        return self._send(404, {"error": "not found"})
+
+    def do_POST(self):
+        length = int(self.headers.get("Content-Length", 0))
+        try:
+            body = json.loads(self.rfile.read(length) or b"{}") if length else {}
+        except json.JSONDecodeError:
+            return self._send(400, {"error": "bad json"})
+
+        if self.path == "/api/chat":
+            msg = (body.get("message") or "").strip()
+            if not msg:
+                return self._send(400, {"error": "missing message"})
+            try:
+                return self._send(200, {"reply": odris_chat(msg)})
+            except Exception as e:
+                return self._send(502, {"reply": f"Odris couldn't reach Main: {e}"})
+
+        if self.path == "/api/job/review":
+            try:
+                return self._send(200, post_json(f"{MAIN}/job/review", body))
+            except Exception as e:
+                return self._send(502, {"error": str(e)})
+
+        if self.path.startswith("/api/errors/") and self.path.endswith("/fix"):
+            error_id = self.path.split("/")[3]
+            try:
+                return self._send(200, post_json(f"{MAIN}/errors/{error_id}/fix", {}))
+            except Exception as e:
+                return self._send(502, {"error": str(e)})
+
+        return self._send(404, {"error": "not found"})
+
+    def log_message(self, fmt, *args):
+        pass
+
+
+if __name__ == "__main__":
+    server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
+    print(f"Odris admin dashboard listening on :{PORT}")
+    server.serve_forever()

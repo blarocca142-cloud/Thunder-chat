@@ -3,14 +3,15 @@ from __future__ import annotations
 
 import json
 import os
+import traceback
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
 OLLAMA = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
@@ -38,6 +39,8 @@ DATA = Path(os.environ.get("THUNDER_DATA", "./thunder-data"))
 DATA.mkdir(exist_ok=True)
 JOBS = DATA / "jobs"
 JOBS.mkdir(exist_ok=True)
+ERRORS = DATA / "errors"
+ERRORS.mkdir(exist_ok=True)
 STATUS = DATA / "status.json"
 CANCEL = DATA / "cancel.json"
 
@@ -99,6 +102,26 @@ class CancelIn(BaseModel):
 
 def utc_ts() -> int:
     return int(datetime.now(timezone.utc).timestamp())
+
+
+def record_error(endpoint: str, exc: Exception) -> str:
+    err_id = "err_" + datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    rec = {
+        "id": err_id,
+        "endpoint": endpoint,
+        "error": str(exc),
+        "traceback": traceback.format_exc(),
+        "ts": utc_ts(),
+        "review_status": "pending",
+    }
+    (ERRORS / f"{err_id}.json").write_text(json.dumps(rec, indent=2))
+    return err_id
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    record_error(str(request.url.path), exc)
+    return JSONResponse(status_code=500, content={"error": "internal error, logged for review"})
 
 
 def ollama_up() -> bool:
@@ -345,29 +368,57 @@ def chat(body: ChatIn):
             write_status(mode="code", message="chat ok")
             return {"reply": reply}
         except urllib.error.URLError as e:
+            record_error("/chat", e)
             return {"reply": f"Ollama dropped: {e}"}
         except Exception as e:
+            record_error("/chat", e)
             return {"reply": f"Ollama error: {e}"}
     return {"reply": f"Main heard you: {msg!r}. Ollama is not up."}
 
 
+def create_job(title: str, prompt: str) -> dict:
+    job_id = "job_" + datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    rec = {"id": job_id, "title": title, "prompt": prompt, "status": "queued", "created": utc_ts(), "review_status": "pending"}
+    (JOBS / f"{job_id}.json").write_text(json.dumps(rec, indent=2))
+    write_status(mode="code", cache="queued", job_id=job_id, job_title=title, progress="queued", message=f"Queued {job_id}.")
+    return rec
+
+
 @app.post("/job")
 def queue_job(body: JobIn):
-    title = body.title or "overnight coding"
-    prompt = body.prompt or body.task or ""
-    job_id = "job_" + datetime.now().strftime("%Y%m%d_%H%M%S")
-    rec = {"id": job_id, "title": title, "prompt": prompt, "status": "queued", "created": utc_ts()}
-    (JOBS / f"{job_id}.json").write_text(json.dumps(rec, indent=2))
-    st = write_status(
-        mode="code",
-        cache="queued",
-        job_id=job_id,
-        job_title=title,
-        progress="queued",
-        message=f"Queued {job_id}.",
-    )
-    st.update({"job_id": job_id, "status": "queued", "id": job_id, "queued": True})
+    rec = create_job(body.title or "overnight coding", body.prompt or body.task or "")
+    st = read_status()
+    st.update({"job_id": rec["id"], "status": "queued", "id": rec["id"], "queued": True})
     return st
+
+
+@app.get("/jobs")
+def list_jobs(limit: int = 50):
+    files = sorted(JOBS.glob("job_*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+    out = []
+    for path in files[:limit]:
+        try:
+            out.append(json.loads(path.read_text()))
+        except json.JSONDecodeError:
+            continue
+    return {"jobs": out}
+
+
+class ReviewIn(BaseModel):
+    job_id: str
+    decision: str  # "approved" or "rejected"
+
+
+@app.post("/job/review")
+def review_job(body: ReviewIn):
+    path = JOBS / f"{body.job_id}.json"
+    if not path.exists():
+        return {"ok": False, "error": "unknown job_id"}
+    rec = json.loads(path.read_text())
+    rec["review_status"] = body.decision
+    rec["reviewed"] = utc_ts()
+    path.write_text(json.dumps(rec, indent=2))
+    return {"ok": True, "job": rec}
 
 
 @app.post("/job/cancel")
@@ -427,3 +478,37 @@ def job_result(body: JobResultIn):
     path.write_text(json.dumps(rec, indent=2))
     write_status(mode="idle", cache="idle", job_id=None, job_title=None, progress=body.status, message=f"{body.job_id} {body.status}.")
     return {"ok": True}
+
+
+@app.get("/errors")
+def list_errors(limit: int = 50):
+    files = sorted(ERRORS.glob("err_*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+    out = []
+    for path in files[:limit]:
+        try:
+            out.append(json.loads(path.read_text()))
+        except json.JSONDecodeError:
+            continue
+    return {"errors": out}
+
+
+@app.post("/errors/{error_id}/fix")
+def request_fix(error_id: str):
+    """Admin-triggered: queue a Cache job asking the model to propose a fix
+    for this error. The fix lands in the job's output for review - nothing
+    here ever auto-applies a change to live code."""
+    path = ERRORS / f"{error_id}.json"
+    if not path.exists():
+        return {"ok": False, "error": "unknown error_id"}
+    err = json.loads(path.read_text())
+    prompt = (
+        f"Thunder-Main hit an unhandled error on endpoint {err['endpoint']}.\n\n"
+        f"Error: {err['error']}\n\nTraceback:\n{err['traceback']}\n\n"
+        f"Look at thunder-main-api/app.py and propose a fix. Explain the bug "
+        f"briefly, then give the corrected code."
+    )
+    job = create_job(f"Fix for {error_id}", prompt)
+    err["review_status"] = "fix_requested"
+    err["fix_job_id"] = job["id"]
+    path.write_text(json.dumps(err, indent=2))
+    return {"ok": True, "job": job}
