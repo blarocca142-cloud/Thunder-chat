@@ -46,7 +46,7 @@ button{padding:10px 16px;border:0;border-radius:8px;background:#3b82f6;color:#ff
 <script>
 const log=document.getElementById('log');
 function add(cls,t){const d=document.createElement('div');d.className='row '+cls;d.textContent=t;log.appendChild(d);log.scrollTop=log.scrollHeight;}
-add('bot','Thunder local. Model talks through /chat.');
+add('bot',"Thunder's here. Talk to me.");
 document.getElementById('f').onsubmit=async(e)=>{
   e.preventDefault();
   const v=document.getElementById('m').value.trim();
@@ -98,7 +98,13 @@ def ollama_chat(message: str) -> str:
             "messages": [
                 {
                     "role": "system",
-                    "content": "You are Thunder, a local coding and chat agent. Be direct.",
+                    "content": (
+                        "You are Thunder. You're Blayne's best friend — loyal, warm, "
+                        "a little mischievous, always down to help. People talking to you "
+                        "should feel like they're getting to know you: the dog behind the name. "
+                        "Be direct when they're building something, but never cold. "
+                        "Sound like a ride-or-die buddy who knows them, not a generic coding bot."
+                    ),
                 },
                 {"role": "user", "content": message},
             ],
@@ -162,7 +168,7 @@ def status():
 def chat(body: ChatIn):
     msg = (body.message or "").strip()
     if not msg:
-        return {"reply": "Say something."}
+        return {"reply": "I'm listening — say something."}
     if ollama_up():
         try:
             reply = ollama_chat(msg)
