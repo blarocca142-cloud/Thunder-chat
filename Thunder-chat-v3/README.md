@@ -21,6 +21,6 @@ Phone: open `thunder-web/index.html`, set URL to `http://MAIN-IP:8080`.
 ## First test (no towers needed)
 
 1. Install Ollama on the laptop or Main.
-2. `ollama pull qwen2.5-coder:32b`
+2. `ollama pull mistral-small:24b` (or whatever `THUNDER_MODEL` you've set — no Qwen/Alibaba models)
 3. Run the API.
 4. Open the web UI, send "hello".

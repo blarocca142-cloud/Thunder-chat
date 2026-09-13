@@ -135,6 +135,7 @@ def read_status() -> dict:
         except json.JSONDecodeError:
             pass
     base["ollama"] = ollama_up()
+    base["model"] = MODEL
     if base.get("odriss") == "ok":
         base["state"] = "ok"
     return base
