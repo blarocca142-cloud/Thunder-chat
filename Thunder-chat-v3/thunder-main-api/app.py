@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import ast
+import base64
 import json
 import os
 import re
@@ -29,6 +30,7 @@ SERVERUS = os.environ.get("SERVERUS_URL", "http://10.168.168.13:9001")
 ENGINE = os.environ.get("ENGINE_URL", "http://10.168.168.12:9002")
 ODRIS = os.environ.get("ODRIS_URL", "http://10.168.168.15:9003")
 WEBSEARCH = os.environ.get("WEBSEARCH_URL", "http://10.168.168.15:9004")
+GENAI = os.environ.get("GENAI_URL", "http://127.0.0.1:9010")
 
 # The model itself never gets internet access (see net-lockdown/) - only Odris
 # does, and only for this one job. An explicit prefix always triggers a
@@ -911,6 +913,63 @@ def make_video(body: VideoIn):
 
     log_event("video", f"{item['id']} video_status={item.get('video_status')} {duration}s")
     write_status(mode="studio", message=f"video {item['id']}")
+    return item
+
+
+class EditIn(BaseModel):
+    source_id: str
+    instruction: str
+
+
+def _edit_worker(cid: str, source_path: Path, instruction: str) -> None:
+    """Real edits measured at ~19 minutes (28 steps, FLUX Kontext) - always
+    a background thread, never a live request, same reasoning as video."""
+    try:
+        image_b64 = base64.b64encode(source_path.read_bytes()).decode()
+        payload = json.dumps({"image_b64": image_b64, "instruction": instruction}).encode()
+        req = urllib.request.Request(
+            f"{GENAI}/edit", data=payload,
+            headers={"Content-Type": "application/json"}, method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=1800) as r:
+            png_bytes = r.read()
+        name = f"{cid}.png"
+        (CREATIONS / name).write_bytes(png_bytes)
+        creative.update_creation(
+            CREATIONS, cid, url=f"/media/{name}",
+            edit_status="done", stub=False, message="Edit ready.",
+        )
+    except Exception as e:
+        record_error("/edit (background)", e)
+        creative.update_creation(CREATIONS, cid, edit_status="error", message=f"Edit failed: {e}")
+
+
+@app.post("/edit")
+def make_edit(body: EditIn):
+    """New endpoint - not part of creative.py's hook system since editing
+    needs a source image, unlike generate/video. Treated as kind='image':
+    a new creation record, linked back via source_id, poster is the
+    original image until the real edit lands."""
+    source = creative.get_creation(CREATIONS, body.source_id)
+    if not source:
+        raise HTTPException(404, "source creation not found")
+    instruction = (body.instruction or "").strip()
+    if not instruction:
+        raise HTTPException(400, "instruction required")
+    source_path = CREATIONS / Path(source["url"]).name
+    if not source_path.exists():
+        raise HTTPException(404, "source image file not found")
+
+    item = creative.record(
+        creations_dir=CREATIONS, kind="image", prompt=instruction,
+        style=source.get("style", "Cinematic"), aspect=source.get("aspect", "1:1"),
+        png=source_path.read_bytes(), stub=True,
+        message="Editing your image - this can take up to 20 minutes.",
+        extra={"edit_status": "processing", "source_id": body.source_id},
+    )
+    threading.Thread(target=_edit_worker, args=(item["id"], source_path, instruction), daemon=True).start()
+    log_event("edit", f"{item['id']} source={body.source_id}")
+    write_status(mode="studio", message=f"edit {item['id']}")
     return item
 
 
