@@ -14,6 +14,18 @@ android {
         versionCode = 2
         versionName = "0.2.0"
     }
+    signingConfigs {
+        getByName("debug") {
+            // Committed so every build (CI or local) signs with the same
+            // certificate. Without this, each CI run generates a fresh
+            // random debug key, and Android refuses to install an update
+            // over a differently-signed app - forcing an uninstall first.
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
     buildTypes {
         release {
             isMinifyEnabled = false
