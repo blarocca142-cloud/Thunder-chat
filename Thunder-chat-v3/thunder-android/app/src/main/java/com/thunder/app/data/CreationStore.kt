@@ -44,6 +44,8 @@ class CreationStore(context: Context) {
                             aspect = o.optString("aspect", "1:1"),
                             duration = o.optInt("duration").takeIf { it > 0 },
                             url = o.optString("url"),
+                            videoUrl = o.optString("video_url").ifBlank { null },
+                            videoStatus = o.optString("video_status").ifBlank { null },
                             stub = o.optBoolean("stub", true),
                             message = o.optString("message")
                         )
@@ -67,6 +69,8 @@ class CreationStore(context: Context) {
                     .put("aspect", item.aspect)
                     .put("duration", item.duration)
                     .put("url", item.url)
+                    .put("video_url", item.videoUrl ?: JSONObject.NULL)
+                    .put("video_status", item.videoStatus ?: JSONObject.NULL)
                     .put("stub", item.stub)
                     .put("message", item.message)
             )
