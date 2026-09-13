@@ -11,8 +11,8 @@ android {
         applicationId = "com.thunder.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 22
+        versionName = "0.8.0"
     }
     buildTypes {
         release {

@@ -13,10 +13,14 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from collections import deque
+
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel
+
+import creative
 
 OLLAMA = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
 MODEL = os.environ.get("THUNDER_MODEL", "dolphin3")  # never default to a Qwen/Alibaba model
@@ -45,6 +49,10 @@ JOBS = DATA / "jobs"
 JOBS.mkdir(exist_ok=True)
 ERRORS = DATA / "errors"
 ERRORS.mkdir(exist_ok=True)
+CREATIONS = DATA / "creations"
+CREATIONS.mkdir(exist_ok=True)
+WEB = Path(__file__).resolve().parent.parent / "thunder-web"
+LOGS: deque[dict] = deque(maxlen=200)
 STATUS = DATA / "status.json"
 CANCEL = DATA / "cancel.json"
 MAINTENANCE = DATA / "maintenance.json"
@@ -121,7 +129,25 @@ document.getElementById('f').onsubmit=async(e)=>{
 
 
 class ChatIn(BaseModel):
-    message: str
+    message: str = ""
+    messages: list[dict] | None = None
+
+
+class ImageIn(BaseModel):
+    prompt: str
+    style: str = "Cinematic"
+    aspect: str = "1:1"
+
+
+class VideoIn(BaseModel):
+    prompt: str
+    style: str = "Cinematic"
+    duration: int = 8
+
+
+class ModelIn(BaseModel):
+    model: str = ""
+    name: str = ""
 
 
 class JobIn(BaseModel):
@@ -137,6 +163,10 @@ class CancelIn(BaseModel):
 
 def utc_ts() -> int:
     return int(datetime.now(timezone.utc).timestamp())
+
+
+def log_event(kind: str, message: str) -> None:
+    LOGS.appendleft({"at": utc_ts(), "kind": kind, "message": message})
 
 
 def record_error(endpoint: str, exc: Exception) -> str:
@@ -332,13 +362,38 @@ def odris_heartbeat() -> dict | None:
         return None
 
 
-def ollama_chat(message: str, memory_message: str | None = None) -> str:
+def ollama_tags() -> list[dict]:
+    try:
+        with urllib.request.urlopen(f"{OLLAMA}/api/tags", timeout=4) as r:
+            body = json.loads(r.read().decode())
+        return [
+            {"name": m.get("name", ""), "size": m.get("size"), "digest": m.get("digest")}
+            for m in body.get("models", [])
+            if m.get("name")
+        ]
+    except Exception:
+        return []
+
+
+def ollama_chat(message: str, memory_message: str | None = None, extra_history: list[dict] | None = None) -> str:
     """memory_message is what gets stored in Serverus - defaults to `message`,
     but callers that inject search-result blobs into `message` should pass
     the original, clean user text instead so history doesn't fill up with
     search dumps."""
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     messages.extend(serverus_recent(10))
+    if extra_history:
+        for item in extra_history:
+            role = item.get("role") or item.get("who")
+            content = item.get("content") or item.get("text") or ""
+            if role in ("you", "user"):
+                role = "user"
+            elif role in ("thunder", "assistant", "bot"):
+                role = "assistant"
+            else:
+                continue
+            if content:
+                messages.append({"role": role, "content": content})
     messages.append({"role": "user", "content": message})
     payload = json.dumps({"model": MODEL, "stream": False, "messages": messages}).encode()
     req = urllib.request.Request(
@@ -386,6 +441,9 @@ def read_status() -> dict:
     base["maintenance"] = get_maintenance()
     if base["maintenance"]["active"]:
         base["state"] = "maintenance"
+    base["app_version"] = "0.8.0"
+    base["image_hook"] = bool(creative.IMAGE_HOOK)
+    base["video_hook"] = bool(creative.VIDEO_HOOK)
     return base
 
 
@@ -399,7 +457,56 @@ def write_status(**extra) -> dict:
 
 @app.get("/", response_class=HTMLResponse)
 def home():
-    return PAGE
+    index = WEB / "index.html"
+    if index.exists():
+        return FileResponse(index)
+    return HTMLResponse(PAGE)
+
+
+@app.get("/app.js")
+def app_js():
+    path = WEB / "app.js"
+    if not path.is_file():
+        raise HTTPException(404, "missing app.js")
+    return FileResponse(path, media_type="text/javascript")
+
+
+@app.get("/styles.css")
+def app_css():
+    path = WEB / "styles.css"
+    if not path.is_file():
+        raise HTTPException(404, "missing styles.css")
+    return FileResponse(path, media_type="text/css")
+
+
+@app.get("/icon.png")
+def app_icon():
+    path = WEB / "icon.png"
+    if not path.is_file():
+        raise HTTPException(404, "missing icon.png")
+    return FileResponse(path, media_type="image/png")
+
+
+@app.get("/logs")
+def logs():
+    return {"lines": list(LOGS)}
+
+
+@app.get("/models")
+def models():
+    return {"current": MODEL, "ollama": ollama_up(), "models": ollama_tags()}
+
+
+@app.post("/model")
+def set_model(body: ModelIn):
+    global MODEL
+    name = (body.model or body.name or "").strip()
+    if not name:
+        raise HTTPException(400, "model required")
+    MODEL = name
+    log_event("model", f"model set to {MODEL}")
+    write_status(model=MODEL, message=f"Model {MODEL}")
+    return {"current": MODEL, "models": ollama_tags()}
 
 
 @app.get("/status")
@@ -423,8 +530,13 @@ def chat(body: ChatIn):
         return {"reply": verdict.get("reason") or "Blocked by Thunder-Engine."}
     if ollama_up():
         try:
-            reply = ollama_chat(maybe_augment_with_search(msg), memory_message=msg)
+            reply = ollama_chat(
+                maybe_augment_with_search(msg),
+                memory_message=msg,
+                extra_history=body.messages,
+            )
             write_status(mode="code", message="chat ok")
+            log_event("chat", f"ok ({len(msg)} chars)")
             return {"reply": reply}
         except urllib.error.URLError as e:
             record_error("/chat", e)
@@ -684,3 +796,123 @@ def stop_maintenance():
 @app.get("/maintenance")
 def maintenance_status():
     return get_maintenance()
+
+
+@app.post("/image")
+def make_image(body: ImageIn):
+    prompt = (body.prompt or "").strip()
+    if not prompt:
+        raise HTTPException(400, "prompt required")
+    style = body.style or "Cinematic"
+    aspect = body.aspect if body.aspect in creative.ASPECTS else "1:1"
+    stub = True
+    extra = {}
+    if creative.IMAGE_HOOK:
+        try:
+            hooked = creative.forward_hook(
+                creative.IMAGE_HOOK,
+                {"prompt": prompt, "style": style, "aspect": aspect},
+            )
+            if hooked.get("bytes"):
+                png = hooked["bytes"]
+                stub = False
+            elif hooked.get("image_b64"):
+                import base64
+
+                png = base64.b64decode(hooked["image_b64"])
+                stub = False
+            else:
+                png = creative.render_stub_png(prompt, style, aspect, "image")
+                extra["hook"] = hooked
+            message = hooked.get("message") or (
+                "Image hook returned a still." if not stub else "Hook did not return image bytes; stub used."
+            )
+        except Exception as e:
+            png = creative.render_stub_png(prompt, style, aspect, "image")
+            message = f"Image hook failed ({e}); stub still saved."
+            extra["hook_error"] = str(e)
+    else:
+        png = creative.render_stub_png(prompt, style, aspect, "image")
+        message = "Studio stub. Point THUNDER_IMAGE_URL at a generator when you have one."
+    item = creative.record(
+        creations_dir=CREATIONS,
+        kind="image",
+        prompt=prompt,
+        style=style,
+        aspect=aspect,
+        png=png,
+        stub=stub,
+        message=message,
+        extra=extra,
+    )
+    log_event("image", f"{item['id']} stub={stub}")
+    write_status(mode="studio", message=f"image {item['id']}")
+    return item
+
+
+@app.post("/video")
+def make_video(body: VideoIn):
+    prompt = (body.prompt or "").strip()
+    if not prompt:
+        raise HTTPException(400, "prompt required")
+    style = body.style or "Cinematic"
+    duration = max(3, min(int(body.duration or 8), 30))
+    stub = True
+    extra = {"duration": duration, "video_url": None}
+    if creative.VIDEO_HOOK:
+        try:
+            hooked = creative.forward_hook(
+                creative.VIDEO_HOOK,
+                {"prompt": prompt, "style": style, "duration": duration},
+            )
+            extra["hook"] = {k: hooked[k] for k in hooked if k != "bytes"}
+            if hooked.get("video_url"):
+                extra["video_url"] = hooked["video_url"]
+                stub = False
+            message = hooked.get("message") or "Video hook accepted the job."
+        except Exception as e:
+            message = f"Video hook failed ({e}); poster stub saved."
+            extra["hook_error"] = str(e)
+        png = creative.render_stub_png(prompt, style, "16:9", "video")
+    else:
+        png = creative.render_stub_png(prompt, style, "16:9", "video")
+        message = (
+            f"Motion stub ({duration}s). Set THUNDER_VIDEO_URL to plug a renderer. "
+            "The poster is in history until that hook exists."
+        )
+    item = creative.record(
+        creations_dir=CREATIONS,
+        kind="video",
+        prompt=prompt,
+        style=style,
+        aspect="16:9",
+        duration=duration,
+        png=png,
+        stub=stub,
+        message=message,
+        extra=extra,
+    )
+    log_event("video", f"{item['id']} stub={stub} {duration}s")
+    write_status(mode="studio", message=f"video {item['id']}")
+    return item
+
+
+@app.get("/creations")
+def creations():
+    return {"items": creative.list_creations(CREATIONS)}
+
+
+@app.get("/creations/{cid}")
+def one_creation(cid: str):
+    item = creative.get_creation(CREATIONS, cid)
+    if not item:
+        raise HTTPException(404, "not found")
+    return item
+
+
+@app.get("/media/{name}")
+def media(name: str):
+    path = (CREATIONS / name).resolve()
+    if not str(path).startswith(str(CREATIONS.resolve())) or not path.is_file():
+        raise HTTPException(404, "not found")
+    return FileResponse(path)

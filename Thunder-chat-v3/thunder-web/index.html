@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Thunder</title>
+  <link rel="icon" href="icon.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app" id="app">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <img src="icon.png" alt="Thunder">
+        <h1>Thunder <span>AI</span></h1>
+      </div>
+      <div class="side-block">
+        <button class="btn gold wide" id="newChat">Start a new chat</button>
+      </div>
+      <div class="side-block">
+        <div class="side-label">Main URL</div>
+        <input class="field" id="server" placeholder="http://127.0.0.1:8080" spellcheck="false">
+      </div>
+      <div class="side-label" style="padding-left:18px">Chats</div>
+      <div class="chat-list" id="chatList"></div>
+    </aside>
+
+    <section class="main">
+      <div class="maint hidden" id="maintBar"></div>
+      <header class="top">
+        <button class="icon-btn menu" id="menu" aria-label="Chats">☰</button>
+        <nav class="tabs">
+          <button class="tab on" data-tab="chat" id="tabChat">Chat</button>
+          <button class="tab" data-tab="studio" id="tabStudio">Studio</button>
+        </nav>
+        <div class="grow"></div>
+        <div class="pill" id="statusPill">local</div>
+      </header>
+
+      <div class="stage">
+        <div class="chat-stage" id="chatStage">
+          <div class="thread" id="thread"></div>
+          <div class="composer-wrap">
+            <div class="composer" id="composer">
+              <textarea class="field" id="draft" placeholder="Ask Thunder" rows="2"></textarea>
+              <button class="send" id="send" title="Send">➤</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="studio hidden" id="studioStage">
+          <div class="studio-form">
+            <div class="tabs" style="margin-bottom:16px">
+              <button class="tab on" data-studio="photo">Photo</button>
+              <button class="tab" data-studio="video">Video</button>
+              <button class="tab" data-studio="history">History</button>
+            </div>
+            <div id="photoForm">
+              <h3>Still</h3>
+              <p class="hint">Adult studio. Prompt it like you mean it. Hooks plug in on Main.</p>
+              <textarea class="field" id="studioPrompt" rows="5" placeholder="A quiet garage at 2 a.m., one work light, steel and dust…"></textarea>
+              <div class="side-label">Style</div>
+              <div class="chips">
+                <button class="chip on" data-style="Cinematic">Cinematic</button>
+                <button class="chip" data-style="Noir">Noir</button>
+                <button class="chip" data-style="Gold hour">Gold hour</button>
+                <button class="chip" data-style="Raw">Raw</button>
+                <button class="chip" data-style="Documentary">Documentary</button>
+                <button class="chip" data-style="Ink">Ink</button>
+              </div>
+              <div class="side-label">Frame</div>
+              <div class="chips">
+                <button class="chip on" data-aspect="1:1">1:1</button>
+                <button class="chip" data-aspect="16:9">16:9</button>
+                <button class="chip" data-aspect="9:16">9:16</button>
+                <button class="chip" data-aspect="4:3">4:3</button>
+              </div>
+              <button class="btn gold wide" id="makePhoto">Generate still</button>
+            </div>
+            <div id="videoForm" class="hidden">
+              <h3>Motion</h3>
+              <p class="hint">Duration is a placeholder until a video worker is on the hook.</p>
+              <textarea class="field" id="videoPrompt" rows="5" placeholder="Slow push on a workbench. One spark. Hold."></textarea>
+              <div class="side-label">Length</div>
+              <div class="chips">
+                <button class="chip" data-dur="5">5s</button>
+                <button class="chip on" data-dur="8">8s</button>
+                <button class="chip" data-dur="15">15s</button>
+              </div>
+              <button class="btn gold wide" id="makeVideo">Generate motion</button>
+            </div>
+          </div>
+          <div class="studio-canvas" id="studioCanvas"></div>
+        </div>
+      </div>
+    </section>
+
+    <aside class="power" id="power">
+      <h3>Model</h3>
+      <div class="pad">
+        <select class="select" id="model"><option>loading…</option></select>
+      </div>
+      <h3>Files</h3>
+      <div class="pad row">
+        <button class="btn" id="pickFiles">Drop / review file</button>
+        <button class="btn ghost" id="newWindow">New window</button>
+      </div>
+      <div class="pad">
+        <button class="btn ghost wide" id="exportFolder">Export studio folder</button>
+        <input id="fileInput" type="file" multiple hidden>
+      </div>
+      <h3>Overnight job</h3>
+      <div class="pad">
+        <input class="field" id="jobTitle" placeholder="title" style="margin-bottom:8px">
+        <textarea class="field" id="jobPrompt" rows="3" placeholder="prompt for Cache later"></textarea>
+        <div class="row" style="margin-top:8px">
+          <button class="btn gold" id="queueJob">Queue</button>
+          <button class="btn ghost" id="cancelJob">Cancel</button>
+        </div>
+      </div>
+      <h3>Logs</h3>
+      <div class="logbox" id="logs">No events yet.</div>
+    </aside>
+  </div>
+  <div class="viewer hidden" id="viewer"></div>
+  <div class="toast hidden" id="toast"></div>
+  <script src="app.js"></script>
+</body>
+</html>
