@@ -11,7 +11,14 @@ class ThunderPrefs(context: Context) {
             prefs.edit().putString(KEY_SERVER, value.trim()).apply()
         }
 
+    var darkMode: Boolean
+        get() = prefs.getBoolean(KEY_DARK, false)
+        set(value) {
+            prefs.edit().putBoolean(KEY_DARK, value).apply()
+        }
+
     companion object {
         private const val KEY_SERVER = "server_url"
+        private const val KEY_DARK = "dark_mode"
     }
 }

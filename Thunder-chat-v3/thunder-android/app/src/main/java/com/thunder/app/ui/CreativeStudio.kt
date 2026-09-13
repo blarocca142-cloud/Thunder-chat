@@ -213,7 +213,7 @@ fun CreativeStudio(
                         if (busy) stringResource(R.string.studio_working)
                         else if (pane == StudioPane.Photo) stringResource(R.string.studio_make_photo)
                         else stringResource(R.string.studio_make_video),
-                        color = if (prompt.isNotBlank() && !busy) ThunderInk.SlateDeep else ThunderInk.Mute,
+                        color = if (prompt.isNotBlank() && !busy) ThunderInk.OnGold else ThunderInk.Mute,
                         fontWeight = FontWeight.Medium,
                         letterSpacing = 0.3.sp
                     )

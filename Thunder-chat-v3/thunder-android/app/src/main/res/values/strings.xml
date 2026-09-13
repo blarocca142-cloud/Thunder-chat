@@ -39,4 +39,6 @@
     <string name="studio_saved">Saved to Pictures/Thunder</string>
     <string name="studio_save_fail">Couldn\'t save that still</string>
     <string name="studio_done">Done</string>
+    <string name="settings_dark">Dark mode</string>
+    <string name="settings_dark_hint">Off by default. Turn on if you want the old underground look.</string>
 </resources>

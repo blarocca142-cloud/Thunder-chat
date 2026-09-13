@@ -50,6 +50,8 @@ import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
@@ -106,6 +108,7 @@ fun ThunderRoot() {
     val listState = rememberLazyListState()
 
     var server by remember { mutableStateOf(prefs.serverUrl) }
+    var dark by remember { mutableStateOf(prefs.darkMode) }
     var draft by remember { mutableStateOf("") }
     var showSettings by remember { mutableStateOf(false) }
     var waiting by remember { mutableStateOf(false) }
@@ -212,6 +215,7 @@ fun ThunderRoot() {
         }
     }
 
+    ThunderTheme(dark = dark) {
     BackHandler(enabled = drawerState.isOpen || tab == ThunderTab.Studio || activeId != null) {
         when {
             drawerState.isOpen -> scope.launch { drawerState.close() }
@@ -268,10 +272,10 @@ fun ThunderRoot() {
                     Box(
                         Modifier
                             .fillMaxWidth()
-                            .background(Color(0xFF3A2F1B))
+                            .background(ThunderInk.MaintBg)
                             .padding(horizontal = 14.dp, vertical = 10.dp)
                     ) {
-                        Text(maintenanceMessage + countdown, color = Color(0xFFE3B341), fontSize = 13.sp)
+                        Text(maintenanceMessage + countdown, color = ThunderInk.MaintInk, fontSize = 13.sp)
                     }
                 }
 
@@ -345,6 +349,11 @@ fun ThunderRoot() {
             onServer = {
                 server = it
                 prefs.serverUrl = it
+            },
+            dark = dark,
+            onDark = {
+                dark = it
+                prefs.darkMode = it
             },
             onDismiss = { showSettings = false }
         )
@@ -425,6 +434,7 @@ fun ThunderRoot() {
                 }
             }
         )
+    }
     }
 }
 
@@ -730,7 +740,7 @@ private fun ThunderComposer(
             Icon(
                 Icons.AutoMirrored.Filled.Send,
                 contentDescription = "send",
-                tint = if (ready) ThunderInk.SlateDeep else ThunderInk.Mute,
+                tint = if (ready) ThunderInk.OnGold else ThunderInk.Mute,
                 modifier = Modifier.size(18.dp)
             )
         }
@@ -741,6 +751,8 @@ private fun ThunderComposer(
 private fun ServerDialog(
     server: String,
     onServer: (String) -> Unit,
+    dark: Boolean,
+    onDark: (Boolean) -> Unit,
     onDismiss: () -> Unit
 ) {
     AlertDialog(
@@ -749,7 +761,7 @@ private fun ServerDialog(
         shape = RoundedCornerShape(12.dp),
         title = {
             Text(
-                "Server",
+                "Settings",
                 color = ThunderInk.Ink,
                 fontWeight = FontWeight.Medium,
                 letterSpacing = 0.4.sp
@@ -771,6 +783,36 @@ private fun ServerDialog(
                     singleLine = true,
                     colors = thunderFieldColors()
                 )
+                Spacer(Modifier.height(18.dp))
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            stringResource(R.string.settings_dark),
+                            color = ThunderInk.Ink,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            stringResource(R.string.settings_dark_hint),
+                            color = ThunderInk.Mute,
+                            fontSize = 12.sp,
+                            lineHeight = 16.sp
+                        )
+                    }
+                    Switch(
+                        checked = dark,
+                        onCheckedChange = onDark,
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = ThunderInk.OnGold,
+                            checkedTrackColor = ThunderInk.Gold,
+                            uncheckedThumbColor = ThunderInk.Surface,
+                            uncheckedTrackColor = ThunderInk.Hairline
+                        )
+                    )
+                }
             }
         },
         confirmButton = {

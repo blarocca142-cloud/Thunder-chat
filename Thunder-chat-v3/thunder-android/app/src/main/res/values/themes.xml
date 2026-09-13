@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.Thunder" parent="android:Theme.Material.NoActionBar">
-        <item name="android:statusBarColor">#0B0B0F</item>
-        <item name="android:navigationBarColor">#0B0B0F</item>
-        <item name="android:windowBackground">#0B0B0F</item>
+    <style name="Theme.Thunder" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">#F7F2EA</item>
+        <item name="android:navigationBarColor">#F3EEE6</item>
+        <item name="android:windowBackground">#F7F2EA</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
     </style>
 </resources>
