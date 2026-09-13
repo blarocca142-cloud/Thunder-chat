@@ -96,7 +96,6 @@ fun ThunderRoot() {
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val listState = rememberLazyListState()
 
-    var showSplash by remember { mutableStateOf(true) }
     var server by remember { mutableStateOf(prefs.serverUrl) }
     var draft by remember { mutableStateOf("") }
     var showSettings by remember { mutableStateOf(false) }
@@ -176,16 +175,11 @@ fun ThunderRoot() {
         if (last >= 0) listState.animateScrollToItem(last.coerceAtLeast(0))
     }
 
-    BackHandler(enabled = !showSplash && (drawerState.isOpen || activeId != null)) {
+    BackHandler(enabled = drawerState.isOpen || activeId != null) {
         when {
             drawerState.isOpen -> scope.launch { drawerState.close() }
             activeId != null -> leaveChat()
         }
-    }
-
-    if (showSplash) {
-        ThunderSplash { showSplash = false }
-        return
     }
 
     ModalNavigationDrawer(

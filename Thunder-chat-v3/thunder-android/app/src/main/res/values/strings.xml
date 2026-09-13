@@ -12,7 +12,6 @@
     <string name="open_chats">Chats</string>
     <string name="rename_chat">Rename chat</string>
     <string name="delete_chat">Delete</string>
-    <string name="splash_cd">Thunder</string>
     <string name="menu_cd">Open chats</string>
     <string name="close_menu_cd">Close chats</string>
 </resources>
