@@ -55,7 +55,7 @@ class ThunderApi(
 
     suspend fun chat(server: String, message: String): String = withContext(Dispatchers.IO) {
         if (server.isBlank()) {
-            return@withContext "Shell mode. I heard \"$message\". Point Settings at Main when it's up."
+            return@withContext shellReply(message)
         }
         try {
             val payload = JSONObject().put("message", message).toString()
@@ -70,6 +70,23 @@ class ThunderApi(
             }
         } catch (e: Exception) {
             "Main offline. Demo: heard \"$message\"."
+        }
+    }
+
+    // No-network placeholder so chat is testable before Main is wired up.
+    private fun shellReply(message: String): String {
+        val m = message.trim().lowercase()
+        return when {
+            m.isEmpty() -> "Say something and I'll answer — shell mode, no model wired up yet."
+            listOf("hello", "hi", "hey").any { m.contains(it) } ->
+                "Hey, I'm Thunder. Running in shell mode right now — no model connected."
+            m.contains("test") ->
+                "Test received. Bubbles, typing dots, and send all work. Point Settings at Main for real replies."
+            m.contains("help") ->
+                "Shell mode just echoes for now. Set the server URL in Settings once Main + Ollama are running."
+            m.contains("who are you") || m.contains("what are you") ->
+                "I'm Thunder, your local AI. Right now I'm the offline placeholder until Main's model is wired in."
+            else -> "Heard: \"$message\". Still shell mode — set Main's URL in Settings for real replies."
         }
     }
 
