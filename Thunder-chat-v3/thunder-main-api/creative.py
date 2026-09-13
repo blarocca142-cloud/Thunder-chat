@@ -155,6 +155,7 @@ def record(
         "duration": duration,
         "url": f"/media/{name}",
         "video_url": None,
+        "video_status": None,
         "stub": stub,
         "message": message,
         "created": utc_ts(),
@@ -184,3 +185,50 @@ def get_creation(creations_dir: Path, cid: str) -> dict | None:
         return json.loads(path.read_text())
     except json.JSONDecodeError:
         return None
+
+
+def save_creation(creations_dir: Path, item: dict) -> dict:
+    cid = item.get("id") or new_id("vid")
+    item["id"] = cid
+    (creations_dir / f"{cid}.json").write_text(json.dumps(item, indent=2))
+    return item
+
+
+def looks_like_mp4(blob: bytes) -> bool:
+    if not blob or len(blob) < 12:
+        return False
+    if blob[4:8] == b"ftyp":
+        return True
+    return b"ftyp" in blob[:64]
+
+
+def finish_video_job(creations_dir: Path, cid: str, hook_url: str, payload: dict) -> None:
+    """Background worker for POST /video. Clients poll GET /creations/{id}."""
+    item = get_creation(creations_dir, cid)
+    if not item:
+        return
+    try:
+        hooked = forward_hook(hook_url, payload)
+        extra_hook = {k: hooked[k] for k in hooked if k != "bytes"}
+        if extra_hook:
+            item["hook"] = extra_hook
+        if hooked.get("video_url"):
+            item["video_url"] = hooked["video_url"]
+            item["stub"] = False
+            item["video_status"] = "done"
+            item["message"] = hooked.get("message") or "Video ready."
+        elif hooked.get("bytes") and looks_like_mp4(hooked["bytes"]):
+            dest = creations_dir / f"{cid}.mp4"
+            dest.write_bytes(hooked["bytes"])
+            item["video_url"] = f"/media/{dest.name}"
+            item["stub"] = False
+            item["video_status"] = "done"
+            item["message"] = hooked.get("message") or "Video ready."
+        else:
+            item["video_status"] = "error"
+            item["message"] = hooked.get("message") or "Video hook did not return a clip."
+    except Exception as exc:
+        item["video_status"] = "error"
+        item["message"] = f"Video hook failed: {exc}"
+        item["hook_error"] = str(exc)
+    save_creation(creations_dir, item)

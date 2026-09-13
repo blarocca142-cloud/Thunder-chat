@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import subprocess
+import threading
 import traceback
 import urllib.error
 import urllib.request
@@ -852,30 +853,18 @@ def make_image(body: ImageIn):
 
 @app.post("/video")
 def make_video(body: VideoIn):
+    """Queue a video. Returns the creation immediately; clients poll GET /creations/{id}."""
     prompt = (body.prompt or "").strip()
     if not prompt:
         raise HTTPException(400, "prompt required")
     style = body.style or "Cinematic"
     duration = max(3, min(int(body.duration or 8), 30))
-    stub = True
-    extra = {"duration": duration, "video_url": None}
+    png = creative.render_stub_png(prompt, style, "16:9", "video")
     if creative.VIDEO_HOOK:
-        try:
-            hooked = creative.forward_hook(
-                creative.VIDEO_HOOK,
-                {"prompt": prompt, "style": style, "duration": duration},
-            )
-            extra["hook"] = {k: hooked[k] for k in hooked if k != "bytes"}
-            if hooked.get("video_url"):
-                extra["video_url"] = hooked["video_url"]
-                stub = False
-            message = hooked.get("message") or "Video hook accepted the job."
-        except Exception as e:
-            message = f"Video hook failed ({e}); poster stub saved."
-            extra["hook_error"] = str(e)
-        png = creative.render_stub_png(prompt, style, "16:9", "video")
+        status = "processing"
+        message = "Rendering motion…"
     else:
-        png = creative.render_stub_png(prompt, style, "16:9", "video")
+        status = "stub"
         message = (
             f"Motion stub ({duration}s). Set THUNDER_VIDEO_URL to plug a renderer. "
             "The poster is in history until that hook exists."
@@ -888,11 +877,26 @@ def make_video(body: VideoIn):
         aspect="16:9",
         duration=duration,
         png=png,
-        stub=stub,
+        stub=True,
         message=message,
-        extra=extra,
+        extra={
+            "duration": duration,
+            "video_url": None,
+            "video_status": status,
+        },
     )
-    log_event("video", f"{item['id']} stub={stub} {duration}s")
+    if creative.VIDEO_HOOK:
+        threading.Thread(
+            target=creative.finish_video_job,
+            args=(
+                CREATIONS,
+                item["id"],
+                creative.VIDEO_HOOK,
+                {"prompt": prompt, "style": style, "duration": duration},
+            ),
+            daemon=True,
+        ).start()
+    log_event("video", f"{item['id']} status={status} {duration}s")
     write_status(mode="studio", message=f"video {item['id']}")
     return item
 
