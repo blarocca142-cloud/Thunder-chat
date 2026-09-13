@@ -1,5 +1,6 @@
 package com.thunder.app.ui
 
+import android.content.Context
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -52,6 +53,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -71,13 +73,23 @@ private val Gold = Color(0xFFE8C547)
 @Composable
 fun ThunderRoot() {
     val api = remember { ThunderApi() }
-    var server by remember { mutableStateOf("") }
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("thunder_prefs", Context.MODE_PRIVATE) }
+    var server by remember { mutableStateOf(prefs.getString("server_url", "") ?: "") }
     var draft by remember { mutableStateOf("") }
     var showSettings by remember { mutableStateOf(false) }
     var waiting by remember { mutableStateOf(false) }
+    var testing by remember { mutableStateOf(false) }
+    var testResult by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
     val lines = remember { mutableStateListOf<Line>() }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
+
+    fun saveServer(url: String) {
+        server = url
+        prefs.edit().putString("server_url", url).apply()
+        testResult = null
+    }
 
     LaunchedEffect(lines.size, waiting) {
         val last = lines.lastIndex + if (waiting) 1 else 0
@@ -217,7 +229,7 @@ fun ThunderRoot() {
                     Spacer(Modifier.height(12.dp))
                     TextField(
                         value = server,
-                        onValueChange = { server = it },
+                        onValueChange = { saveServer(it) },
                         placeholder = { Text("http://192.168.x.x:8080") },
                         singleLine = true,
                         colors = TextFieldDefaults.colors(
@@ -230,6 +242,30 @@ fun ThunderRoot() {
                             unfocusedIndicatorColor = Color(0xFF333333)
                         )
                     )
+                    Spacer(Modifier.height(10.dp))
+                    TextButton(
+                        onClick = {
+                            if (server.isNotBlank() && !testing) {
+                                testing = true
+                                testResult = null
+                                scope.launch {
+                                    val status = api.status(server)
+                                    testResult = (!status.demo) to status.message
+                                    testing = false
+                                }
+                            }
+                        },
+                        enabled = server.isNotBlank() && !testing
+                    ) {
+                        Text(if (testing) "Testing..." else "Test connection", color = Gold)
+                    }
+                    testResult?.let { (ok, message) ->
+                        Text(
+                            if (ok) "Connected — ${message.ifBlank { "ok" }}" else "Failed — ${message.ifBlank { "no response" }}",
+                            color = if (ok) Color(0xFF7DDA88) else Color(0xFFE07A7A),
+                            fontSize = 12.sp
+                        )
+                    }
                 }
             },
             confirmButton = {
