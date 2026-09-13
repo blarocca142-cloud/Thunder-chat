@@ -65,6 +65,16 @@ small{color:#6b7280}
   </div>
   <div class="card"><h2>Node Health</h2><div id="nodes"></div></div>
   <div class="card"><h2>Thunder-Main Status</h2><div id="mainstatus"></div></div>
+  <div class="card full" id="maintCard">
+    <h2>Maintenance Mode</h2>
+    <div id="maintState" style="margin-bottom:8px"></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <input id="maintMsg" placeholder="message shown to users" style="flex:2;min-width:160px;padding:6px;border-radius:6px;border:1px solid #333;background:#0b0d10;color:#fff">
+      <input id="maintMin" type="number" placeholder="minutes (blank = indefinite)" style="flex:1;min-width:140px;padding:6px;border-radius:6px;border:1px solid #333;background:#0b0d10;color:#fff">
+      <button onclick="startMaint()">start maintenance</button>
+      <button class="reject" onclick="stopMaint()">stop maintenance</button>
+    </div>
+  </div>
   <div class="card full"><h2>Jobs Awaiting Review</h2><table id="jobs"></table></div>
   <div class="card full"><h2>Recent Errors</h2><table id="errors"></table></div>
   <div class="card full"><h2>Recent Conversation (Serverus)</h2><div id="serverus" style="font-size:13px;max-height:200px;overflow:auto"></div></div>
@@ -89,6 +99,15 @@ async function refresh(){
     <div class="node"><span>cache</span><span>${st.cache||'?'}</span></div>
     <div class="node"><span>message</span><span>${st.message||''}</span></div>`;
 
+  const m = st.maintenance || {active:false};
+  const maintEl = document.getElementById('maintState');
+  if (m.active) {
+    const rem = m.until ? Math.max(0, m.until - Math.floor(Date.now()/1000)) : null;
+    maintEl.innerHTML = `<span class="pill error">ACTIVE</span> ${m.message||''} ${rem!==null ? `(back in ${Math.floor(rem/60)}:${String(rem%60).padStart(2,'0')})` : '(indefinite)'}`;
+  } else {
+    maintEl.innerHTML = `<span class="pill done">off</span> users are getting normal chat`;
+  }
+
   const jobsEl = document.getElementById('jobs');
   jobsEl.innerHTML = '<tr><th>title</th><th>status</th><th>review</th><th></th></tr>';
   (d.jobs || []).forEach(j => {
@@ -107,6 +126,18 @@ async function refresh(){
 
   const sEl = document.getElementById('serverus');
   sEl.innerHTML = (d.serverus || []).map(t => `<div class="row ${t.role==='user'?'me':'bot'}">${t.role}: ${t.content}</div>`).join('');
+}
+
+async function startMaint(){
+  const message = document.getElementById('maintMsg').value.trim() || "Thunder's down for maintenance, back shortly.";
+  const min = document.getElementById('maintMin').value.trim();
+  const duration_seconds = min ? Math.round(parseFloat(min) * 60) : null;
+  await fetch('/api/maintenance/start', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({message, duration_seconds})});
+  refresh();
+}
+async function stopMaint(){
+  await fetch('/api/maintenance/stop', {method:'POST'});
+  refresh();
 }
 
 async function review(job_id, decision){
@@ -242,6 +273,18 @@ class Handler(BaseHTTPRequestHandler):
             error_id = self.path.split("/")[3]
             try:
                 return self._send(200, post_json(f"{MAIN}/errors/{error_id}/fix", {}))
+            except Exception as e:
+                return self._send(502, {"error": str(e)})
+
+        if self.path == "/api/maintenance/start":
+            try:
+                return self._send(200, post_json(f"{MAIN}/maintenance/start", body))
+            except Exception as e:
+                return self._send(502, {"error": str(e)})
+
+        if self.path == "/api/maintenance/stop":
+            try:
+                return self._send(200, post_json(f"{MAIN}/maintenance/stop", {}))
             except Exception as e:
                 return self._send(502, {"error": str(e)})
 

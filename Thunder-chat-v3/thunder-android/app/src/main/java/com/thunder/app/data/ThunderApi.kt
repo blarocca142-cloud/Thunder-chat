@@ -17,7 +17,10 @@ data class ThunderStatus(
     val jobTitle: String?,
     val progress: String?,
     val message: String,
-    val demo: Boolean = false
+    val demo: Boolean = false,
+    val maintenanceActive: Boolean = false,
+    val maintenanceMessage: String? = null,
+    val maintenanceUntilEpochSec: Long? = null
 )
 
 class ThunderApi(
@@ -37,6 +40,7 @@ class ThunderApi(
                 val body = res.body?.string().orEmpty()
                 if (!res.isSuccessful) return@use demoStatus("Main said ${res.code}")
                 val o = JSONObject(body)
+                val maint = o.optJSONObject("maintenance")
                 ThunderStatus(
                     mode = o.optString("mode", "idle"),
                     odriss = o.optString("odriss", "no_heartbeat"),
@@ -45,7 +49,10 @@ class ThunderApi(
                     jobTitle = o.optString("job_title").ifBlank { null },
                     progress = o.optString("progress").ifBlank { null },
                     message = o.optString("message", ""),
-                    demo = false
+                    demo = false,
+                    maintenanceActive = maint?.optBoolean("active", false) ?: false,
+                    maintenanceMessage = maint?.optString("message")?.ifBlank { null },
+                    maintenanceUntilEpochSec = maint?.let { if (it.isNull("until")) null else it.optLong("until") }
                 )
             }
         } catch (e: Exception) {

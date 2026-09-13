@@ -43,6 +43,7 @@ ERRORS = DATA / "errors"
 ERRORS.mkdir(exist_ok=True)
 STATUS = DATA / "status.json"
 CANCEL = DATA / "cancel.json"
+MAINTENANCE = DATA / "maintenance.json"
 
 app = FastAPI(title="Thunder Main")
 app.add_middleware(
@@ -62,13 +63,30 @@ body{margin:0;background:#0b0d10;color:#e8edf2;font:16px/1.4 system-ui,sans-seri
 form{display:flex;gap:8px;padding:12px;border-top:1px solid #222}
 input{flex:1;padding:10px;border-radius:8px;border:1px solid #333;background:#15181d;color:#fff}
 button{padding:10px 16px;border:0;border-radius:8px;background:#3b82f6;color:#fff}
+#maint{display:none;background:#3a2f1b;color:#e3b341;padding:10px 16px;font-size:14px}
 </style></head><body>
+<div id="maint"></div>
 <div id="log"></div>
 <form id="f"><input id="m" autofocus placeholder="talk to Thunder"><button>send</button></form>
 <script>
 const log=document.getElementById('log');
+const maintBanner=document.getElementById('maint');
 function add(cls,t){const d=document.createElement('div');d.className='row '+cls;d.textContent=t;log.appendChild(d);log.scrollTop=log.scrollHeight;}
 add('bot','Thunder local. Model talks through /chat.');
+
+let maintUntil=null;
+function fmtCountdown(sec){const m=Math.floor(sec/60),s=sec%60;return `${m}:${String(s).padStart(2,'0')}`;}
+function renderMaint(m){
+  if(!m||!m.active){maintBanner.style.display='none';return;}
+  maintBanner.style.display='block';
+  maintUntil=m.until;
+  maintBanner.textContent=m.message+(m.until?` (back in ${fmtCountdown(Math.max(0,m.until-Math.floor(Date.now()/1000)))})`:'');
+}
+setInterval(()=>{if(maintUntil)renderMaint({active:true,message:maintBanner.textContent.split(' (back')[0],until:maintUntil});},1000);
+async function checkStatus(){try{const r=await fetch('/status');const s=await r.json();renderMaint(s.maintenance);}catch(e){}}
+checkStatus();
+setInterval(checkStatus,15000);
+
 document.getElementById('f').onsubmit=async(e)=>{
   e.preventDefault();
   const v=document.getElementById('m').value.trim();
@@ -122,6 +140,21 @@ def record_error(endpoint: str, exc: Exception) -> str:
 async def unhandled_exception_handler(request: Request, exc: Exception):
     record_error(str(request.url.path), exc)
     return JSONResponse(status_code=500, content={"error": "internal error, logged for review"})
+
+
+def get_maintenance() -> dict:
+    """Auto-expires: if `until` has passed, treat it as over even if the
+    stored flag still says active - no cron job needed to flip it off."""
+    default = {"active": False, "message": "", "until": None, "started": None}
+    if not MAINTENANCE.exists():
+        return default
+    try:
+        rec = json.loads(MAINTENANCE.read_text())
+    except json.JSONDecodeError:
+        return default
+    if rec.get("active") and rec.get("until") and utc_ts() > rec["until"]:
+        rec["active"] = False
+    return {**default, **rec}
 
 
 def ollama_up() -> bool:
@@ -333,6 +366,9 @@ def read_status() -> dict:
             base["cache"] = "no_heartbeat"
     if base.get("odriss") == "ok":
         base["state"] = "ok"
+    base["maintenance"] = get_maintenance()
+    if base["maintenance"]["active"]:
+        base["state"] = "maintenance"
     return base
 
 
@@ -359,6 +395,12 @@ def chat(body: ChatIn):
     msg = (body.message or "").strip()
     if not msg:
         return {"reply": "Say something."}
+    maint = get_maintenance()
+    if maint["active"]:
+        return {
+            "reply": maint["message"] or "Thunder's down for maintenance right now, back shortly.",
+            "maintenance": maint,
+        }
     verdict = engine_check(msg)
     if not verdict.get("allow", True):
         return {"reply": verdict.get("reason") or "Blocked by Thunder-Engine."}
@@ -512,3 +554,33 @@ def request_fix(error_id: str):
     err["fix_job_id"] = job["id"]
     path.write_text(json.dumps(err, indent=2))
     return {"ok": True, "job": job}
+
+
+class MaintenanceIn(BaseModel):
+    message: str = ""
+    duration_seconds: int | None = None  # None = indefinite, until explicitly stopped
+
+
+@app.post("/maintenance/start")
+def start_maintenance(body: MaintenanceIn):
+    now = utc_ts()
+    rec = {
+        "active": True,
+        "message": body.message or "Thunder's down for maintenance, back shortly.",
+        "started": now,
+        "until": (now + body.duration_seconds) if body.duration_seconds else None,
+    }
+    MAINTENANCE.write_text(json.dumps(rec, indent=2))
+    return rec
+
+
+@app.post("/maintenance/stop")
+def stop_maintenance():
+    rec = {"active": False, "message": "", "until": None, "started": None}
+    MAINTENANCE.write_text(json.dumps(rec, indent=2))
+    return rec
+
+
+@app.get("/maintenance")
+def maintenance_status():
+    return get_maintenance()

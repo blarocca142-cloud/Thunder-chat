@@ -57,6 +57,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.thunder.app.data.ThunderApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 data class Line(val who: String, val text: String)
@@ -78,10 +79,35 @@ fun ThunderRoot() {
     val lines = remember { mutableStateListOf<Line>() }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
+    var maintenanceActive by remember { mutableStateOf(false) }
+    var maintenanceMessage by remember { mutableStateOf("") }
+    var maintenanceUntil by remember { mutableStateOf<Long?>(null) }
+    var nowEpoch by remember { mutableStateOf(System.currentTimeMillis() / 1000) }
 
     LaunchedEffect(lines.size, waiting) {
         val last = lines.lastIndex + if (waiting) 1 else 0
         if (last >= 0) listState.animateScrollToItem(last.coerceAtLeast(0))
+    }
+
+    LaunchedEffect(server) {
+        while (true) {
+            if (server.isNotBlank()) {
+                val st = api.status(server)
+                if (!st.demo) {
+                    maintenanceActive = st.maintenanceActive
+                    maintenanceMessage = st.maintenanceMessage ?: "Thunder's down for maintenance."
+                    maintenanceUntil = st.maintenanceUntilEpochSec
+                }
+            }
+            delay(15_000)
+        }
+    }
+
+    LaunchedEffect(maintenanceActive) {
+        while (maintenanceActive) {
+            nowEpoch = System.currentTimeMillis() / 1000
+            delay(1_000)
+        }
     }
 
     fun send() {
@@ -132,6 +158,21 @@ fun ThunderRoot() {
             }
             IconButton(onClick = { showSettings = true }) {
                 Icon(Icons.Filled.Settings, contentDescription = "settings", tint = Mute)
+            }
+        }
+
+        if (maintenanceActive) {
+            val countdown = maintenanceUntil?.let { until ->
+                val remaining = (until - nowEpoch).coerceAtLeast(0)
+                " (back in ${remaining / 60}:${(remaining % 60).toString().padStart(2, '0')})"
+            } ?: ""
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFF3A2F1B))
+                    .padding(horizontal = 14.dp, vertical = 10.dp)
+            ) {
+                Text(maintenanceMessage + countdown, color = Color(0xFFE3B341), fontSize = 13.sp)
             }
         }
 
