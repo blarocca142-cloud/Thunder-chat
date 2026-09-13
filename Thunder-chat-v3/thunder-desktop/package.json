@@ -1,6 +1,6 @@
 {
   "name": "thunder-desktop",
-  "version": "0.8.2",
+  "version": "0.8.0",
   "private": true,
   "description": "Thunder desktop — chat, studio, local Main control",
   "main": "main.js",

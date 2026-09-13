@@ -207,69 +207,11 @@
     refreshCreations();
   }
 
-  function mediaUrl(path) {
-    if (!path) return "";
-    if (/^https?:\/\//i.test(path)) return path;
-    return url(path);
-  }
-  function videoPhase(item) {
-    const reported = String(item.video_status || "").toLowerCase().trim();
-    if (reported) return reported;
-    if (item.kind !== "video") return "";
-    if (item.video_url && !item.stub) return "done";
-    if (item.stub) return "stub";
-    return "processing";
-  }
-  function upsertCreation(item) {
-    const i = state.creations.findIndex((c) => c.id === item.id);
-    if (i >= 0) state.creations[i] = { ...state.creations[i], ...item };
-    else state.creations.unshift(item);
-    localStorage.setItem("thunder_creations", JSON.stringify(state.creations.slice(0, 80)));
-  }
-  const watchers = {};
-  function watchVideo(id) {
-    if (!id || watchers[id]) return;
-    const started = Date.now();
-    const tick = async () => {
-      try {
-        const fresh = await api(`/creations/${encodeURIComponent(id)}`);
-        upsertCreation(fresh);
-        const phase = videoPhase(fresh);
-        if (phase === "processing" && Date.now() - started < 5 * 60 * 1000) {
-          watchers[id] = setTimeout(tick, 5000);
-          paintCreations();
-          if (els.viewer.dataset.id === id) openViewer(id);
-          return;
-        }
-        if (phase === "processing") {
-          upsertCreation({ ...fresh, _timeout: true });
-          toast("Taking longer than expected.");
-        } else if (phase === "done") {
-          toast(fresh.message || "Motion ready.");
-        } else if (phase === "error") {
-          toast(fresh.message || "Motion failed.");
-        }
-        delete watchers[id];
-        paintCreations();
-        if (els.viewer.dataset.id === id) openViewer(id);
-      } catch {
-        if (Date.now() - started < 5 * 60 * 1000) watchers[id] = setTimeout(tick, 5000);
-        else delete watchers[id];
-      }
-    };
-    watchers[id] = setTimeout(tick, 5000);
-  }
   function cardHtml(item) {
-    const src = mediaUrl(item.url);
-    const phase = videoPhase(item);
-    const badge = phase === "processing"
-      ? " · rendering"
-      : phase === "done"
-        ? " · ready"
-        : item.stub ? " · stub" : "";
+    const src = url(item.url);
     return `<article class="card" data-id="${item.id}">
       <img src="${src}" alt="">
-      <div class="cap"><b>${escapeHtml(item.prompt)}</b><span>${item.kind} · ${item.style}${badge}</span></div>
+      <div class="cap"><b>${escapeHtml(item.prompt)}</b><span>${item.kind} · ${item.style}${item.stub ? " · stub" : ""}</span></div>
     </article>`;
   }
   function escapeHtml(s) {
@@ -283,19 +225,14 @@
     } catch {
       state.creations = JSON.parse(localStorage.getItem("thunder_creations") || "[]");
     }
-    paintCreations();
-    state.creations.filter((i) => videoPhase(i) === "processing").forEach((i) => watchVideo(i.id));
-  }
-
-  function paintCreations(filter) {
-    const list = filter || (state.studio === "history" ? state.creations : state.creations.filter((i) => (
+    const filter = state.studio === "history" ? state.creations : state.creations.filter((i) => (
       state.studio === "photo" ? i.kind === "image" : state.studio === "video" ? i.kind === "video" : true
-    )));
-    if (!list.length) {
+    ));
+    if (!filter.length) {
       els.studioCanvas.innerHTML = `<div class="empty-home"><div>Nothing on the wall yet.</div></div>`;
       return;
     }
-    els.studioCanvas.innerHTML = `<div class="gallery">${list.map(cardHtml).join("")}</div>`;
+    els.studioCanvas.innerHTML = `<div class="gallery">${filter.map(cardHtml).join("")}</div>`;
     els.studioCanvas.querySelectorAll(".card").forEach((el) => {
       el.addEventListener("click", () => openViewer(el.dataset.id));
     });
@@ -304,36 +241,22 @@
   function openViewer(id) {
     const item = state.creations.find((c) => c.id === id);
     if (!item) return;
-    const phase = videoPhase(item);
-    const poster = mediaUrl(item.url);
-    const clip = mediaUrl(item.video_url);
-    const media = item.kind === "video" && phase === "done" && clip
-      ? `<video controls playsinline poster="${poster}" src="${clip}"></video>`
-      : `<img src="${poster}" alt="">`;
-    let status = item.message || "";
-    if (item._timeout && phase === "processing") status = "Taking longer than expected.";
-    else if (phase === "processing") status = status || "Rendering motion…";
     els.viewer.classList.remove("hidden");
-    els.viewer.dataset.id = id;
     els.viewer.innerHTML = `<figure>
-      ${media}
+      <img src="${url(item.url)}" alt="">
       <figcaption>
         <b>${escapeHtml(item.prompt)}</b>
-        <div class="hint" style="color:var(--mute);margin:6px 0 12px">${escapeHtml(status)}</div>
+        <div class="hint" style="color:var(--mute);margin:6px 0 12px">${escapeHtml(item.message || "")}</div>
         <div class="row">
-          ${clip && phase === "done" ? `<a class="btn gold" href="${clip}" target="_blank" rel="noopener">Play</a>` : ""}
-          <a class="btn${clip && phase === "done" ? "" : " gold"}" href="${poster}" download="${item.id}.png">Save</a>
+          <a class="btn gold" href="${url(item.url)}" download="${item.id}.png">Save</a>
           <button class="btn" data-share>Share</button>
           <button class="btn ghost" data-close>Close</button>
         </div>
       </figcaption>
     </figure>`;
-    els.viewer.querySelector("[data-close]").onclick = () => {
-      els.viewer.classList.add("hidden");
-      delete els.viewer.dataset.id;
-    };
+    els.viewer.querySelector("[data-close]").onclick = () => els.viewer.classList.add("hidden");
     els.viewer.querySelector("[data-share]").onclick = async () => {
-      const shareUrl = clip && phase === "done" ? clip : poster;
+      const shareUrl = url(item.url);
       if (navigator.share) {
         try { await navigator.share({ title: "Thunder", text: item.prompt, url: shareUrl }); }
         catch {}
@@ -358,13 +281,13 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      upsertCreation(item);
-      const phase = videoPhase(item);
-      toast(phase === "processing" ? "Rendering motion…" : (item.message || "Done."));
+      const local = JSON.parse(localStorage.getItem("thunder_creations") || "[]");
+      local.unshift(item);
+      localStorage.setItem("thunder_creations", JSON.stringify(local.slice(0, 80)));
+      toast(item.message || "Done.");
       showStudio(kind === "image" ? "photo" : "video");
       await refreshCreations();
       openViewer(item.id);
-      if (phase === "processing") watchVideo(item.id);
     } catch (err) {
       toast(`Studio missed: ${err.message}`);
     }

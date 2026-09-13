@@ -27,7 +27,7 @@ npm install
 npm start
 ```
 
-Studio hooks (optional): `THUNDER_IMAGE_URL`, `THUNDER_VIDEO_URL`. `POST /image` is still sync. `POST /video` returns a creation immediately (`video_status`: processing / stub) with a poster at `url`; clients poll `GET /creations/{id}` every ~5s until `done` / `error` / `stub`. Unset video hook = stub poster. No public GitHub Releases — APK is the private Actions artifact `thunder-debug-apk`.
+Studio hooks (optional): `THUNDER_IMAGE_URL`, `THUNDER_VIDEO_URL`. Unset = stub still/poster saved under `thunder-data/creations/`. No public GitHub Releases — APK is the private Actions artifact `thunder-debug-apk`.
 
 ## First test (no towers needed)
 

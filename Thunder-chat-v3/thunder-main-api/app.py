@@ -861,24 +861,18 @@ def _video_worker(cid: str, prompt: str, style: str, duration: int) -> None:
             creative.VIDEO_HOOK,
             {"prompt": prompt, "style": style, "duration": duration},
         )
-        if isinstance(hooked, dict) and hooked.get("video_url"):
-            creative.update_creation(
-                CREATIONS, cid,
-                video_url=hooked["video_url"], video_status="done",
-                stub=False, message=hooked.get("message") or "Video ready.",
-            )
-        elif isinstance(hooked, dict) and hooked.get("bytes"):
+        if isinstance(hooked, dict) and hooked.get("bytes"):
             name = f"{cid}.mp4"
             (CREATIONS / name).write_bytes(hooked["bytes"])
             creative.update_creation(
                 CREATIONS, cid,
                 video_url=f"/media/{name}", video_status="done",
-                stub=False, message=hooked.get("message") or "Video ready.",
+                stub=False, message="Video ready.",
             )
         else:
             creative.update_creation(
                 CREATIONS, cid, video_status="error",
-                message="Video hook didn't return a clip.",
+                message="Video hook didn't return video bytes.",
             )
     except Exception as e:
         record_error("/video (background)", e)
