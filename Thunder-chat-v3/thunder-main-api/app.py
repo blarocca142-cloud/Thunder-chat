@@ -18,6 +18,22 @@ MODEL = os.environ.get("THUNDER_MODEL", "dolphin3")  # never default to a Qwen/A
 SERVERUS = os.environ.get("SERVERUS_URL", "http://10.168.168.13:9001")
 ENGINE = os.environ.get("ENGINE_URL", "http://10.168.168.12:9002")
 ODRIS = os.environ.get("ODRIS_URL", "http://10.168.168.15:9003")
+WEBSEARCH = os.environ.get("WEBSEARCH_URL", "http://10.168.168.15:9004")
+
+# The model itself never gets internet access (see net-lockdown/) - only Odris
+# does, and only for this one job. An explicit prefix always triggers a
+# search; otherwise a keyword heuristic + the model's own judgment decide.
+SEARCH_TRIGGERS = ("search:", "look up:", "lookup:", "google:")
+
+# Small models are overconfident about what they already know and under-
+# trigger a live search on their own (tested: dolphin3 said "NONE" for a
+# Fallout 76 meta question). This keyword backstop catches recency/current-
+# state phrasing the classifier alone misses.
+RECENCY_HINTS = (
+    "right now", "current", "currently", "latest", "newest", "recent",
+    "update", "patch", "best ", "top ", "meta", "2026", "2027",
+    "this week", "this month", "today", "nowadays",
+)
 DATA = Path(os.environ.get("THUNDER_DATA", "./thunder-data"))
 DATA.mkdir(exist_ok=True)
 JOBS = DATA / "jobs"
@@ -146,6 +162,95 @@ def engine_check(message: str) -> dict:
         return {"allow": True, "reason": ""}  # Engine down - fail open, don't block chat
 
 
+def odris_search(query: str, max_results: int = 5) -> list[dict]:
+    try:
+        payload = json.dumps({"query": query, "max_results": max_results}).encode()
+        req = urllib.request.Request(
+            f"{WEBSEARCH}/websearch",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return json.loads(r.read().decode()).get("results", [])
+    except Exception:
+        return []  # Odris/internet down - say so rather than pretending
+
+
+def classify_search_query(msg: str) -> str | None:
+    """Ask the model itself whether this needs a live lookup - a cheap,
+    separate classification call. The model only ever labels intent here;
+    it never gets network access itself. Returns a search query, or None."""
+    payload = json.dumps(
+        {
+            "model": MODEL,
+            "stream": False,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "Reply with ONLY one line. If answering the next message would "
+                        "benefit from a live web search (current events, game/software "
+                        "details, prices, versions, anything you might not know or that "
+                        "changes over time), reply with just the search query to use. "
+                        "If it's ordinary conversation, coding help, or something you "
+                        "already know confidently, reply with exactly: NONE"
+                    ),
+                },
+                {"role": "user", "content": msg},
+            ],
+        }
+    ).encode()
+    req = urllib.request.Request(
+        f"{OLLAMA}/api/chat",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            body = json.loads(r.read().decode())
+        answer = (body.get("message", {}).get("content") or "").strip()
+    except Exception:
+        return None
+    if not answer or answer.upper().startswith("NONE"):
+        return None
+    return answer.strip('"').strip()
+
+
+def maybe_augment_with_search(msg: str) -> str:
+    """Fold live web results into the message before it ever reaches the
+    model for its real reply - via Odris, the only thing allowed to touch
+    the internet, never the model itself. Two paths: an explicit `search:`
+    prefix (fast, no extra model call), or automatic detection when no
+    prefix is given."""
+    lower = msg.lower()
+    query = None
+    for trigger in SEARCH_TRIGGERS:
+        if lower.startswith(trigger):
+            query = msg[len(trigger):].strip()
+            break
+    if query is None and any(hint in lower for hint in RECENCY_HINTS):
+        query = msg  # keyword backstop: search using the message itself as the query
+    if query is None:
+        query = classify_search_query(msg)
+    if not query:
+        return msg
+
+    print(f"[search] triggered, query={query!r}")
+    results = odris_search(query)
+    print(f"[search] got {len(results)} results")
+    if not results:
+        return f"{msg}\n\n(Web search for {query!r} returned nothing - Odris or the internet may be down. Say so plainly.)"
+    blob = "\n".join(f"- {r['title']}: {r['snippet']} ({r['url']})" for r in results)
+    return (
+        f"The user asked: {msg}\n\n"
+        f"Live web search results just fetched via Odris (query: {query!r}):\n{blob}\n\n"
+        f"Answer the user's question directly using this, naturally, "
+        f"like you just know it - don't narrate that you searched."
+    )
+
+
 def odris_heartbeat() -> dict | None:
     try:
         with urllib.request.urlopen(f"{ODRIS}/heartbeat", timeout=2) as r:
@@ -154,7 +259,11 @@ def odris_heartbeat() -> dict | None:
         return None
 
 
-def ollama_chat(message: str) -> str:
+def ollama_chat(message: str, memory_message: str | None = None) -> str:
+    """memory_message is what gets stored in Serverus - defaults to `message`,
+    but callers that inject search-result blobs into `message` should pass
+    the original, clean user text instead so history doesn't fill up with
+    search dumps."""
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     messages.extend(serverus_recent(10))
     messages.append({"role": "user", "content": message})
@@ -168,7 +277,7 @@ def ollama_chat(message: str) -> str:
     with urllib.request.urlopen(req, timeout=300) as r:
         body = json.loads(r.read().decode())
     reply = body.get("message", {}).get("content") or body.get("response") or json.dumps(body)
-    serverus_append(message, reply)
+    serverus_append(memory_message if memory_message is not None else message, reply)
     return reply
 
 
@@ -232,7 +341,7 @@ def chat(body: ChatIn):
         return {"reply": verdict.get("reason") or "Blocked by Thunder-Engine."}
     if ollama_up():
         try:
-            reply = ollama_chat(msg)
+            reply = ollama_chat(maybe_augment_with_search(msg), memory_message=msg)
             write_status(mode="code", message="chat ok")
             return {"reply": reply}
         except urllib.error.URLError as e:
@@ -251,13 +360,11 @@ def queue_job(body: JobIn):
     (JOBS / f"{job_id}.json").write_text(json.dumps(rec, indent=2))
     st = write_status(
         mode="code",
-        cache="idle",
+        cache="queued",
         job_id=job_id,
         job_title=title,
         progress="queued",
         message=f"Queued {job_id}.",
-        odriss="no_heartbeat",
-        state="no_heartbeat",
     )
     st.update({"job_id": job_id, "status": "queued", "id": job_id, "queued": True})
     return st
@@ -270,3 +377,53 @@ def cancel(body: CancelIn):
     st = write_status(job_id=None, job_title=None, cache="idle", mode="idle", progress=None, message="Cancel requested")
     st.update({"status": "cancelled", "cancelled": True, "id": job_id, "job_id": job_id})
     return st
+
+
+@app.get("/job/next")
+def next_job():
+    """Cache polls this to pick up work. Marks the oldest queued job as running."""
+    queued = sorted(JOBS.glob("job_*.json"))
+    for path in queued:
+        try:
+            rec = json.loads(path.read_text())
+        except json.JSONDecodeError:
+            continue
+        if rec.get("status") != "queued":
+            continue
+        if CANCEL.exists():
+            try:
+                if json.loads(CANCEL.read_text()).get("job_id") == rec.get("id"):
+                    rec["status"] = "cancelled"
+                    path.write_text(json.dumps(rec, indent=2))
+                    continue
+            except json.JSONDecodeError:
+                pass
+        rec["status"] = "running"
+        rec["started"] = utc_ts()
+        path.write_text(json.dumps(rec, indent=2))
+        write_status(mode="code", cache="working", job_id=rec["id"], job_title=rec.get("title"), progress="running", message=f"Cache picked up {rec['id']}.")
+        return {"job": rec}
+    return {"job": None}
+
+
+class JobResultIn(BaseModel):
+    job_id: str
+    output: str = ""
+    status: str = "done"
+
+
+@app.post("/job/result")
+def job_result(body: JobResultIn):
+    path = JOBS / f"{body.job_id}.json"
+    if not path.exists():
+        return {"ok": False, "error": "unknown job_id"}
+    try:
+        rec = json.loads(path.read_text())
+    except json.JSONDecodeError:
+        rec = {"id": body.job_id}
+    rec["status"] = body.status
+    rec["output"] = body.output
+    rec["finished"] = utc_ts()
+    path.write_text(json.dumps(rec, indent=2))
+    write_status(mode="idle", cache="idle", job_id=None, job_title=None, progress=body.status, message=f"{body.job_id} {body.status}.")
+    return {"ok": True}
