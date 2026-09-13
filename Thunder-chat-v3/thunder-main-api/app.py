@@ -207,6 +207,20 @@ def get_maintenance() -> dict:
     return {**default, **rec}
 
 
+def recent_blocked_egress(minutes: int = 5) -> list[str]:
+    """Surfaces any outbound-internet attempt the firewall rejected in the
+    last few minutes, from ANY locked-down account (ollama, genai, etc.) -
+    turns 'it's blocked' into 'and you'll actually know if something tries.'"""
+    try:
+        result = subprocess.run(
+            ["journalctl", "-k", "--since", f"-{minutes}min", "--no-pager"],
+            capture_output=True, text=True, timeout=5,
+        )
+        return [l for l in result.stdout.splitlines() if "THUNDER-BLOCKED-EGRESS" in l][-10:]
+    except Exception:
+        return []
+
+
 def ollama_up() -> bool:
     try:
         with urllib.request.urlopen(f"{OLLAMA}/api/tags", timeout=2) as r:
@@ -444,6 +458,9 @@ def read_status() -> dict:
     base["maintenance"] = get_maintenance()
     if base["maintenance"]["active"]:
         base["state"] = "maintenance"
+    base["blocked_egress"] = recent_blocked_egress()
+    if base["blocked_egress"]:
+        base["state"] = "security_alert"
     base["app_version"] = "0.8.0"
     base["image_hook"] = bool(creative.IMAGE_HOOK)
     base["video_hook"] = bool(creative.VIDEO_HOOK)

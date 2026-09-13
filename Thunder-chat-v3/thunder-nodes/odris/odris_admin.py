@@ -85,6 +85,10 @@ small{color:#6b7280}
 </style></head><body>
 <header><h1>Odris - Thunder Ops</h1><small id="ts"></small></header>
 <div class="grid">
+  <div class="card full" id="securityCard" style="display:none;border-color:#ff7b72;background:#2a1414">
+    <h2 style="color:#ff7b72">⚠ Security Alert - Blocked Outbound Attempts</h2>
+    <div id="securityLog" style="font-size:12px;font-family:monospace;white-space:pre-wrap;max-height:150px;overflow:auto"></div>
+  </div>
   <div class="card full">
     <h2>Talk to Odris</h2>
     <div id="chatlog"></div>
@@ -110,6 +114,15 @@ small{color:#6b7280}
 async function refresh(){
   const r = await fetch('/api/overview'); const d = await r.json();
   document.getElementById('ts').textContent = new Date().toLocaleTimeString();
+
+  const blocked = (d.status && d.status.blocked_egress) || [];
+  const secCard = document.getElementById('securityCard');
+  if (blocked.length) {
+    secCard.style.display = 'block';
+    document.getElementById('securityLog').textContent = blocked.join('\n');
+  } else {
+    secCard.style.display = 'none';
+  }
 
   const nodesEl = document.getElementById('nodes');
   nodesEl.innerHTML = '';
