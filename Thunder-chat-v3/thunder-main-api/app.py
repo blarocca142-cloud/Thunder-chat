@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import subprocess
+import threading
 import traceback
 import urllib.error
 import urllib.request
@@ -850,6 +851,36 @@ def make_image(body: ImageIn):
     return item
 
 
+def _video_worker(cid: str, prompt: str, style: str, duration: int) -> None:
+    """Runs in a background thread - real video generation takes minutes,
+    way past what a synchronous HTTP response should ever wait for. Updates
+    the creation record in place when done; the client polls GET
+    /creations/{id} (or /video/{id}) to see the status flip."""
+    try:
+        hooked = creative.forward_hook(
+            creative.VIDEO_HOOK,
+            {"prompt": prompt, "style": style, "duration": duration},
+        )
+        if isinstance(hooked, dict) and hooked.get("bytes"):
+            name = f"{cid}.mp4"
+            (CREATIONS / name).write_bytes(hooked["bytes"])
+            creative.update_creation(
+                CREATIONS, cid,
+                video_url=f"/media/{name}", video_status="done",
+                stub=False, message="Video ready.",
+            )
+        else:
+            creative.update_creation(
+                CREATIONS, cid, video_status="error",
+                message="Video hook didn't return video bytes.",
+            )
+    except Exception as e:
+        record_error("/video (background)", e)
+        creative.update_creation(
+            CREATIONS, cid, video_status="error", message=f"Video generation failed: {e}",
+        )
+
+
 @app.post("/video")
 def make_video(body: VideoIn):
     prompt = (body.prompt or "").strip()
@@ -857,42 +888,28 @@ def make_video(body: VideoIn):
         raise HTTPException(400, "prompt required")
     style = body.style or "Cinematic"
     duration = max(3, min(int(body.duration or 8), 30))
-    stub = True
-    extra = {"duration": duration, "video_url": None}
+    png = creative.render_stub_png(prompt, style, "16:9", "video")
+
     if creative.VIDEO_HOOK:
-        try:
-            hooked = creative.forward_hook(
-                creative.VIDEO_HOOK,
-                {"prompt": prompt, "style": style, "duration": duration},
-            )
-            extra["hook"] = {k: hooked[k] for k in hooked if k != "bytes"}
-            if hooked.get("video_url"):
-                extra["video_url"] = hooked["video_url"]
-                stub = False
-            message = hooked.get("message") or "Video hook accepted the job."
-        except Exception as e:
-            message = f"Video hook failed ({e}); poster stub saved."
-            extra["hook_error"] = str(e)
-        png = creative.render_stub_png(prompt, style, "16:9", "video")
+        message = f"Generating your {duration}s video - this can take several minutes. Check back on this item."
+        item = creative.record(
+            creations_dir=CREATIONS, kind="video", prompt=prompt, style=style,
+            aspect="16:9", duration=duration, png=png, stub=True, message=message,
+            extra={"duration": duration, "video_url": None, "video_status": "processing"},
+        )
+        threading.Thread(target=_video_worker, args=(item["id"], prompt, style, duration), daemon=True).start()
     else:
-        png = creative.render_stub_png(prompt, style, "16:9", "video")
         message = (
             f"Motion stub ({duration}s). Set THUNDER_VIDEO_URL to plug a renderer. "
             "The poster is in history until that hook exists."
         )
-    item = creative.record(
-        creations_dir=CREATIONS,
-        kind="video",
-        prompt=prompt,
-        style=style,
-        aspect="16:9",
-        duration=duration,
-        png=png,
-        stub=stub,
-        message=message,
-        extra=extra,
-    )
-    log_event("video", f"{item['id']} stub={stub} {duration}s")
+        item = creative.record(
+            creations_dir=CREATIONS, kind="video", prompt=prompt, style=style,
+            aspect="16:9", duration=duration, png=png, stub=True, message=message,
+            extra={"duration": duration, "video_url": None, "video_status": "stub"},
+        )
+
+    log_event("video", f"{item['id']} video_status={item.get('video_status')} {duration}s")
     write_status(mode="studio", message=f"video {item['id']}")
     return item
 

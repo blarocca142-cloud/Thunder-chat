@@ -184,3 +184,16 @@ def get_creation(creations_dir: Path, cid: str) -> dict | None:
         return json.loads(path.read_text())
     except json.JSONDecodeError:
         return None
+
+
+def update_creation(creations_dir: Path, cid: str, **fields) -> dict | None:
+    """Merges fields into an existing creation record - used by the async
+    video worker to flip status from 'processing' to 'done'/'error' once
+    the (slow) real generation finishes, without blocking the request that
+    kicked it off."""
+    item = get_creation(creations_dir, cid)
+    if item is None:
+        return None
+    item.update(fields)
+    (creations_dir / f"{cid}.json").write_text(json.dumps(item, indent=2))
+    return item
