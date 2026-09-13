@@ -14,7 +14,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 OLLAMA = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
-MODEL = os.environ.get("THUNDER_MODEL", "qwen2.5-coder:32b")
+MODEL = os.environ.get("THUNDER_MODEL", "dolphin3")  # never default to a Qwen/Alibaba model
 DATA = Path(os.environ.get("THUNDER_DATA", "./thunder-data"))
 DATA.mkdir(exist_ok=True)
 JOBS = DATA / "jobs"
