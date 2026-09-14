@@ -36,6 +36,12 @@
     <string name="studio_make_photo">Generate still</string>
     <string name="studio_make_video">Generate motion</string>
     <string name="studio_working">Working…</string>
+    <string name="studio_wait">Wait for this one to finish</string>
+    <string name="studio_starting">Starting…</string>
+    <string name="studio_rendering_still">Rendering still…</string>
+    <string name="studio_rendering_motion">Rendering motion…</string>
+    <string name="studio_ready">Ready — tap to open</string>
+    <string name="studio_stage">On the bench</string>
     <string name="studio_recent">Recent</string>
     <string name="studio_empty">Nothing on the wall yet.</string>
     <string name="studio_save">Save</string>
