@@ -25,7 +25,8 @@
     <string name="studio_motion_hint">Main starts the render and sends a poster first. Thunder polls until the clip is ready.</string>
     <string name="studio_processing">Rendering motion…</string>
     <string name="studio_play">Play</string>
-    <string name="studio_video_timeout">Taking longer than expected. Check history later.</string>
+    <string name="studio_video_timeout">Still working. This can take a while.</string>
+    <string name="studio_video_waiting">Still working. This can take a while.</string>
     <string name="studio_video_ready">Motion ready</string>
     <string name="studio_photo_hint">A quiet garage at 2 a.m., one work light, steel and dust…</string>
     <string name="studio_video_hint">Slow push on a workbench. One spark. Hold.</string>

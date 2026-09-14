@@ -82,7 +82,7 @@ fun CreativeStudio(
     var items by remember { mutableStateOf(store.list()) }
     var viewing by remember { mutableStateOf<Creation?>(null) }
     var preview by remember { mutableStateOf<Bitmap?>(null) }
-    var timedOut by remember { mutableStateOf(setOf<String>()) }
+    var waitingLong by remember { mutableStateOf(setOf<String>()) }
 
     fun reload(remote: List<Creation> = emptyList()) {
         val local = store.list()
@@ -99,18 +99,19 @@ fun CreativeStudio(
 
     LaunchedEffect(server) {
         if (server.isBlank()) return@LaunchedEffect
-        val deadlines = mutableMapOf<String, Long>()
+        val startedAt = mutableMapOf<String, Long>()
         while (isActive) {
-            val pending = store.list().filter { it.isVideoPending() && it.id !in timedOut }
+            val pending = store.list().filter { it.isVideoPending() }
             val now = System.currentTimeMillis()
             pending.forEach { item ->
-                val until = deadlines.getOrPut(item.id) { now + 5 * 60 * 1000L }
-                if (now > until) {
-                    timedOut = timedOut + item.id
-                    return@forEach
-                }
+                val t0 = startedAt.getOrPut(item.id) { now }
+                if (now - t0 >= 3 * 60 * 1000L) waitingLong = waitingLong + item.id
                 val fresh = runCatching { api.creation(server, item.id) }.getOrNull()
                 if (fresh != null) store.add(fresh)
+            }
+            val pendingIds = pending.map { it.id }.toSet()
+            if (waitingLong.any { it !in pendingIds }) {
+                waitingLong = waitingLong.filter { it in pendingIds }.toSet()
             }
             if (pending.isNotEmpty()) reload(api.creations(server))
             delay(5_000)
@@ -281,7 +282,7 @@ fun CreativeStudio(
         val phase = item.videoPhase()
         val playHref = if (phase == "done") api.mediaHref(server, item.videoUrl) else null
         val statusText = when {
-            item.id in timedOut && item.isVideoPending() -> stringResource(R.string.studio_video_timeout)
+            item.isVideoPending() && item.id in waitingLong -> stringResource(R.string.studio_video_waiting)
             item.isVideoPending() -> item.message.ifBlank { stringResource(R.string.studio_processing) }
             phase == "done" -> item.message.ifBlank { stringResource(R.string.studio_video_ready) }
             else -> item.message
@@ -313,7 +314,10 @@ fun CreativeStudio(
                         }
                         if (item.isVideoPending()) {
                             Text(
-                                stringResource(R.string.studio_processing),
+                                stringResource(
+                                    if (item.id in waitingLong) R.string.studio_video_waiting
+                                    else R.string.studio_processing
+                                ),
                                 color = ThunderInk.Gold,
                                 fontSize = 12.sp,
                                 modifier = Modifier

@@ -287,7 +287,7 @@ button:disabled { cursor: default; opacity: 0.45; }
   border-radius: 14px;
   overflow: hidden;
 }
-.viewer img { max-height: 70vh; width: 100%; object-fit: contain; background: #010101; }
+.viewer img, .viewer video { max-height: 70vh; width: 100%; object-fit: contain; background: #010101; display: block; }
 .viewer figcaption { padding: 14px 16px 16px; }
 .row { display: flex; gap: 8px; flex-wrap: wrap; }
 
