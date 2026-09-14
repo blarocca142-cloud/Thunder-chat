@@ -19,7 +19,7 @@ Or `./run.sh`.
 
 Browser: `http://MAIN-IP:8080`. Phone gear → that same URL.
 
-Desktop:
+Desktop: private AppImage / Windows portable — see `GET-DESKTOP.md`.
 
 ```bash
 cd Thunder-chat-v3/thunder-desktop

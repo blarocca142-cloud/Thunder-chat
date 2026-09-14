@@ -79,7 +79,7 @@
             </div>
             <div id="videoForm" class="hidden">
               <h3>Motion</h3>
-              <p class="hint">Duration is a placeholder until a video worker is on the hook.</p>
+              <p class="hint">Main returns a poster immediately. Thunder polls until the clip is ready.</p>
               <textarea class="field" id="videoPrompt" rows="5" placeholder="Slow push on a workbench. One spark. Hold."></textarea>
               <div class="side-label">Length</div>
               <div class="chips">
@@ -107,6 +107,7 @@
       </div>
       <div class="pad">
         <button class="btn ghost wide" id="exportFolder">Export studio folder</button>
+        <button class="btn ghost wide" id="mainUrl" style="margin-top:8px">Main URL…</button>
         <input id="fileInput" type="file" multiple hidden>
       </div>
       <h3>Overnight job</h3>

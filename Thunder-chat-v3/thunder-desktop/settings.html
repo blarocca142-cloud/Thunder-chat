@@ -1,0 +1,59 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Thunder — Main URL</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 22px 24px;
+      background: #1a1e26;
+      color: #ede8df;
+      font: 15px/1.4 "Segoe UI", system-ui, sans-serif;
+    }
+    h1 { margin: 0 0 8px; font-size: 18px; font-weight: 500; letter-spacing: 0.6px; }
+    p { margin: 0 0 14px; color: #9a948a; font-size: 13px; }
+    input {
+      width: 100%;
+      box-sizing: border-box;
+      background: #16191f;
+      border: 1px solid #3a414d;
+      border-radius: 10px;
+      color: #ede8df;
+      padding: 10px 12px;
+      margin-bottom: 14px;
+    }
+    .row { display: flex; gap: 8px; justify-content: flex-end; }
+    button {
+      border: 0;
+      border-radius: 8px;
+      padding: 8px 14px;
+      cursor: pointer;
+      color: #ede8df;
+      background: #252a33;
+    }
+    button.gold { background: #c4a35a; color: #16191f; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <h1>Main URL</h1>
+  <p>Point Thunder at the tower. Same LAN, port 8080. Example: http://10.168.168.10:8080</p>
+  <input id="api" spellcheck="false" placeholder="http://127.0.0.1:8080">
+  <div class="row">
+    <button id="local">This PC</button>
+    <button class="gold" id="save">Save</button>
+  </div>
+  <script>
+    const field = document.getElementById("api");
+    window.thunderDesktop.getApi().then((v) => { field.value = v || "http://127.0.0.1:8080"; });
+    document.getElementById("local").onclick = () => { field.value = "http://127.0.0.1:8080"; };
+    document.getElementById("save").onclick = async () => {
+      await window.thunderDesktop.setApi(field.value);
+      window.close();
+    };
+    field.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") document.getElementById("save").click();
+    });
+  </script>
+</body>
+</html>

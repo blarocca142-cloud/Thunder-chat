@@ -1,0 +1,60 @@
+name: Build Thunder Desktop
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "Thunder-chat-v3/thunder-desktop/**"
+      - "Thunder-chat-v3/thunder-web/**"
+      - ".github/workflows/build-desktop.yml"
+  push:
+    branches: [main]
+    paths:
+      - "Thunder-chat-v3/thunder-desktop/**"
+      - "Thunder-chat-v3/thunder-web/**"
+      - ".github/workflows/build-desktop.yml"
+
+jobs:
+  linux:
+    runs-on: ubuntu-22.04
+    defaults:
+      run:
+        working-directory: Thunder-chat-v3/thunder-desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install and pack AppImage
+        run: |
+          npm install
+          npm run pack:linux
+      - name: Upload Linux AppImage
+        uses: actions/upload-artifact@v4
+        with:
+          name: thunder-desktop-linux
+          path: Thunder-chat-v3/thunder-desktop/dist/*.AppImage
+          if-no-files-found: error
+
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: Thunder-chat-v3/thunder-desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install and pack Windows portable
+        run: |
+          npm install
+          npm run pack:win
+      - name: Upload Windows portable
+        uses: actions/upload-artifact@v4
+        with:
+          name: thunder-desktop-windows
+          path: |
+            Thunder-chat-v3/thunder-desktop/dist/*.exe
+            Thunder-chat-v3/thunder-desktop/dist/*.zip
+          if-no-files-found: error
