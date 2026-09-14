@@ -21,13 +21,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
@@ -40,15 +41,18 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import com.thunder.app.R
 import com.thunder.app.data.Creation
 import com.thunder.app.data.CreationStore
@@ -78,11 +82,13 @@ fun CreativeStudio(
     var style by remember { mutableStateOf("Cinematic") }
     var aspect by remember { mutableStateOf("1:1") }
     var duration by remember { mutableStateOf(8) }
-    var busy by remember { mutableStateOf(false) }
+    var posting by remember { mutableStateOf(false) }
     var items by remember { mutableStateOf(store.list()) }
     var viewing by remember { mutableStateOf<Creation?>(null) }
     var preview by remember { mutableStateOf<Bitmap?>(null) }
-    var timedOut by remember { mutableStateOf(setOf<String>()) }
+    var workPreview by remember { mutableStateOf<Bitmap?>(null) }
+    var waitingLong by remember { mutableStateOf(setOf<String>()) }
+    var activeId by remember { mutableStateOf<String?>(null) }
 
     fun reload(remote: List<Creation> = emptyList()) {
         val local = store.list()
@@ -93,24 +99,33 @@ fun CreativeStudio(
         }
     }
 
+    val pendingVideo = items.firstOrNull { it.isVideoPending() }
+    val active = items.find { it.id == activeId }
+    val work = pendingVideo ?: active
+    val blocked = posting || pendingVideo != null
+
     LaunchedEffect(server) {
         reload(api.creations(server))
+        if (activeId == null) {
+            store.list().firstOrNull { it.isVideoPending() }?.let { activeId = it.id }
+        }
     }
 
     LaunchedEffect(server) {
         if (server.isBlank()) return@LaunchedEffect
-        val deadlines = mutableMapOf<String, Long>()
+        val startedAt = mutableMapOf<String, Long>()
         while (isActive) {
-            val pending = store.list().filter { it.isVideoPending() && it.id !in timedOut }
+            val pending = store.list().filter { it.isVideoPending() }
             val now = System.currentTimeMillis()
             pending.forEach { item ->
-                val until = deadlines.getOrPut(item.id) { now + 5 * 60 * 1000L }
-                if (now > until) {
-                    timedOut = timedOut + item.id
-                    return@forEach
-                }
+                val t0 = startedAt.getOrPut(item.id) { now }
+                if (now - t0 >= 3 * 60 * 1000L) waitingLong = waitingLong + item.id
                 val fresh = runCatching { api.creation(server, item.id) }.getOrNull()
                 if (fresh != null) store.add(fresh)
+            }
+            val pendingIds = pending.map { it.id }.toSet()
+            if (waitingLong.any { it !in pendingIds }) {
+                waitingLong = waitingLong.filter { it in pendingIds }.toSet()
             }
             if (pending.isNotEmpty()) reload(api.creations(server))
             delay(5_000)
@@ -125,31 +140,40 @@ fun CreativeStudio(
             val bytes = api.fetchBytes(server, item.url)
             if (bytes != null) preview = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
         }
-        if (preview == null) {
-            preview = CreationStore.stubBitmap(item.prompt, item.style, item.aspect)
-        }
+    }
+
+    LaunchedEffect(work?.id, work?.url, server) {
+        val item = work
+        workPreview = null
+        if (item == null || item.url.isBlank()) return@LaunchedEffect
+        val bytes = api.fetchBytes(server, item.url)
+        if (bytes != null) workPreview = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
     }
 
     fun generate() {
         val text = prompt.trim()
-        if (text.isEmpty() || busy) return
-        busy = true
+        if (text.isEmpty()) return
+        if (blocked) {
+            Toast.makeText(context, context.getString(R.string.studio_wait), Toast.LENGTH_SHORT).show()
+            return
+        }
+        posting = true
         scope.launch {
-            val made = if (pane == StudioPane.Video) {
-                api.video(server, text, style, duration)
-            } else {
-                api.image(server, text, style, aspect)
+            try {
+                val made = if (pane == StudioPane.Video) {
+                    api.video(server, text, style, duration)
+                } else {
+                    api.image(server, text, style, aspect)
+                }
+                store.add(made)
+                activeId = made.id
+                reload(if (server.isNotBlank()) api.creations(server) else emptyList())
+                if (made.id == "err") {
+                    Toast.makeText(context, made.message, Toast.LENGTH_SHORT).show()
+                }
+            } finally {
+                posting = false
             }
-            store.add(made)
-            reload(if (server.isNotBlank()) api.creations(server) else emptyList())
-            viewing = made
-            busy = false
-            val toastText = when {
-                made.id == "err" -> made.message
-                made.isVideoPending() -> context.getString(R.string.studio_processing)
-                else -> made.message.ifBlank { context.getString(R.string.studio_done) }
-            }
-            Toast.makeText(context, toastText, Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -208,6 +232,7 @@ fun CreativeStudio(
                     onValueChange = { prompt = it },
                     modifier = Modifier.fillMaxWidth(),
                     minLines = 4,
+                    enabled = !blocked,
                     placeholder = {
                         Text(
                             if (pane == StudioPane.Photo) stringResource(R.string.studio_photo_hint)
@@ -220,37 +245,63 @@ fun CreativeStudio(
                 Spacer(Modifier.height(14.dp))
                 Text(stringResource(R.string.studio_style), color = ThunderInk.Mute, fontSize = 11.sp, letterSpacing = 0.7.sp)
                 Spacer(Modifier.height(8.dp))
-                ChipRow(Styles, style) { style = it }
+                ChipRow(Styles, style) { if (!blocked) style = it }
                 if (pane == StudioPane.Photo) {
                     Spacer(Modifier.height(12.dp))
                     Text(stringResource(R.string.studio_frame), color = ThunderInk.Mute, fontSize = 11.sp, letterSpacing = 0.7.sp)
                     Spacer(Modifier.height(8.dp))
-                    ChipRow(Aspects, aspect) { aspect = it }
+                    ChipRow(Aspects, aspect) { if (!blocked) aspect = it }
                 } else {
                     Spacer(Modifier.height(12.dp))
                     Text(stringResource(R.string.studio_length), color = ThunderInk.Mute, fontSize = 11.sp, letterSpacing = 0.7.sp)
                     Spacer(Modifier.height(8.dp))
-                    ChipRow(Durations.map { "${it}s" }, "${duration}s") { duration = it.trimEnd('s').toInt() }
+                    ChipRow(Durations.map { "${it}s" }, "${duration}s") { if (!blocked) duration = it.trimEnd('s').toInt() }
                 }
                 Spacer(Modifier.height(18.dp))
+                val canStart = prompt.isNotBlank() && !blocked
                 Box(
                     Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(12.dp))
-                        .background(if (prompt.isNotBlank() && !busy) ThunderInk.Gold else ThunderInk.Surface)
-                        .clickable(enabled = prompt.isNotBlank() && !busy) { generate() }
+                        .background(if (canStart) ThunderInk.Gold else ThunderInk.Surface)
+                        .clickable {
+                            when {
+                                blocked -> Toast.makeText(context, context.getString(R.string.studio_wait), Toast.LENGTH_SHORT).show()
+                                prompt.isNotBlank() -> generate()
+                            }
+                        }
                         .padding(vertical = 14.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        if (busy) stringResource(R.string.studio_working)
-                        else if (pane == StudioPane.Photo) stringResource(R.string.studio_make_photo)
-                        else stringResource(R.string.studio_make_video),
-                        color = if (prompt.isNotBlank() && !busy) ThunderInk.OnGold else ThunderInk.Mute,
+                        when {
+                            blocked -> stringResource(R.string.studio_wait)
+                            pane == StudioPane.Photo -> stringResource(R.string.studio_make_photo)
+                            else -> stringResource(R.string.studio_make_video)
+                        },
+                        color = if (canStart) ThunderInk.OnGold else ThunderInk.Mute,
                         fontWeight = FontWeight.Medium,
                         letterSpacing = 0.3.sp
                     )
                 }
+
+                if (posting || work != null) {
+                    Spacer(Modifier.height(18.dp))
+                    StudioWorkCard(
+                        item = work,
+                        posting = posting,
+                        waitingLong = work?.id in waitingLong,
+                        poster = workPreview,
+                        ratio = if (pane == StudioPane.Video || work?.kind == "video") 16f / 9f else when (work?.aspect ?: aspect) {
+                            "16:9" -> 16f / 9f
+                            "9:16" -> 9f / 16f
+                            "4:3" -> 4f / 3f
+                            else -> 1f
+                        },
+                        onOpen = { work?.let { viewing = it } }
+                    )
+                }
+
                 Spacer(Modifier.height(18.dp))
                 Text(stringResource(R.string.studio_recent), color = ThunderInk.Mute, fontSize = 11.sp, letterSpacing = 0.7.sp)
                 Spacer(Modifier.height(8.dp))
@@ -280,59 +331,58 @@ fun CreativeStudio(
     viewing?.let { item ->
         val phase = item.videoPhase()
         val playHref = if (phase == "done") api.mediaHref(server, item.videoUrl) else null
+        val inFlight = item.isVideoPending() || (posting && item.id == activeId)
         val statusText = when {
-            item.id in timedOut && item.isVideoPending() -> stringResource(R.string.studio_video_timeout)
-            item.isVideoPending() -> item.message.ifBlank { stringResource(R.string.studio_processing) }
+            inFlight && item.id in waitingLong -> stringResource(R.string.studio_video_waiting)
+            inFlight -> item.message.ifBlank { stringResource(R.string.studio_processing) }
             phase == "done" -> item.message.ifBlank { stringResource(R.string.studio_video_ready) }
             else -> item.message
         }
-        AlertDialog(
-            onDismissRequest = { viewing = null },
-            containerColor = ThunderInk.Surface,
-            shape = RoundedCornerShape(14.dp),
-            title = {
-                Text(
-                    item.kind.replaceFirstChar { it.uppercase() },
-                    color = ThunderInk.Ink,
-                    fontWeight = FontWeight.Medium
-                )
-            },
-            text = {
-                Column {
-                    Box {
-                        preview?.let { bmp ->
-                            Image(
-                                bitmap = bmp.asImageBitmap(),
-                                contentDescription = item.prompt,
-                                contentScale = ContentScale.Fit,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(ThunderInk.SlateDeep)
-                            )
-                        }
-                        if (item.isVideoPending()) {
-                            Text(
-                                stringResource(R.string.studio_processing),
-                                color = ThunderInk.Gold,
-                                fontSize = 12.sp,
-                                modifier = Modifier
-                                    .align(Alignment.BottomStart)
-                                    .padding(10.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(ThunderInk.Drawer.copy(alpha = 0.82f))
-                                    .padding(horizontal = 8.dp, vertical = 4.dp)
-                            )
-                        }
+        Dialog(onDismissRequest = { viewing = null }) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(ThunderInk.Surface)
+                    .border(1.dp, ThunderInk.Hairline, RoundedCornerShape(16.dp))
+                    .padding(14.dp)
+            ) {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(ThunderInk.SlateDeep)
+                        .aspectRatio(if (item.kind == "video") 16f / 9f else 1f),
+                    contentAlignment = Alignment.Center
+                ) {
+                    preview?.let { bmp ->
+                        Image(
+                            bitmap = bmp.asImageBitmap(),
+                            contentDescription = item.prompt,
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .alpha(if (inFlight) 0.45f else 1f)
+                        )
                     }
-                    Spacer(Modifier.height(10.dp))
-                    Text(item.prompt, color = ThunderInk.Ink, fontSize = 14.sp)
-                    Spacer(Modifier.height(6.dp))
-                    Text(statusText, color = ThunderInk.Mute, fontSize = 12.sp, lineHeight = 17.sp)
+                    if (inFlight) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(36.dp),
+                            color = ThunderInk.Gold,
+                            strokeWidth = 2.dp
+                        )
+                    }
                 }
-            },
-            confirmButton = {
-                Row {
+                Spacer(Modifier.height(12.dp))
+                Text(item.prompt, color = ThunderInk.Ink, fontSize = 14.sp)
+                Spacer(Modifier.height(6.dp))
+                Text(statusText, color = ThunderInk.Mute, fontSize = 12.sp, lineHeight = 17.sp)
+                Spacer(Modifier.height(12.dp))
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     if (playHref != null) {
                         TextButton(
                             onClick = {
@@ -363,11 +413,7 @@ fun CreativeStudio(
                                 }
                             }
                         }
-                    ) { Text(stringResource(R.string.studio_save), color = if (playHref != null) ThunderInk.Ink else ThunderInk.Gold) }
-                }
-            },
-            dismissButton = {
-                Row {
+                    ) { Text(stringResource(R.string.studio_save), color = ThunderInk.Gold) }
                     TextButton(
                         onClick = {
                             scope.launch {
@@ -382,12 +428,101 @@ fun CreativeStudio(
                             }
                         }
                     ) { Text(stringResource(R.string.studio_share), color = ThunderInk.Ink) }
+                    Spacer(Modifier.weight(1f))
                     TextButton(onClick = { viewing = null }) {
                         Text(stringResource(R.string.studio_close), color = ThunderInk.Mute)
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun StudioWorkCard(
+    item: Creation?,
+    posting: Boolean,
+    waitingLong: Boolean,
+    poster: Bitmap?,
+    ratio: Float,
+    onOpen: () -> Unit
+) {
+    val inFlight = posting || item?.isVideoPending() == true
+    val phase = item?.videoPhase().orEmpty()
+    val status = when {
+        posting && item == null -> stringResource(R.string.studio_starting)
+        inFlight && waitingLong -> stringResource(R.string.studio_video_waiting)
+        inFlight && item?.kind == "image" -> stringResource(R.string.studio_rendering_still)
+        inFlight -> stringResource(R.string.studio_rendering_motion)
+        phase == "error" -> item?.message.orEmpty().ifBlank { stringResource(R.string.studio_save_fail) }
+        phase == "done" || (item != null && !inFlight) -> stringResource(R.string.studio_ready)
+        else -> item?.message.orEmpty()
+    }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(ThunderInk.Surface)
+            .border(1.dp, ThunderInk.Gold.copy(alpha = 0.35f), RoundedCornerShape(14.dp))
+            .clickable(enabled = item != null && !inFlight) { onOpen() }
+            .padding(12.dp)
+    ) {
+        Text(
+            stringResource(R.string.studio_stage),
+            color = ThunderInk.Mute,
+            fontSize = 11.sp,
+            letterSpacing = 0.7.sp
         )
+        Spacer(Modifier.height(10.dp))
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(10.dp))
+                .background(ThunderInk.SlateDeep)
+                .aspectRatio(ratio.coerceIn(0.5f, 2.2f)),
+            contentAlignment = Alignment.Center
+        ) {
+            val showPoster = poster != null && (item?.isVideoPending() == true || !inFlight)
+            if (showPoster) {
+                Image(
+                    bitmap = poster!!.asImageBitmap(),
+                    contentDescription = item?.prompt,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .alpha(if (inFlight) 0.4f else 1f)
+                )
+            }
+            if (inFlight) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(32.dp),
+                        color = ThunderInk.Gold,
+                        strokeWidth = 2.dp
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        status,
+                        color = ThunderInk.Gold,
+                        fontSize = 12.sp,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(horizontal = 16.dp)
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        Text(
+            item?.prompt?.ifBlank { status } ?: status,
+            color = ThunderInk.Ink,
+            fontSize = 13.sp,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
+        if (!inFlight && item != null) {
+            Spacer(Modifier.height(4.dp))
+            Text(status, color = ThunderInk.Mute, fontSize = 12.sp)
+        }
     }
 }
 
@@ -432,7 +567,7 @@ private fun CreationGrid(
         return
     }
     LazyVerticalGrid(
-        columns = GridCells.Fixed(if (compact) 2 else 2),
+        columns = GridCells.Fixed(2),
         modifier = modifier.fillMaxWidth().then(if (compact) Modifier.height(280.dp) else Modifier),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -458,7 +593,6 @@ private fun CreationThumb(
             val bytes = api.fetchBytes(server, item.url)
             if (bytes != null) bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
         }
-        if (bmp == null) bmp = CreationStore.stubBitmap(item.prompt, item.style, item.aspect)
     }
     Column(
         Modifier
@@ -471,27 +605,24 @@ private fun CreationThumb(
             Modifier
                 .fillMaxWidth()
                 .aspectRatio(1f)
-                .background(ThunderInk.SlateDeep)
+                .background(ThunderInk.SlateDeep),
+            contentAlignment = Alignment.Center
         ) {
             bmp?.let {
                 Image(
                     bitmap = it.asImageBitmap(),
                     contentDescription = item.prompt,
                     contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .alpha(if (item.isVideoPending()) 0.45f else 1f)
                 )
             }
             if (item.isVideoPending()) {
-                Text(
-                    stringResource(R.string.studio_processing),
+                CircularProgressIndicator(
+                    modifier = Modifier.size(22.dp),
                     color = ThunderInk.Gold,
-                    fontSize = 11.sp,
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .padding(8.dp)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(ThunderInk.Drawer.copy(alpha = 0.82f))
-                        .padding(horizontal = 6.dp, vertical = 3.dp)
+                    strokeWidth = 2.dp
                 )
             }
         }
@@ -510,9 +641,12 @@ private fun CreationThumb(
 private fun thunderStudioFieldColors() = androidx.compose.material3.TextFieldDefaults.colors(
     focusedTextColor = ThunderInk.Ink,
     unfocusedTextColor = ThunderInk.Ink,
+    disabledTextColor = ThunderInk.Mute,
     focusedContainerColor = ThunderInk.SlateDeep,
     unfocusedContainerColor = ThunderInk.SlateDeep,
+    disabledContainerColor = ThunderInk.SlateDeep,
     cursorColor = ThunderInk.Gold,
     focusedIndicatorColor = ThunderInk.Gold.copy(alpha = 0.7f),
-    unfocusedIndicatorColor = ThunderInk.Hairline
+    unfocusedIndicatorColor = ThunderInk.Hairline,
+    disabledIndicatorColor = ThunderInk.Hairline
 )

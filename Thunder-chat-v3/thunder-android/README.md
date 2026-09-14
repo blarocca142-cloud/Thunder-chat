@@ -2,9 +2,11 @@
 
 This is the phone app. It is supposed to open and look like Thunder even if Main is offline.
 
-Open this folder in Android Studio → Run on a phone or emulator → Build → Generate Signed Bundle / APK if you want an APK.
+Open this folder in Android Studio → Run on a phone or emulator.
 
-Default server URL is empty. Chat still works in demo mode until Claude wires Main.
+Private APKs from GitHub Actions are signed with `keystore/thunder-debug.keystore` so they install **over** the existing Thunder (from 0.8.5 on). See repo-root `GET-THE-APK.md`.
+
+Default server URL is empty. Chat still works in demo mode until Main is pointed in Settings.
 
 ## Claude
 
