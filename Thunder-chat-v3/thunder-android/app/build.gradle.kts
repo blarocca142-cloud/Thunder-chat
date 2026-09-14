@@ -11,12 +11,26 @@ android {
         applicationId = "com.thunder.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 26
-        versionName = "0.8.4"
+        versionCode = 27
+        versionName = "0.8.5"
+    }
+    // Private sideload key. Same cert every CI/cloud run so APKs install OVER
+    // the previous Thunder. Not a Play Store key. Do not rotate casually.
+    signingConfigs {
+        create("thunderPrivate") {
+            storeFile = rootProject.file("keystore/thunder-debug.keystore")
+            storePassword = "thunder-debug"
+            keyAlias = "thunder"
+            keyPassword = "thunder-debug"
+        }
     }
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("thunderPrivate")
+        }
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("thunderPrivate")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
