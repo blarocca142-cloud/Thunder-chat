@@ -159,17 +159,20 @@ fun CreativeStudio(
         }
         posting = true
         scope.launch {
-            val made = if (pane == StudioPane.Video) {
-                api.video(server, text, style, duration)
-            } else {
-                api.image(server, text, style, aspect)
-            }
-            store.add(made)
-            activeId = made.id
-            reload(if (server.isNotBlank()) api.creations(server) else emptyList())
-            posting = false
-            if (made.id == "err") {
-                Toast.makeText(context, made.message, Toast.LENGTH_SHORT).show()
+            try {
+                val made = if (pane == StudioPane.Video) {
+                    api.video(server, text, style, duration)
+                } else {
+                    api.image(server, text, style, aspect)
+                }
+                store.add(made)
+                activeId = made.id
+                reload(if (server.isNotBlank()) api.creations(server) else emptyList())
+                if (made.id == "err") {
+                    Toast.makeText(context, made.message, Toast.LENGTH_SHORT).show()
+                }
+            } finally {
+                posting = false
             }
         }
     }
@@ -375,7 +378,11 @@ fun CreativeStudio(
                 Spacer(Modifier.height(6.dp))
                 Text(statusText, color = ThunderInk.Mute, fontSize = 12.sp, lineHeight = 17.sp)
                 Spacer(Modifier.height(12.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     if (playHref != null) {
                         TextButton(
                             onClick = {
