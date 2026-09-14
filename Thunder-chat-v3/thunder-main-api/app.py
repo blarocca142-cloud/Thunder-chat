@@ -146,6 +146,7 @@ class VideoIn(BaseModel):
     prompt: str
     style: str = "Cinematic"
     duration: int = 8
+    quality: str = "480p"  # or "720p" - see genai_server.py VIDEO_RESOLUTIONS
 
 
 class ModelIn(BaseModel):
@@ -870,29 +871,32 @@ def make_image(body: ImageIn):
     return item
 
 
-def _video_worker(cid: str, prompt: str, style: str, duration: int) -> None:
+def _video_worker(cid: str, prompt: str, style: str, duration: int, quality: str) -> None:
     """Runs in a background thread - real video generation takes minutes,
     way past what a synchronous HTTP response should ever wait for. Updates
     the creation record in place when done; the client polls GET
-    /creations/{id} (or /video/{id}) to see the status flip."""
+    /creations/{id} (or /video/{id}) to see the status flip.
+
+    Deliberately NOT using creative.forward_hook() here - it hardcodes a
+    180s timeout, which is fine for photo (~10-15s) but was silently
+    killing every real video job (6-35+ min) with a "timed out" error
+    that looked like a real failure. Same fix already applied to
+    _edit_worker; this was the one spot it got missed."""
     try:
-        hooked = creative.forward_hook(
-            creative.VIDEO_HOOK,
-            {"prompt": prompt, "style": style, "duration": duration},
+        payload = json.dumps({"prompt": prompt, "style": style, "duration": duration, "quality": quality}).encode()
+        req = urllib.request.Request(
+            creative.VIDEO_HOOK, data=payload,
+            headers={"Content-Type": "application/json"}, method="POST",
         )
-        if isinstance(hooked, dict) and hooked.get("bytes"):
-            name = f"{cid}.mp4"
-            (CREATIONS / name).write_bytes(hooked["bytes"])
-            creative.update_creation(
-                CREATIONS, cid,
-                video_url=f"/media/{name}", video_status="done",
-                stub=False, message="Video ready.",
-            )
-        else:
-            creative.update_creation(
-                CREATIONS, cid, video_status="error",
-                message="Video hook didn't return video bytes.",
-            )
+        with urllib.request.urlopen(req, timeout=2700) as r:
+            mp4_bytes = r.read()
+        name = f"{cid}.mp4"
+        (CREATIONS / name).write_bytes(mp4_bytes)
+        creative.update_creation(
+            CREATIONS, cid,
+            video_url=f"/media/{name}", video_status="done",
+            stub=False, message="Video ready.",
+        )
     except Exception as e:
         record_error("/video (background)", e)
         creative.update_creation(
@@ -907,16 +911,17 @@ def make_video(body: VideoIn):
         raise HTTPException(400, "prompt required")
     style = body.style or "Cinematic"
     duration = max(3, min(int(body.duration or 8), 30))
+    quality = body.quality if body.quality in ("480p", "720p") else "480p"
     png = creative.render_stub_png(prompt, style, "16:9", "video")
 
     if creative.VIDEO_HOOK:
-        message = f"Generating your {duration}s video - this can take several minutes. Check back on this item."
+        message = f"Generating your {duration}s {quality} video - this can take several minutes. Check back on this item."
         item = creative.record(
             creations_dir=CREATIONS, kind="video", prompt=prompt, style=style,
             aspect="16:9", duration=duration, png=png, stub=True, message=message,
-            extra={"duration": duration, "video_url": None, "video_status": "processing"},
+            extra={"duration": duration, "video_url": None, "video_status": "processing", "quality": quality},
         )
-        threading.Thread(target=_video_worker, args=(item["id"], prompt, style, duration), daemon=True).start()
+        threading.Thread(target=_video_worker, args=(item["id"], prompt, style, duration, quality), daemon=True).start()
     else:
         message = (
             f"Motion stub ({duration}s). Set THUNDER_VIDEO_URL to plug a renderer. "
