@@ -2,16 +2,19 @@
 
 Electron shell around `thunder-web`. Same brand, more room than the phone.
 
-```bash
-# API first
-cd ../thunder-main-api && python3 -m uvicorn app:app --host 127.0.0.1 --port 8080
+See **[GET-DESKTOP.md](../GET-DESKTOP.md)** for private download, install, and first-run Main URL.
 
-# then
-cd ../thunder-desktop
+```bash
+cd Thunder-chat-v3/thunder-desktop
 npm install
 npm start
 ```
 
-If Main is not on 8080, set the URL in the sidebar. `Ctrl/Cmd+Shift+T` focuses Thunder from the tray.
+Pack private binaries (no public GitHub Release):
 
-No public GitHub Release. Run it locally.
+```bash
+npm run pack:linux   # AppImage
+npm run pack:win     # portable exe + zip (best on Windows CI)
+```
+
+`Ctrl/Cmd+Shift+T` focuses Thunder from the tray. Tray → **Main URL…** points at the tower.

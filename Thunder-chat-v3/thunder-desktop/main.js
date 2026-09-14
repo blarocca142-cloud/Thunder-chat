@@ -3,10 +3,10 @@ const fs = require("fs");
 const path = require("path");
 
 const ICON = path.join(__dirname, "icon.png");
-const WEB = path.join(__dirname, "..", "thunder-web", "index.html");
 const PREFS = path.join(app.getPath("userData"), "thunder-desktop.json");
 
 let tray = null;
+let settingsWin = null;
 
 function prefs() {
   try {
@@ -21,13 +21,31 @@ function savePrefs(next) {
   fs.writeFileSync(PREFS, JSON.stringify(next, null, 2));
 }
 
-function loadTarget() {
-  const api = prefs().api || "http://127.0.0.1:8080";
-  return { api, query: `?surface=desktop&api=${encodeURIComponent(api)}` };
+function currentApi() {
+  return (prefs().api || "http://127.0.0.1:8080").trim().replace(/\/$/, "");
+}
+
+function webIndex() {
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, "thunder-web", "index.html");
+  }
+  return path.join(__dirname, "..", "thunder-web", "index.html");
+}
+
+function applyApi(api, { reload = true } = {}) {
+  const next = (api || "").trim().replace(/\/$/, "") || "http://127.0.0.1:8080";
+  savePrefs({ ...prefs(), api: next });
+  if (reload) {
+    BrowserWindow.getAllWindows().forEach((win) => {
+      if (win === settingsWin) return;
+      win.loadFile(webIndex(), { query: { surface: "desktop", api: next } });
+    });
+  }
+  return next;
 }
 
 function createWindow() {
-  const { api, query } = loadTarget();
+  const api = currentApi();
   const win = new BrowserWindow({
     width: 1480,
     height: 920,
@@ -43,11 +61,35 @@ function createWindow() {
     },
   });
   win.removeMenu();
-  const remote = `${api.replace(/\/$/, "")}/${query}`;
-  win.loadURL(remote).catch(() => {
-    win.loadFile(WEB, { query: { surface: "desktop", api } });
-  });
+  win.loadFile(webIndex(), { query: { surface: "desktop", api } });
   return win;
+}
+
+function openSettings() {
+  if (settingsWin && !settingsWin.isDestroyed()) {
+    settingsWin.show();
+    settingsWin.focus();
+    return;
+  }
+  settingsWin = new BrowserWindow({
+    width: 460,
+    height: 260,
+    resizable: false,
+    backgroundColor: "#1a1e26",
+    title: "Thunder — Main URL",
+    icon: ICON,
+    parent: BrowserWindow.getFocusedWindow() || undefined,
+    webPreferences: {
+      preload: path.join(__dirname, "preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+  settingsWin.removeMenu();
+  settingsWin.loadFile(path.join(__dirname, "settings.html"));
+  settingsWin.on("closed", () => {
+    settingsWin = null;
+  });
 }
 
 function makeTray() {
@@ -57,28 +99,23 @@ function makeTray() {
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: "New chat window", click: () => createWindow() },
-      { label: "Studio", click: () => { const w = createWindow(); w.webContents.on("did-finish-load", () => w.webContents.executeJavaScript("document.getElementById('tabStudio')?.click()")); } },
-      { type: "separator" },
       {
-        label: "Main URL…",
-        click: async () => {
-          const current = prefs();
-          const { response } = await dialog.showMessageBox({
-            type: "question",
-            buttons: ["Keep", "Use 127.0.0.1:8080"],
-            message: `Current Main: ${current.api}`,
-          });
-          if (response === 1) {
-            savePrefs({ ...current, api: "http://127.0.0.1:8080" });
-          }
+        label: "Studio",
+        click: () => {
+          const w = createWindow();
+          w.webContents.on("did-finish-load", () =>
+            w.webContents.executeJavaScript("document.getElementById('tabStudio')?.click()")
+          );
         },
       },
+      { type: "separator" },
+      { label: "Main URL…", click: () => openSettings() },
       { type: "separator" },
       { label: "Quit Thunder", click: () => app.quit() },
     ])
   );
   tray.on("click", () => {
-    const existing = BrowserWindow.getAllWindows()[0];
+    const existing = BrowserWindow.getAllWindows().find((w) => w !== settingsWin);
     if (existing) existing.show();
     else createWindow();
   });
@@ -88,7 +125,7 @@ app.whenReady().then(() => {
   createWindow();
   makeTray();
   globalShortcut.register("CommandOrControl+Shift+T", () => {
-    const win = BrowserWindow.getAllWindows()[0] || createWindow();
+    const win = BrowserWindow.getAllWindows().find((w) => w !== settingsWin) || createWindow();
     win.show();
     win.focus();
   });
@@ -106,6 +143,12 @@ app.on("will-quit", () => globalShortcut.unregisterAll());
 ipcMain.handle("new-window", () => {
   createWindow();
 });
+
+ipcMain.handle("get-api", () => currentApi());
+
+ipcMain.handle("set-api", (_e, api) => applyApi(api));
+
+ipcMain.handle("open-settings", () => openSettings());
 
 ipcMain.handle("pick-files", async () => {
   const { canceled, filePaths } = await dialog.showOpenDialog({

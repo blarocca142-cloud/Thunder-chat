@@ -1,14 +1,57 @@
 {
   "name": "thunder-desktop",
-  "version": "0.8.0",
+  "productName": "Thunder",
+  "version": "0.8.2",
   "private": true,
   "description": "Thunder desktop — chat, studio, local Main control",
+  "author": "Thunder",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "pack:dir": "electron-packager . Thunder --overwrite --out dist --icon=icon.png --ignore=dist"
+    "pack:linux": "electron-builder --linux AppImage",
+    "pack:win": "electron-builder --win portable zip",
+    "pack": "electron-builder --linux AppImage --win portable zip"
   },
   "devDependencies": {
-    "electron": "^33.2.1"
+    "electron": "33.2.1",
+    "electron-builder": "25.1.8"
+  },
+  "build": {
+    "appId": "com.thunder.desktop",
+    "productName": "Thunder",
+    "artifactName": "Thunder-${version}-${os}-${arch}.${ext}",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "settings.html",
+      "icon.png",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../thunder-web",
+        "to": "thunder-web",
+        "filter": ["**/*"]
+      }
+    ],
+    "linux": {
+      "target": ["AppImage"],
+      "category": "Utility",
+      "icon": "icon.png",
+      "synopsis": "Thunder — local AI chat and studio"
+    },
+    "win": {
+      "target": [
+        { "target": "portable", "arch": ["x64"] },
+        { "target": "zip", "arch": ["x64"] }
+      ],
+      "icon": "icon.png"
+    },
+    "portable": {
+      "artifactName": "Thunder-${version}-windows-portable.exe"
+    }
   }
 }
