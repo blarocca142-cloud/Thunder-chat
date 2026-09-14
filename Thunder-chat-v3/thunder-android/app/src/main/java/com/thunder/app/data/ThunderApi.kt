@@ -17,9 +17,23 @@ data class Creation(
     val aspect: String,
     val duration: Int?,
     val url: String,
+    val videoUrl: String? = null,
+    val videoStatus: String? = null,
     val stub: Boolean,
     val message: String
-)
+) {
+    /** processing | done | error | stub | "" for stills */
+    fun videoPhase(): String {
+        val reported = videoStatus?.lowercase()?.trim().orEmpty()
+        if (reported.isNotEmpty()) return reported
+        if (kind != "video") return ""
+        if (!videoUrl.isNullOrBlank() && !stub) return "done"
+        if (stub) return "stub"
+        return "processing"
+    }
+
+    fun isVideoPending(): Boolean = kind == "video" && videoPhase() == "processing"
+}
 
 data class ThunderStatus(
     val mode: String,
@@ -125,9 +139,29 @@ class ThunderApi(
         }
     }
 
+    suspend fun creation(server: String, id: String): Creation? = withContext(Dispatchers.IO) {
+        if (server.isBlank() || id.isBlank()) return@withContext null
+        try {
+            val req = Request.Builder().url("${base(server)}/creations/$id").get().build()
+            client.newCall(req).execute().use { res ->
+                val body = res.body?.string().orEmpty()
+                if (!res.isSuccessful) return@use null
+                parseCreation(JSONObject(body))
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    fun mediaHref(server: String, pathOrUrl: String?): String? {
+        if (pathOrUrl.isNullOrBlank()) return null
+        if (pathOrUrl.startsWith("http")) return pathOrUrl
+        if (server.isBlank()) return null
+        return "${base(server)}$pathOrUrl"
+    }
+
     suspend fun fetchBytes(server: String, pathOrUrl: String): ByteArray? = withContext(Dispatchers.IO) {
-        if (server.isBlank()) return@withContext null
-        val href = if (pathOrUrl.startsWith("http")) pathOrUrl else "${base(server)}$pathOrUrl"
+        val href = mediaHref(server, pathOrUrl) ?: return@withContext null
         try {
             val req = Request.Builder().url(href).get().build()
             client.newCall(req).execute().use { res ->
@@ -148,6 +182,8 @@ class ThunderApi(
                 aspect = payload.optString("aspect", "1:1"),
                 duration = payload.optInt("duration").takeIf { it > 0 },
                 url = "",
+                videoUrl = null,
+                videoStatus = if (path.endsWith("video")) "stub" else null,
                 stub = true,
                 message = "Shell mode — point Settings at Main to hit Studio hooks."
             )
@@ -196,9 +232,16 @@ class ThunderApi(
         aspect = o.optString("aspect", "1:1"),
         duration = o.optInt("duration").takeIf { it > 0 },
         url = o.optString("url"),
+        videoUrl = o.optionalString("video_url"),
+        videoStatus = o.optionalString("video_status"),
         stub = o.optBoolean("stub", true),
         message = o.optString("message")
     )
+
+    private fun JSONObject.optionalString(key: String): String? {
+        if (!has(key) || isNull(key)) return null
+        return optString(key).ifBlank { null }
+    }
 
     private fun demoStatus(message: String) = ThunderStatus(
         mode = "idle",

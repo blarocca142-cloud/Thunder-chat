@@ -1,7 +1,9 @@
 package com.thunder.app.ui
 
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -51,6 +53,8 @@ import com.thunder.app.R
 import com.thunder.app.data.Creation
 import com.thunder.app.data.CreationStore
 import com.thunder.app.data.ThunderApi
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.ByteArrayOutputStream
 
@@ -78,15 +82,39 @@ fun CreativeStudio(
     var items by remember { mutableStateOf(store.list()) }
     var viewing by remember { mutableStateOf<Creation?>(null) }
     var preview by remember { mutableStateOf<Bitmap?>(null) }
+    var timedOut by remember { mutableStateOf(setOf<String>()) }
 
     fun reload(remote: List<Creation> = emptyList()) {
         val local = store.list()
         val merged = (remote + local).distinctBy { it.id }
         items = merged
+        viewing?.let { open ->
+            merged.find { it.id == open.id }?.let { viewing = it }
+        }
     }
 
     LaunchedEffect(server) {
         reload(api.creations(server))
+    }
+
+    LaunchedEffect(server) {
+        if (server.isBlank()) return@LaunchedEffect
+        val deadlines = mutableMapOf<String, Long>()
+        while (isActive) {
+            val pending = store.list().filter { it.isVideoPending() && it.id !in timedOut }
+            val now = System.currentTimeMillis()
+            pending.forEach { item ->
+                val until = deadlines.getOrPut(item.id) { now + 5 * 60 * 1000L }
+                if (now > until) {
+                    timedOut = timedOut + item.id
+                    return@forEach
+                }
+                val fresh = runCatching { api.creation(server, item.id) }.getOrNull()
+                if (fresh != null) store.add(fresh)
+            }
+            if (pending.isNotEmpty()) reload(api.creations(server))
+            delay(5_000)
+        }
     }
 
     LaunchedEffect(viewing?.id, viewing?.url, server) {
@@ -116,7 +144,12 @@ fun CreativeStudio(
             reload(if (server.isNotBlank()) api.creations(server) else emptyList())
             viewing = made
             busy = false
-            Toast.makeText(context, made.message.ifBlank { context.getString(R.string.studio_done) }, Toast.LENGTH_SHORT).show()
+            val toastText = when {
+                made.id == "err" -> made.message
+                made.isVideoPending() -> context.getString(R.string.studio_processing)
+                else -> made.message.ifBlank { context.getString(R.string.studio_done) }
+            }
+            Toast.makeText(context, toastText, Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -245,6 +278,14 @@ fun CreativeStudio(
     }
 
     viewing?.let { item ->
+        val phase = item.videoPhase()
+        val playHref = if (phase == "done") api.mediaHref(server, item.videoUrl) else null
+        val statusText = when {
+            item.id in timedOut && item.isVideoPending() -> stringResource(R.string.studio_video_timeout)
+            item.isVideoPending() -> item.message.ifBlank { stringResource(R.string.studio_processing) }
+            phase == "done" -> item.message.ifBlank { stringResource(R.string.studio_video_ready) }
+            else -> item.message
+        }
         AlertDialog(
             onDismissRequest = { viewing = null },
             containerColor = ThunderInk.Surface,
@@ -258,42 +299,72 @@ fun CreativeStudio(
             },
             text = {
                 Column {
-                    preview?.let { bmp ->
-                        Image(
-                            bitmap = bmp.asImageBitmap(),
-                            contentDescription = item.prompt,
-                            contentScale = ContentScale.Fit,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(ThunderInk.SlateDeep)
-                        )
-                        Spacer(Modifier.height(10.dp))
+                    Box {
+                        preview?.let { bmp ->
+                            Image(
+                                bitmap = bmp.asImageBitmap(),
+                                contentDescription = item.prompt,
+                                contentScale = ContentScale.Fit,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(ThunderInk.SlateDeep)
+                            )
+                        }
+                        if (item.isVideoPending()) {
+                            Text(
+                                stringResource(R.string.studio_processing),
+                                color = ThunderInk.Gold,
+                                fontSize = 12.sp,
+                                modifier = Modifier
+                                    .align(Alignment.BottomStart)
+                                    .padding(10.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(ThunderInk.Drawer.copy(alpha = 0.82f))
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
                     }
+                    Spacer(Modifier.height(10.dp))
                     Text(item.prompt, color = ThunderInk.Ink, fontSize = 14.sp)
                     Spacer(Modifier.height(6.dp))
-                    Text(item.message, color = ThunderInk.Mute, fontSize = 12.sp, lineHeight = 17.sp)
+                    Text(statusText, color = ThunderInk.Mute, fontSize = 12.sp, lineHeight = 17.sp)
                 }
             },
             confirmButton = {
-                TextButton(
-                    onClick = {
-                        scope.launch {
-                            val bytes = item.url.takeIf { it.isNotBlank() }?.let { api.fetchBytes(server, it) }
-                                ?: preview?.let { bmp ->
-                                    ByteArrayOutputStream().use { out ->
-                                        bmp.compress(Bitmap.CompressFormat.PNG, 100, out)
-                                        out.toByteArray()
-                                    }
+                Row {
+                    if (playHref != null) {
+                        TextButton(
+                            onClick = {
+                                val intent = Intent(Intent.ACTION_VIEW).apply {
+                                    setDataAndType(Uri.parse(playHref), "video/mp4")
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                 }
-                            if (bytes != null && store.savePng(bytes, "${item.id}.png")) {
-                                Toast.makeText(context, context.getString(R.string.studio_saved), Toast.LENGTH_SHORT).show()
-                            } else {
-                                Toast.makeText(context, context.getString(R.string.studio_save_fail), Toast.LENGTH_SHORT).show()
+                                runCatching {
+                                    context.startActivity(Intent.createChooser(intent, context.getString(R.string.studio_play)))
+                                }
+                            }
+                        ) { Text(stringResource(R.string.studio_play), color = ThunderInk.Gold) }
+                    }
+                    TextButton(
+                        onClick = {
+                            scope.launch {
+                                val bytes = item.url.takeIf { it.isNotBlank() }?.let { api.fetchBytes(server, it) }
+                                    ?: preview?.let { bmp ->
+                                        ByteArrayOutputStream().use { out ->
+                                            bmp.compress(Bitmap.CompressFormat.PNG, 100, out)
+                                            out.toByteArray()
+                                        }
+                                    }
+                                if (bytes != null && store.savePng(bytes, "${item.id}.png")) {
+                                    Toast.makeText(context, context.getString(R.string.studio_saved), Toast.LENGTH_SHORT).show()
+                                } else {
+                                    Toast.makeText(context, context.getString(R.string.studio_save_fail), Toast.LENGTH_SHORT).show()
+                                }
                             }
                         }
-                    }
-                ) { Text(stringResource(R.string.studio_save), color = ThunderInk.Gold) }
+                    ) { Text(stringResource(R.string.studio_save), color = if (playHref != null) ThunderInk.Ink else ThunderInk.Gold) }
+                }
             },
             dismissButton = {
                 Row {
@@ -408,6 +479,19 @@ private fun CreationThumb(
                     contentDescription = item.prompt,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()
+                )
+            }
+            if (item.isVideoPending()) {
+                Text(
+                    stringResource(R.string.studio_processing),
+                    color = ThunderInk.Gold,
+                    fontSize = 11.sp,
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(8.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(ThunderInk.Drawer.copy(alpha = 0.82f))
+                        .padding(horizontal = 6.dp, vertical = 3.dp)
                 )
             }
         }
