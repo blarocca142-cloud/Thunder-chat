@@ -8,19 +8,22 @@ No public GitHub Release. Download the private Actions artifacts, or run from th
 
 Private GitHub Actions artifacts (this PR / workflow **Build Thunder Desktop**):
 
-- Linux: `thunder-desktop-linux` → `Thunder-0.8.2-linux-x64.AppImage`
-- Windows: `thunder-desktop-windows` → `Thunder-0.8.2-windows-portable.exe` (and a zip)
+- Linux: `thunder-desktop-linux` → `Thunder-0.8.2-linux-x86_64.AppImage`
+- Windows: `thunder-desktop-windows` → `Thunder-0.8.2-windows-portable.exe` and `Thunder-0.8.2-win-x64.zip`
 
-Cursor copies, when this agent built them:
+Actions run: https://github.com/blarocca142-cloud/Thunder-chat/actions/runs/34791979942
 
-- `/opt/cursor/artifacts/Thunder-0.8.2-linux-x64.AppImage`
+Cursor copies:
+
+- `/opt/cursor/artifacts/Thunder-0.8.2-linux-x86_64.AppImage`
 - `/opt/cursor/artifacts/Thunder-0.8.2-windows-portable.exe`
+- `/opt/cursor/artifacts/Thunder-0.8.2-win-x64.zip`
 
 ## Linux
 
 ```bash
-chmod +x Thunder-0.8.2-linux-x64.AppImage
-./Thunder-0.8.2-linux-x64.AppImage
+chmod +x Thunder-0.8.2-linux-x86_64.AppImage
+./Thunder-0.8.2-linux-x86_64.AppImage
 ```
 
 If the AppImage asks for FUSE and your box is locked down:
