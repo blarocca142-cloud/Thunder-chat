@@ -207,11 +207,63 @@
     refreshCreations();
   }
 
+  function mediaUrl(path) {
+    if (!path) return "";
+    if (/^https?:\/\//i.test(path)) return path;
+    return url(path);
+  }
+  function videoPhase(item) {
+    const reported = String(item.video_status || "").toLowerCase().trim();
+    if (reported) return reported;
+    if (item.kind !== "video") return "";
+    if (item.video_url && !item.stub) return "done";
+    if (item.stub) return "stub";
+    return "processing";
+  }
+  function upsertCreation(item) {
+    const i = state.creations.findIndex((c) => c.id === item.id);
+    if (i >= 0) state.creations[i] = { ...state.creations[i], ...item };
+    else state.creations.unshift(item);
+    localStorage.setItem("thunder_creations", JSON.stringify(state.creations.slice(0, 80)));
+  }
+  const watchers = {};
+  function watchVideo(id) {
+    if (!id || watchers[id]) return;
+    const started = Date.now();
+    const tick = async () => {
+      try {
+        const fresh = await api(`/creations/${encodeURIComponent(id)}`);
+        upsertCreation(fresh);
+        const phase = videoPhase(fresh);
+        if (phase === "processing") {
+          if (Date.now() - started >= 3 * 60 * 1000) upsertCreation({ ...fresh, _waiting: true });
+          watchers[id] = setTimeout(tick, 5000);
+          paintCreations();
+          if (els.viewer.dataset.id === id) openViewer(id);
+          return;
+        }
+        if (phase === "done") toast(fresh.message || "Motion ready.");
+        else if (phase === "error") toast(fresh.message || "Motion failed.");
+        delete watchers[id];
+        paintCreations();
+        if (els.viewer.dataset.id === id) openViewer(id);
+      } catch {
+        watchers[id] = setTimeout(tick, 5000);
+      }
+    };
+    watchers[id] = setTimeout(tick, 5000);
+  }
   function cardHtml(item) {
-    const src = url(item.url);
+    const src = mediaUrl(item.url);
+    const phase = videoPhase(item);
+    const badge = phase === "processing"
+      ? (item._waiting ? " · still working" : " · rendering")
+      : phase === "done"
+        ? " · ready"
+        : item.stub ? " · stub" : "";
     return `<article class="card" data-id="${item.id}">
       <img src="${src}" alt="">
-      <div class="cap"><b>${escapeHtml(item.prompt)}</b><span>${item.kind} · ${item.style}${item.stub ? " · stub" : ""}</span></div>
+      <div class="cap"><b>${escapeHtml(item.prompt)}</b><span>${item.kind} · ${item.style}${badge}</span></div>
     </article>`;
   }
   function escapeHtml(s) {
@@ -228,11 +280,19 @@
     const filter = state.studio === "history" ? state.creations : state.creations.filter((i) => (
       state.studio === "photo" ? i.kind === "image" : state.studio === "video" ? i.kind === "video" : true
     ));
-    if (!filter.length) {
+    paintCreations(filter);
+    filter.filter((i) => videoPhase(i) === "processing").forEach((i) => watchVideo(i.id));
+  }
+
+  function paintCreations(filter) {
+    const list = filter || (state.studio === "history" ? state.creations : state.creations.filter((i) => (
+      state.studio === "photo" ? i.kind === "image" : state.studio === "video" ? i.kind === "video" : true
+    )));
+    if (!list.length) {
       els.studioCanvas.innerHTML = `<div class="empty-home"><div>Nothing on the wall yet.</div></div>`;
       return;
     }
-    els.studioCanvas.innerHTML = `<div class="gallery">${filter.map(cardHtml).join("")}</div>`;
+    els.studioCanvas.innerHTML = `<div class="gallery">${list.map(cardHtml).join("")}</div>`;
     els.studioCanvas.querySelectorAll(".card").forEach((el) => {
       el.addEventListener("click", () => openViewer(el.dataset.id));
     });
@@ -241,22 +301,36 @@
   function openViewer(id) {
     const item = state.creations.find((c) => c.id === id);
     if (!item) return;
+    const phase = videoPhase(item);
+    const poster = mediaUrl(item.url);
+    const clip = mediaUrl(item.video_url);
+    const media = item.kind === "video" && phase === "done" && clip
+      ? `<video controls playsinline poster="${poster}" src="${clip}"></video>`
+      : `<img src="${poster}" alt="">`;
+    let status = item.message || "";
+    if (item._waiting && phase === "processing") status = "Still working. This can take a while.";
+    else if (phase === "processing") status = status || "Rendering motion…";
     els.viewer.classList.remove("hidden");
+    els.viewer.dataset.id = id;
     els.viewer.innerHTML = `<figure>
-      <img src="${url(item.url)}" alt="">
+      ${media}
       <figcaption>
         <b>${escapeHtml(item.prompt)}</b>
-        <div class="hint" style="color:var(--mute);margin:6px 0 12px">${escapeHtml(item.message || "")}</div>
+        <div class="hint" style="color:var(--mute);margin:6px 0 12px">${escapeHtml(status)}</div>
         <div class="row">
-          <a class="btn gold" href="${url(item.url)}" download="${item.id}.png">Save</a>
+          ${clip && phase === "done" ? `<a class="btn gold" href="${clip}" target="_blank" rel="noopener">Play</a>` : ""}
+          <a class="btn${clip && phase === "done" ? "" : " gold"}" href="${poster}" download="${item.id}.png">Save</a>
           <button class="btn" data-share>Share</button>
           <button class="btn ghost" data-close>Close</button>
         </div>
       </figcaption>
     </figure>`;
-    els.viewer.querySelector("[data-close]").onclick = () => els.viewer.classList.add("hidden");
+    els.viewer.querySelector("[data-close]").onclick = () => {
+      els.viewer.classList.add("hidden");
+      delete els.viewer.dataset.id;
+    };
     els.viewer.querySelector("[data-share]").onclick = async () => {
-      const shareUrl = url(item.url);
+      const shareUrl = clip && phase === "done" ? clip : poster;
       if (navigator.share) {
         try { await navigator.share({ title: "Thunder", text: item.prompt, url: shareUrl }); }
         catch {}
@@ -281,13 +355,13 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      const local = JSON.parse(localStorage.getItem("thunder_creations") || "[]");
-      local.unshift(item);
-      localStorage.setItem("thunder_creations", JSON.stringify(local.slice(0, 80)));
-      toast(item.message || "Done.");
+      upsertCreation(item);
+      const phase = videoPhase(item);
+      toast(phase === "processing" ? "Rendering motion…" : (item.message || "Done."));
       showStudio(kind === "image" ? "photo" : "video");
       await refreshCreations();
       openViewer(item.id);
+      if (phase === "processing") watchVideo(item.id);
     } catch (err) {
       toast(`Studio missed: ${err.message}`);
     }
@@ -338,12 +412,18 @@
       send();
     }
   });
-  els.server.addEventListener("change", () => {
-    state.api = els.server.value.trim().replace(/\/$/, "");
+  function rememberApi(next) {
+    state.api = (next || "").trim().replace(/\/$/, "");
     localStorage.setItem("thunder_server", state.api);
+    els.server.value = state.api;
+    window.thunderDesktop?.setApi?.(state.api);
     refreshStatus();
     refreshCreations();
-  });
+  }
+  els.server.addEventListener("change", () => rememberApi(els.server.value));
+  if (desktop && !state.api) {
+    toast("Set Main URL in the sidebar — http://YOUR-MAIN-IP:8080");
+  }
   els.model?.addEventListener("change", async () => {
     try {
       await api("/model", {
@@ -436,6 +516,15 @@
     e.target.value = "";
   });
   $("newWindow")?.addEventListener("click", () => window.thunderDesktop?.newWindow?.());
+  $("mainUrl")?.addEventListener("click", () => {
+    if (window.thunderDesktop?.openSettings) window.thunderDesktop.openSettings();
+    else els.server.focus();
+  });
+  if (desktop && window.thunderDesktop?.getApi && !params.get("api")) {
+    window.thunderDesktop.getApi().then((saved) => {
+      if (saved && saved !== state.api) rememberApi(saved);
+    });
+  }
   $("exportFolder")?.addEventListener("click", async () => {
     if (!window.thunderDesktop?.pickFolder) {
       toast("Folder export is on the desktop app.");
@@ -445,19 +534,30 @@
     if (!folder) return;
     for (const item of state.creations.slice(0, 24)) {
       try {
-        const res = await fetch(url(item.url));
-        const buf = await res.arrayBuffer();
-        const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
-        await window.thunderDesktop.saveBytes(folder, `${item.id}.png`, b64);
+        const poster = mediaUrl(item.url);
+        if (poster) {
+          const res = await fetch(poster);
+          const buf = await res.arrayBuffer();
+          const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+          await window.thunderDesktop.saveBytes(folder, `${item.id}.png`, b64);
+        }
+        const clip = mediaUrl(item.video_url);
+        if (clip && videoPhase(item) === "done") {
+          const res = await fetch(clip);
+          const buf = await res.arrayBuffer();
+          const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+          await window.thunderDesktop.saveBytes(folder, `${item.id}.mp4`, b64);
+        }
       } catch {}
     }
-    toast("Exported stills to that folder.");
+    toast("Exported that folder.");
   });
 
   document.addEventListener("keydown", (e) => {
     if ((e.metaKey || e.ctrlKey) && e.key === "n") { e.preventDefault(); newChat(true); }
     if ((e.metaKey || e.ctrlKey) && e.key === "1") { e.preventDefault(); showTab("chat"); }
     if ((e.metaKey || e.ctrlKey) && e.key === "2") { e.preventDefault(); showTab("studio"); }
+    if ((e.metaKey || e.ctrlKey) && e.key === ",") { e.preventDefault(); window.thunderDesktop?.openSettings?.() || els.server.focus(); }
     if ((e.metaKey || e.ctrlKey) && e.key === "b") { e.preventDefault(); els.sidebar.classList.toggle("open"); }
     if (e.key === "Escape") els.viewer.classList.add("hidden");
   });
