@@ -485,6 +485,112 @@ GREETINGS = [
 ]
 
 
+def _run(cmd: list[str], timeout: int = 5) -> str:
+    """Fixed argument lists only - nothing here is ever built from a request,
+    so there is no injection surface."""
+    try:
+        return subprocess.run(
+            cmd, capture_output=True, text=True, timeout=timeout
+        ).stdout.strip()
+    except Exception:
+        return ""
+
+
+def gpu_telemetry() -> dict:
+    fields = "name,memory.total,memory.used,memory.free,temperature.gpu,utilization.gpu,fan.speed"
+    out = _run(["nvidia-smi", f"--query-gpu={fields}", "--format=csv,noheader,nounits"])
+    if not out:
+        return {"present": False}
+    parts = [p.strip() for p in out.splitlines()[0].split(",")]
+    if len(parts) < 7:
+        return {"present": False}
+
+    def num(v):
+        try:
+            return int(float(v))
+        except ValueError:
+            return None
+
+    holders = []
+    apps = _run(["nvidia-smi", "--query-compute-apps=pid,used_memory", "--format=csv,noheader,nounits"])
+    for line in apps.splitlines():
+        bits = [b.strip() for b in line.split(",")]
+        if len(bits) == 2 and bits[0].isdigit():
+            owner = _run(["ps", "-o", "user=", "-p", bits[0]]) or "?"
+            holders.append({"pid": int(bits[0]), "user": owner, "mb": num(bits[1])})
+    return {
+        "present": True,
+        "name": parts[0],
+        "vram_total_mb": num(parts[1]),
+        "vram_used_mb": num(parts[2]),
+        "vram_free_mb": num(parts[3]),
+        "temp_c": num(parts[4]),
+        "util_pct": num(parts[5]),
+        "fan_pct": num(parts[6]),
+        "holders": holders,
+    }
+
+
+def memory_telemetry() -> dict:
+    out = _run(["free", "-m"])
+    mem = {}
+    for line in out.splitlines():
+        cols = line.split()
+        if cols and cols[0] in ("Mem:", "Swap:"):
+            key = "ram" if cols[0] == "Mem:" else "swap"
+            mem[key] = {"total_mb": int(cols[1]), "used_mb": int(cols[2])}
+            if key == "ram" and len(cols) >= 7:
+                mem[key]["available_mb"] = int(cols[6])
+    return mem
+
+
+def disk_telemetry() -> list[dict]:
+    out = _run(["df", "-BM", "--output=target,size,used,avail,pcent", "/",
+                "/mnt/thunder-data1", "/mnt/thunder-data2", "/mnt/thunder-data3"])
+    disks = []
+    for line in out.splitlines()[1:]:
+        cols = line.split()
+        if len(cols) == 5:
+            disks.append({
+                "mount": cols[0],
+                "used_mb": int(cols[2].rstrip("M")),
+                "avail_mb": int(cols[3].rstrip("M")),
+                "used_pct": int(cols[4].rstrip("%")),
+            })
+    return disks
+
+
+def service_telemetry() -> dict:
+    return {
+        name: (_run(["systemctl", "is-active", name]) or "unknown")
+        for name in ("thunder-main", "thunder-genai", "ollama")
+    }
+
+
+def bottlenecks(gpu: dict, mem: dict, disks: list[dict], services: dict) -> list[str]:
+    """Plain warnings rather than raw numbers, so the answer to "is anything
+    wrong" does not require reading a table."""
+    out = []
+    for name, state in services.items():
+        if state != "active":
+            out.append(f"service {name} is {state}")
+    ram = mem.get("ram", {})
+    if ram.get("available_mb") is not None and ram["available_mb"] < 3000:
+        out.append(f"only {ram['available_mb']}MB RAM available - generation may swap")
+    swap = mem.get("swap", {})
+    if swap.get("total_mb") and swap["used_mb"] > swap["total_mb"] * 0.5:
+        out.append("swap more than half used")
+    if gpu.get("present"):
+        if gpu.get("vram_free_mb") is not None and gpu["vram_free_mb"] < 2000:
+            out.append(f"only {gpu['vram_free_mb']}MB VRAM free - high-resolution jobs will OOM")
+        if gpu.get("temp_c") is not None and gpu["temp_c"] >= 83:
+            out.append(f"GPU at {gpu['temp_c']}C - thermal throttling likely")
+    for d in disks:
+        if d["used_pct"] >= 90:
+            out.append(f"{d['mount']} is {d['used_pct']}% full")
+    return out
+
+
 def genai_state() -> dict:
     """What the GPU is doing right now, so the client can show a loader
     instead of dead air while a model swaps in."""
@@ -638,6 +744,29 @@ def set_model(body: ModelIn):
 @app.get("/status")
 def status():
     return read_status()
+
+
+@app.get("/system")
+def system_report():
+    """Everything about Main's health in one call. Odris aggregates this with
+    its own node checks, so one request answers "is anything wrong" instead of
+    half a dozen ad-hoc commands."""
+    gpu = gpu_telemetry()
+    mem = memory_telemetry()
+    disks = disk_telemetry()
+    services = service_telemetry()
+    return {
+        "host": "thunder-main",
+        "backend_version": BACKEND_VERSION,
+        "chat_model": MODEL,
+        "gpu": gpu,
+        "memory": mem,
+        "disks": disks,
+        "services": services,
+        "generators": genai_state(),
+        "bottlenecks": bottlenecks(gpu, mem, disks, services),
+        "checked_at": utc_ts(),
+    }
 
 
 @app.get("/app/version")
