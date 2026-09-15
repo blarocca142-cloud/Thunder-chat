@@ -11,9 +11,27 @@ android {
         applicationId = "com.thunder.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 29
-        versionName = "0.9.4"
+        versionCode = 30
+        versionName = "0.9.5"
     }
+    signingConfigs {
+        getByName("debug") {
+            // CI drops the shared key here. Relying on the default
+            // ~/.android/debug.keystore did not work, because the runner can
+            // point AGP somewhere else via ANDROID_SDK_HOME - so the path is
+            // explicit. Absent the file, AGP falls back to its own throwaway
+            // key and builds still work, they just cannot install over each
+            // other.
+            val shared = file("debug.keystore")
+            if (shared.exists()) {
+                storeFile = shared
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false

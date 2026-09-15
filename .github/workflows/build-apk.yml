@@ -46,10 +46,18 @@ jobs:
           KEYSTORE_B64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_B64 }}
         run: |
           if [ -n "${KEYSTORE_B64:-}" ]; then
-            mkdir -p ~/.android
-            echo "$KEYSTORE_B64" | base64 -d > ~/.android/debug.keystore
+            # app/debug.keystore, not ~/.android - the runner can redirect AGP's
+            # default lookup via ANDROID_SDK_HOME, so build.gradle.kts points at
+            # this path explicitly.
+            echo "$KEYSTORE_B64" | base64 -d > app/debug.keystore
+            if ! keytool -list -keystore app/debug.keystore -storepass android >/dev/null 2>&1; then
+              echo "::error::ANDROID_DEBUG_KEYSTORE_B64 is set but did not decode into a readable keystore."
+              exit 1
+            fi
             echo "stable=true" >> "$GITHUB_OUTPUT"
-            echo "Using the repository's fixed debug key."
+            echo "Using the repository's fixed debug key:"
+            keytool -list -v -keystore app/debug.keystore -storepass android \
+              | grep -i "SHA256:" | head -1
           else
             echo "stable=false" >> "$GITHUB_OUTPUT"
             echo "::warning::No ANDROID_DEBUG_KEYSTORE_B64 secret set - this build gets a throwaway key, so it cannot install over an existing Thunder and the in-app updater will not work."
@@ -61,9 +69,15 @@ jobs:
       - name: Report signing fingerprint
         run: |
           APK=app/build/outputs/apk/debug/app-debug.apk
-          keytool -printcert -jarfile "$APK" 2>/dev/null \
-            | grep -i "SHA256:" | head -1 \
-            || echo "could not read certificate"
+          # These APKs are v2-signed only, which keytool -printcert cannot read
+          # - it looks for a v1 JAR signature and silently prints nothing.
+          APKSIGNER=$(find "${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools" \
+            -name apksigner -type f 2>/dev/null | sort -V | tail -1)
+          if [ -n "$APKSIGNER" ]; then
+            "$APKSIGNER" verify --print-certs "$APK" | grep -i "SHA-256 digest" | head -1
+          else
+            echo "apksigner not found - skipping fingerprint"
+          fi
           echo "stable key: ${{ steps.signing.outputs.stable }}"
 
       - name: Upload APK
