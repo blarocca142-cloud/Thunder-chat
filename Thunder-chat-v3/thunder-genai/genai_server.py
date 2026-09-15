@@ -33,10 +33,10 @@ LORA_DIR = "/mnt/thunder-data2/genai-models/wan2.2-lightning-loras"
 # distilled - it is tuned for ~4 steps and no classifier-free guidance, so
 # running it at the 5B's settings would be both slow and wrong.
 VIDEO_MODELS = {
-    "5b": {"dir": WAN_DIR, "steps": 20, "guidance": 5.0, "guidance_2": None},
+    "5b": {"dir": WAN_DIR, "steps": 20, "guidance": 5.0, "guidance_2": None, "fps": 24},
     # Lightning distilled: no classifier-free guidance on either expert.
     # fp8 build - needs compute capability 8.9+, so it will NOT run on the 3090.
-    "a14b": {"dir": WAN_A14B_DIR, "steps": 4, "guidance": 1.0, "guidance_2": 1.0},
+    "a14b": {"dir": WAN_A14B_DIR, "steps": 4, "guidance": 1.0, "guidance_2": 1.0, "fps": 16},
     # NF4 build - runs on Ampere. Ships without the step distillation, so the
     # Lightning LoRAs are applied on load to get the 4-step budget back.
     "a14b_nf4": {
@@ -44,6 +44,7 @@ VIDEO_MODELS = {
         "steps": 4,
         "guidance": 1.0,
         "guidance_2": 1.0,
+        "fps": 16,
         "loras": [
             (f"{LORA_DIR}/wan2.2_t2v_A14b_high_noise_lora_rank64_lightx2v_4step_1217.safetensors", "high", False),
             (f"{LORA_DIR}/wan2.2_t2v_A14b_low_noise_lora_rank64_lightx2v_4step_1217.safetensors", "low", True),
@@ -71,7 +72,12 @@ VIDEO_RESOLUTIONS = {
     "720p": (704, 1280),
     "1080p": (1088, 1920),
 }
-VIDEO_FPS = 8
+# Each model's native rate, from its own model card: TI2V-5B is documented as
+# 720P@24fps, and the A14B line is 16fps. This is not a free choice - the frame
+# count IS the motion duration, so exporting at the wrong rate plays the clip
+# at the wrong speed. It used to be 8 for both, which made every video run at
+# half (A14B) or a third (5B) of the intended speed.
+VIDEO_FPS = 16
 
 # Matches creative.py's ASPECTS, rounded to multiples of 16 (FLUX's VAE
 # needs that) so the real generator's output matches what the stub promised.
@@ -291,7 +297,8 @@ def generate_video_bytes(prompt: str, style: str = "Cinematic", duration: int = 
     pipe = get_video_pipe()
     full_prompt = build_prompt(prompt, style)
     height, width = VIDEO_RESOLUTIONS.get(quality, VIDEO_RESOLUTIONS["480p"])
-    num_frames = nearest_valid_frame_count(max(1, min(duration, 20)) * VIDEO_FPS)
+    fps = int(cfg.get("fps", VIDEO_FPS))
+    num_frames = nearest_valid_frame_count(max(1, min(duration, 25)) * fps)
     kwargs = {}
     if cfg.get("guidance_2") is not None:
         kwargs["guidance_scale_2"] = cfg["guidance_2"]
@@ -318,7 +325,7 @@ def generate_video_bytes(prompt: str, style: str = "Cinematic", duration: int = 
                 callback_on_step_end=on_step,
                 **kwargs,
             ).frames[0]
-            export_to_video(frames, str(out_path), fps=VIDEO_FPS)
+            export_to_video(frames, str(out_path), fps=fps)
             # A real first frame, so the client shows a preview of the actual
             # video instead of a placeholder graphic.
             poster = out_path.with_suffix(".png").name

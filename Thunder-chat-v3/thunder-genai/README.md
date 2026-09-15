@@ -43,10 +43,21 @@ Models are NOT in the repo (hundreds of GB). They live at
 - One workload owns the GPU at a time. Loading a pipeline evicts the others,
   and the chat model is evicted here rather than trusting callers to do it.
 
-## Measured timings (RTX 3090, A14B NF4, 4 steps)
+## Frame rate is not a free choice
+
+The frame count IS the motion duration. Each model has a native rate from its
+own model card - TI2V-5B is 24fps, the A14B line is 16fps - and exporting at
+anything else plays the clip at the wrong speed. This was 8fps for both
+models, so every video ran at half (A14B) or a third (5B) of its intended
+speed with a fraction of the frames it needed.
+
+## Measured timings (RTX 3090, A14B NF4, 4 steps, 16fps)
+
+Correct-speed video costs about 2x what the old half-speed output did, because
+it needs twice the frames.
 
 | Job | Time |
 |---|---|
-| 5s @ 480p | ~2.5 min |
-| 5s @ 720p | ~4.5 min |
-| 5s @ 1080p | ~11 min |
+| 5s @ 480p | ~4 min |
+| 5s @ 720p | ~8 min |
+| 5s @ 1080p | ~22 min |
