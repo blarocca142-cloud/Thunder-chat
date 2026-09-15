@@ -2,6 +2,7 @@ package com.thunder.app.data
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
@@ -99,6 +100,29 @@ object AppUpdater {
             out
         } catch (_: Exception) {
             null
+        }
+    }
+
+    /**
+     * True when [apk] is signed with the same certificate as the installed app.
+     * Android silently refuses an update whose signature differs, so checking
+     * first turns a confusing "App not installed" into something explainable.
+     */
+    fun signatureMatchesInstalled(context: Context, apk: File): Boolean {
+        return try {
+            val pm = context.packageManager
+            val flags = PackageManager.GET_SIGNING_CERTIFICATES
+            val incoming = pm.getPackageArchiveInfo(apk.absolutePath, flags)
+                ?.signingInfo?.apkContentsSigners ?: return false
+            val installed = pm.getPackageInfo(context.packageName, flags)
+                .signingInfo?.apkContentsSigners ?: return false
+            val a = incoming.map { it.toCharsString() }.toSet()
+            val b = installed.map { it.toCharsString() }.toSet()
+            a.isNotEmpty() && a == b
+        } catch (_: Exception) {
+            // Unknown rather than mismatched - do not block the update on a
+            // check that itself failed.
+            true
         }
     }
 

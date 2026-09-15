@@ -79,6 +79,12 @@ class ThunderApi(
         .build()
 ) {
     private val jsonType = "application/json; charset=utf-8".toMediaType()
+
+    // A stream stays open for the whole reply, so it must not inherit the
+    // 120s read timeout used for one-shot calls.
+    private val streamClient: OkHttpClient = client.newBuilder()
+        .readTimeout(10, TimeUnit.MINUTES)
+        .build()
     private fun base(url: String) = url.trim().trimEnd('/')
 
     suspend fun status(server: String): ThunderStatus = withContext(Dispatchers.IO) {
@@ -136,6 +142,47 @@ class ThunderApi(
         } catch (e: Exception) {
             "Main offline. Demo: heard \"$message\"."
         }
+    }
+
+    /**
+     * Streams a reply, calling [onDelta] as text arrives. Falls back to the
+     * blocking endpoint if the server is older or the stream dies before any
+     * text appeared, so a partial rollout cannot leave chat broken.
+     */
+    suspend fun chatStream(
+        server: String,
+        message: String,
+        onDelta: (String) -> Unit
+    ): String = withContext(Dispatchers.IO) {
+        if (server.isBlank()) return@withContext chat(server, message)
+        // History comes from Serverus server-side, same as the blocking path.
+        val payload = JSONObject().put("message", message)
+        val built = StringBuilder()
+        try {
+            val req = Request.Builder()
+                .url("${base(server)}/chat/stream")
+                .post(payload.toString().toRequestBody(jsonType))
+                .build()
+            streamClient.newCall(req).execute().use { res ->
+                if (!res.isSuccessful) return@withContext chat(server, message)
+                val src = res.body?.source() ?: return@withContext chat(server, message)
+                while (true) {
+                    val line = src.readUtf8Line() ?: break
+                    if (line.isBlank()) continue
+                    val o = runCatching { JSONObject(line) }.getOrNull() ?: continue
+                    if (o.optBoolean("done")) break
+                    val delta = o.optString("delta")
+                    if (delta.isNotEmpty()) {
+                        built.append(delta)
+                        withContext(Dispatchers.Main) { onDelta(delta) }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            if (built.isEmpty()) return@withContext chat(server, message)
+            built.append("\n[connection dropped]")
+        }
+        if (built.isEmpty()) chat(server, message) else built.toString()
     }
 
     suspend fun image(server: String, prompt: String, style: String, aspect: String): Creation =

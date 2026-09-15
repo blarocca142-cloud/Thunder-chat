@@ -1,7 +1,12 @@
 package com.thunder.app.ui
 
 import android.widget.Toast
+import android.speech.RecognizerIntent
+import android.speech.tts.TextToSpeech
+import android.content.Intent
 import androidx.activity.compose.BackHandler
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
@@ -45,6 +50,7 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Menu
+import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.LinearProgressIndicator
@@ -135,6 +141,13 @@ fun ThunderRoot() {
     var update by remember { mutableStateOf<AppRelease?>(null) }
     var showUpdate by remember { mutableStateOf(false) }
     var updating by remember { mutableStateOf(false) }
+    var studioPrefill by remember { mutableStateOf<String?>(null) }
+    var speakReplies by remember { mutableStateOf(prefs.speakReplies) }
+    // Android's on-device engine - no server, no model to ship.
+    val tts = remember { TextToSpeech(context) { } }
+    DisposableEffect(Unit) {
+        onDispose { tts.stop(); tts.shutdown() }
+    }
     val installedVersion = remember {
         runCatching {
             context.packageManager.getPackageInfo(context.packageName, 0).versionName
@@ -191,10 +204,30 @@ fun ThunderRoot() {
         persistActive()
         waiting = true
         scope.launch {
-            val reply = api.chat(server, msg)
-            lines.add(Line("thunder", reply))
+            // Add the bubble up front and grow it as text arrives, so the
+            // reply appears immediately instead of after the whole generation.
+            val slot = lines.size
+            lines.add(Line("thunder", ""))
+            var first = true
+            val full = api.chatStream(server, msg) { delta ->
+                if (first) {
+                    waiting = false
+                    first = false
+                }
+                lines[slot] = Line("thunder", lines[slot].text + delta)
+            }
+            lines[slot] = Line("thunder", full)
             waiting = false
             persistActive()
+            if (speakReplies && full.isNotBlank()) {
+                // Speak the prose only - reading a generation prompt aloud is
+                // noise.
+                val spoken = parseSegments(full)
+                    .filterIsInstance<Segment.Prose>()
+                    .joinToString(" ") { it.text }
+                    .ifBlank { full }
+                tts.speak(spoken, TextToSpeech.QUEUE_FLUSH, null, "thunder-reply")
+            }
         }
     }
 
@@ -308,6 +341,8 @@ fun ThunderRoot() {
                         server = server,
                         api = api,
                         store = creations,
+                        prefill = studioPrefill,
+                        onPrefillUsed = { studioPrefill = null },
                         modifier = Modifier.weight(1f)
                     )
                 } else {
@@ -317,7 +352,12 @@ fun ThunderRoot() {
                         contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        items(lines) { line -> Bubble(line) }
+                        items(lines) { line ->
+                            Bubble(line) { prompt ->
+                                studioPrefill = prompt
+                                tab = ThunderTab.Studio
+                            }
+                        }
                         if (waiting) item { ThunderThinking() }
                     }
                     Hairline(dim = true)
@@ -366,6 +406,12 @@ fun ThunderRoot() {
             onServer = {
                 server = it
                 prefs.serverUrl = it
+            },
+            speak = speakReplies,
+            onSpeak = {
+                speakReplies = it
+                prefs.speakReplies = it
+                if (!it) tts.stop()
             },
             dark = dark,
             onDark = {
@@ -420,10 +466,20 @@ fun ThunderRoot() {
                         scope.launch {
                             val apk = AppUpdater.download(context, url)
                             updating = false
-                            // Falling back to the browser covers both a failed
-                            // download and "install unknown apps" being denied.
-                            if (apk == null || !AppUpdater.installApk(context, apk)) {
-                                AppUpdater.openInBrowser(context, url)
+                            when {
+                                apk == null ->
+                                    AppUpdater.openInBrowser(context, url)
+                                !AppUpdater.signatureMatchesInstalled(context, apk) -> {
+                                    // Better to say why than to let the system
+                                    // installer fail with "App not installed".
+                                    Toast.makeText(
+                                        context,
+                                        context.getString(R.string.update_signature_mismatch),
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                }
+                                !AppUpdater.installApk(context, apk) ->
+                                    AppUpdater.openInBrowser(context, url)
                             }
                             showUpdate = false
                         }
@@ -703,6 +759,19 @@ private fun ThunderComposer(
     onDraft: (String) -> Unit,
     onSend: () -> Unit
 ) {
+    val context = LocalContext.current
+    // Android's own recogniser, launched as an intent: the system handles the
+    // microphone permission and the listening UI, so this needs neither a
+    // permission request nor a speech model of our own.
+    val speech = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val said = result.data
+            ?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+            ?.firstOrNull()
+            .orEmpty()
+        if (said.isNotBlank()) onDraft(if (draft.isBlank()) said else "$draft $said")
+    }
     Row(
         Modifier
             .fillMaxWidth()
@@ -738,7 +807,25 @@ private fun ThunderComposer(
                 }
             )
         }
-        Spacer(Modifier.size(10.dp))
+        Spacer(Modifier.size(6.dp))
+        IconButton(
+            onClick = {
+                val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                    putExtra(
+                        RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                        RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
+                    )
+                    putExtra(RecognizerIntent.EXTRA_PROMPT, context.getString(R.string.voice_prompt))
+                }
+                runCatching { speech.launch(intent) }.onFailure {
+                    Toast.makeText(context, context.getString(R.string.voice_unavailable), Toast.LENGTH_SHORT).show()
+                }
+            },
+            modifier = Modifier.size(44.dp)
+        ) {
+            Icon(Icons.Outlined.Mic, contentDescription = stringResource(R.string.voice_cd), tint = ThunderInk.Mute)
+        }
+        Spacer(Modifier.size(4.dp))
         val ready = draft.isNotBlank() && !waiting
         IconButton(
             onClick = onSend,
@@ -764,6 +851,8 @@ private fun ServerDialog(
     onServer: (String) -> Unit,
     dark: Boolean,
     onDark: (Boolean) -> Unit,
+    speak: Boolean,
+    onSpeak: (Boolean) -> Unit,
     onDismiss: () -> Unit
 ) {
     AlertDialog(
@@ -816,6 +905,33 @@ private fun ServerDialog(
                     Switch(
                         checked = dark,
                         onCheckedChange = onDark,
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = ThunderInk.OnGold,
+                            checkedTrackColor = ThunderInk.Gold,
+                            uncheckedThumbColor = ThunderInk.Surface,
+                            uncheckedTrackColor = ThunderInk.Hairline
+                        )
+                    )
+                }
+                Spacer(Modifier.height(14.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            stringResource(R.string.speak_replies),
+                            color = ThunderInk.Ink,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            stringResource(R.string.speak_replies_hint),
+                            color = ThunderInk.Mute,
+                            fontSize = 12.sp,
+                            lineHeight = 16.sp
+                        )
+                    }
+                    Switch(
+                        checked = speak,
+                        onCheckedChange = onSpeak,
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = ThunderInk.OnGold,
                             checkedTrackColor = ThunderInk.Gold,
@@ -921,7 +1037,7 @@ private fun ThunderWordmark(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun Bubble(line: Line) {
+private fun Bubble(line: Line, onSendToStudio: (String) -> Unit = {}) {
     val mine = line.who == "you"
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
@@ -939,8 +1055,28 @@ private fun Bubble(line: Line) {
             // Selection handles partial copies; the button covers the common
             // case of wanting the whole thing, which is miserable to drag-select
             // inside a scrolling list.
-            SelectionContainer {
-                Text(line.text, color = ThunderInk.Ink, fontSize = 15.sp, lineHeight = 22.sp)
+            if (mine) {
+                SelectionContainer {
+                    Text(line.text, color = ThunderInk.Ink, fontSize = 15.sp, lineHeight = 22.sp)
+                }
+            } else {
+                parseSegments(line.text).forEach { seg ->
+                    when (seg) {
+                        is Segment.Prose -> SelectionContainer {
+                            Text(seg.text, color = ThunderInk.Ink, fontSize = 15.sp, lineHeight = 22.sp)
+                        }
+                        is Segment.Block -> ActionBlock(
+                            text = seg.text,
+                            isPrompt = seg.isPrompt,
+                            onCopy = {
+                                clipboard.setText(AnnotatedString(seg.text))
+                                Toast.makeText(context, context.getString(R.string.copied), Toast.LENGTH_SHORT).show()
+                            },
+                            onSendToStudio = { onSendToStudio(seg.text) }
+                        )
+                    }
+                    Spacer(Modifier.height(6.dp))
+                }
             }
             if (!mine) {
                 Row(
@@ -972,6 +1108,51 @@ private fun Bubble(line: Line) {
                 }
             }
         }
+    }
+}
+
+/** A block lifted out of a reply: copy it, or hand it straight to the Studio. */
+@Composable
+private fun ActionBlock(
+    text: String,
+    isPrompt: Boolean,
+    onCopy: () -> Unit,
+    onSendToStudio: () -> Unit
+) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(ThunderInk.SlateDeep)
+            .border(1.dp, ThunderInk.Hairline, RoundedCornerShape(8.dp))
+            .padding(10.dp)
+    ) {
+        SelectionContainer {
+            Text(text, color = ThunderInk.Ink, fontSize = 13.sp, lineHeight = 19.sp)
+        }
+        Spacer(Modifier.height(8.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            BlockAction(Icons.Outlined.ContentCopy, stringResource(R.string.copy_label), onCopy)
+            if (isPrompt) {
+                Spacer(Modifier.width(14.dp))
+                BlockAction(Icons.Outlined.AutoAwesome, stringResource(R.string.send_to_studio), onSendToStudio)
+            }
+        }
+    }
+}
+
+@Composable
+private fun BlockAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .clickable { onClick() }
+            .padding(horizontal = 4.dp, vertical = 3.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(icon, contentDescription = label, tint = ThunderInk.Gold, modifier = Modifier.size(14.dp))
+        Spacer(Modifier.width(5.dp))
+        Text(label, color = ThunderInk.Gold, fontSize = 11.sp)
     }
 }
 

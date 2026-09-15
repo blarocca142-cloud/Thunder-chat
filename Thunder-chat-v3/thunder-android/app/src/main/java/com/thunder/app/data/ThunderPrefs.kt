@@ -17,8 +17,15 @@ class ThunderPrefs(context: Context) {
             prefs.edit().putBoolean(KEY_DARK, value).apply()
         }
 
+    var speakReplies: Boolean
+        get() = prefs.getBoolean(KEY_SPEAK, false)
+        set(value) {
+            prefs.edit().putBoolean(KEY_SPEAK, value).apply()
+        }
+
     companion object {
         private const val KEY_SERVER = "server_url"
         private const val KEY_DARK = "dark_mode"
+        private const val KEY_SPEAK = "speak_replies"
     }
 }

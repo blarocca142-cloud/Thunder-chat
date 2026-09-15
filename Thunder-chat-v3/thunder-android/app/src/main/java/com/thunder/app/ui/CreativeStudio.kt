@@ -77,6 +77,8 @@ fun CreativeStudio(
     server: String,
     api: ThunderApi,
     store: CreationStore,
+    prefill: String? = null,
+    onPrefillUsed: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -104,6 +106,15 @@ fun CreativeStudio(
 
     LaunchedEffect(server) {
         reload(api.creations(server))
+    }
+
+    // A prompt sent over from chat lands in the video pane ready to generate.
+    LaunchedEffect(prefill) {
+        prefill?.let {
+            prompt = it
+            pane = StudioPane.Video
+            onPrefillUsed()
+        }
     }
 
     // Live GPU state drives the progress UI. Only polled while something of

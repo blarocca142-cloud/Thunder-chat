@@ -20,7 +20,7 @@ from collections import deque
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 import creative
@@ -643,6 +643,45 @@ def warm_model() -> None:
         pass
 
 
+def ollama_chat_stream(message: str, memory_message: str | None = None,
+                       extra_history: list[dict] | None = None):
+    """Yields reply text as it is produced. Same message assembly as
+    ollama_chat, but the caller sees the first words in about a second instead
+    of waiting out the whole answer."""
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages.extend(serverus_recent(10))
+    for item in (extra_history or []):
+        role = item.get("role") or item.get("who")
+        content = item.get("content") or item.get("text") or ""
+        role = {"you": "user", "thunder": "assistant", "bot": "assistant"}.get(role, role)
+        if content and role in ("user", "assistant"):
+            messages.append({"role": role, "content": content})
+    messages.append({"role": "user", "content": message})
+
+    payload = json.dumps({"model": MODEL, "stream": True, "messages": messages}).encode()
+    req = urllib.request.Request(
+        f"{OLLAMA}/api/chat", data=payload,
+        headers={"Content-Type": "application/json"}, method="POST",
+    )
+    parts: list[str] = []
+    with urllib.request.urlopen(req, timeout=600) as r:
+        for raw in r:
+            line = raw.decode().strip()
+            if not line:
+                continue
+            try:
+                chunk = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            piece = chunk.get("message", {}).get("content", "")
+            if piece:
+                parts.append(piece)
+                yield piece
+            if chunk.get("done"):
+                break
+    serverus_append(memory_message if memory_message is not None else message, "".join(parts))
+
+
 def read_status() -> dict:
     base = {
         "mode": "idle",
@@ -832,6 +871,51 @@ def chat(body: ChatIn):
             record_error("/chat", e)
             return {"reply": f"Ollama error: {e}"}
     return {"reply": f"Main heard you: {msg!r}. Ollama is not up."}
+
+
+@app.post("/chat/stream")
+def chat_stream(body: ChatIn):
+    """Newline-delimited JSON, one {"delta": "..."} per chunk, then
+    {"done": true}. Chosen over SSE because the Android client already parses
+    JSON lines and this needs no extra dependency on either end."""
+    msg = (body.message or "").strip()
+
+    def emit(text: str):
+        yield json.dumps({"delta": text}) + "\n"
+        yield json.dumps({"done": True}) + "\n"
+
+    if not msg:
+        return StreamingResponse(emit("Say something."), media_type="application/x-ndjson")
+    maint = get_maintenance()
+    if maint["active"]:
+        return StreamingResponse(
+            emit(maint["message"] or "Thunder's down for maintenance right now, back shortly."),
+            media_type="application/x-ndjson",
+        )
+    verdict = engine_check(msg)
+    if not verdict.get("allow", True):
+        return StreamingResponse(
+            emit(verdict.get("reason") or "Blocked by Thunder-Engine."),
+            media_type="application/x-ndjson",
+        )
+    if not ollama_up():
+        return StreamingResponse(emit("Ollama is not up."), media_type="application/x-ndjson")
+
+    def body_stream():
+        try:
+            for piece in ollama_chat_stream(
+                maybe_augment_with_search(msg), memory_message=msg,
+                extra_history=body.messages,
+            ):
+                yield json.dumps({"delta": piece}) + "\n"
+            write_status(mode="code", message="chat ok")
+            log_event("chat", f"stream ok ({len(msg)} chars)")
+        except Exception as e:
+            record_error("/chat/stream", e)
+            yield json.dumps({"delta": f"\n[error: {e}]"}) + "\n"
+        yield json.dumps({"done": True}) + "\n"
+
+    return StreamingResponse(body_stream(), media_type="application/x-ndjson")
 
 
 def create_job(title: str, prompt: str) -> dict:

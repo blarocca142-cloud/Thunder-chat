@@ -56,4 +56,11 @@
     <string name="copy_label">Copy</string>
     <string name="copy_cd">copy message</string>
     <string name="copied">Copied</string>
+    <string name="send_to_studio">Send to Studio</string>
+    <string name="voice_prompt">Talk to Thunder</string>
+    <string name="voice_cd">voice input</string>
+    <string name="voice_unavailable">No speech recogniser on this device</string>
+    <string name="speak_replies">Speak replies</string>
+    <string name="speak_replies_hint">Read Thunder's answers aloud using your phone's voice</string>
+    <string name="update_signature_mismatch">This build was signed with a different key, so it cannot install over the current app. Reinstall once from the releases page.</string>
 </resources>
