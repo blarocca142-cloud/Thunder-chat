@@ -137,15 +137,20 @@ def record(
     style: str,
     aspect: str = "1:1",
     duration: int | None = None,
-    png: bytes,
+    png: bytes | None,
     stub: bool,
     message: str,
     extra: dict | None = None,
 ) -> dict:
     cid = new_id("img" if kind == "image" else "vid")
-    name = f"{cid}.png"
-    path = creations_dir / name
-    path.write_bytes(png)
+    # No placeholder image when there is nothing real to show yet. A drawn
+    # stand-in with the prompt printed on it reads as "it screenshotted my text
+    # instead of making a video".
+    url = ""
+    if png is not None:
+        name = f"{cid}.png"
+        (creations_dir / name).write_bytes(png)
+        url = f"/media/{name}"
     item = {
         "id": cid,
         "kind": kind,
@@ -153,7 +158,7 @@ def record(
         "style": style,
         "aspect": aspect,
         "duration": duration,
-        "url": f"/media/{name}",
+        "url": url,
         "video_url": None,
         "stub": stub,
         "message": message,

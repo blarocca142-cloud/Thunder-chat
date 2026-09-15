@@ -1184,13 +1184,12 @@ def make_video(body: VideoIn):
     style = body.style or "Cinematic"
     duration = max(3, min(int(body.duration or 8), 30))
     quality = body.quality if body.quality in ("480p", "720p", "1080p") else "480p"
-    png = creative.render_stub_png(prompt, style, "16:9", "video")
 
     if creative.VIDEO_HOOK:
         message = f"Generating your {duration}s {quality} video - this can take several minutes. Check back on this item."
         item = creative.record(
             creations_dir=CREATIONS, kind="video", prompt=prompt, style=style,
-            aspect="16:9", duration=duration, png=png, stub=True, message=message,
+            aspect="16:9", duration=duration, png=None, stub=True, message=message,
             extra={"duration": duration, "video_url": None, "video_status": "processing", "quality": quality},
         )
         threading.Thread(target=_video_worker, args=(item["id"], prompt, style, duration, quality), daemon=True).start()
@@ -1201,7 +1200,7 @@ def make_video(body: VideoIn):
         )
         item = creative.record(
             creations_dir=CREATIONS, kind="video", prompt=prompt, style=style,
-            aspect="16:9", duration=duration, png=png, stub=True, message=message,
+            aspect="16:9", duration=duration, png=None, stub=True, message=message,
             extra={"duration": duration, "video_url": None, "video_status": "stub"},
         )
 
