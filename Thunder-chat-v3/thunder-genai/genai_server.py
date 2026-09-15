@@ -5,6 +5,7 @@ match the rest of the fleet - no new framework dependency.
 """
 import gc
 import json
+import numpy as np
 import urllib.request
 import os
 import re
@@ -124,6 +125,13 @@ def offload_mode(kind: str, default: str) -> str:
 
 
 def apply_offload(pipe, mode: str):
+    if mode == "sequential" and getattr(pipe, "transformer", None) is not None and \
+            getattr(pipe.transformer, "quantization_method", None) is not None:
+        # Pre-quantized (bitsandbytes) weights cannot be streamed layer by
+        # layer - it fails with "Cannot copy out of meta tensor". Fall back
+        # rather than erroring at generation time.
+        print("Sequential offload unsupported for a quantized model; using model offload.")
+        mode = "model"
     if mode == "sequential":
         pipe.enable_sequential_cpu_offload()
     elif mode == "model":
@@ -292,6 +300,20 @@ def set_vae_tiles(pipe, height: int) -> None:
             setattr(pipe.vae, attr, size)
 
 
+def save_frame(frame, path) -> None:
+    """Pipelines disagree about frame type - the 5B hands back PIL images, the
+    A14B hands back numpy arrays - so accept either rather than assuming."""
+    if hasattr(frame, "save"):
+        frame.save(path)
+        return
+    from PIL import Image
+
+    arr = np.asarray(frame)
+    if arr.dtype != np.uint8:
+        arr = (arr.clip(0, 1) * 255).round().astype(np.uint8)
+    Image.fromarray(arr).save(path)
+
+
 def generate_video_bytes(prompt: str, style: str = "Cinematic", duration: int = 5, quality: str = "480p", steps: int | None = None) -> bytes:
     cfg = video_model_cfg()
     pipe = get_video_pipe()
@@ -325,14 +347,16 @@ def generate_video_bytes(prompt: str, style: str = "Cinematic", duration: int = 
                 callback_on_step_end=on_step,
                 **kwargs,
             ).frames[0]
-            export_to_video(frames, str(out_path), fps=fps)
-            # A real first frame, so the client shows a preview of the actual
-            # video instead of a placeholder graphic.
+            # Save the thumbnail BEFORE encoding. Encoding is the memory peak,
+            # and doing this after it once failed with MemoryError, leaving a
+            # good video with no preview image.
             poster = out_path.with_suffix(".png").name
             try:
-                frames[0].save(MEDIA_DIR / poster)
-            except Exception:
+                save_frame(frames[0], MEDIA_DIR / poster)
+            except Exception as e:
+                print(f"Poster extraction failed ({type(e).__name__}: {e}); no thumbnail.")
                 poster = None
+            export_to_video(frames, str(out_path), fps=fps)
         finally:
             del kwargs
             gc.collect()

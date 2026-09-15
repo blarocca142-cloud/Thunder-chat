@@ -143,6 +143,12 @@ class ImageIn(BaseModel):
     aspect: str = "1:1"
 
 
+# Frames scale with duration AND resolution, and VAE decode is the ceiling.
+# A 5s 1080p job already sits at 22.7GB of 24GB VRAM, so longer clips at that
+# tier cannot fit. Refusing immediately beats failing ten minutes in.
+MAX_SECONDS = {"480p": 25, "720p": 12, "1080p": 6}
+
+
 class VideoIn(BaseModel):
     prompt: str
     style: str = "Cinematic"
@@ -1150,9 +1156,19 @@ def _video_worker(cid: str, prompt: str, style: str, duration: int, quality: str
             creative.VIDEO_HOOK, data=payload,
             headers={"Content-Type": "application/json"}, method="POST",
         )
-        with urllib.request.urlopen(req, timeout=2700) as r:
-            mp4_bytes = r.read()
-            poster = r.headers.get("X-Poster")
+        try:
+            with urllib.request.urlopen(req, timeout=2700) as r:
+                mp4_bytes = r.read()
+                poster = r.headers.get("X-Poster")
+        except urllib.error.HTTPError as http_err:
+            # The generator reports the real reason in its body; without this
+            # the record just says "HTTP Error 500" and the cause is lost.
+            detail = ""
+            try:
+                detail = json.loads(http_err.read().decode()).get("error", "")
+            except Exception:
+                pass
+            raise RuntimeError(detail or f"generator returned {http_err.code}") from None
         name = f"{cid}.mp4"
         (CREATIONS / name).write_bytes(mp4_bytes)
         extra = {}
@@ -1184,6 +1200,14 @@ def make_video(body: VideoIn):
     style = body.style or "Cinematic"
     duration = max(3, min(int(body.duration or 8), 30))
     quality = body.quality if body.quality in ("480p", "720p", "1080p") else "480p"
+    cap = MAX_SECONDS[quality]
+    if duration > cap:
+        raise HTTPException(
+            400,
+            f"{duration}s at {quality} will not fit in this GPU's memory. "
+            f"Max is {cap}s at {quality} - use a shorter clip, or drop the "
+            f"quality. Longer pieces are made as several shots and joined.",
+        )
 
     if creative.VIDEO_HOOK:
         message = f"Generating your {duration}s {quality} video - this can take several minutes. Check back on this item."

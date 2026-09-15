@@ -121,7 +121,7 @@ fun ThunderRoot() {
     var draft by remember { mutableStateOf("") }
     var showSettings by remember { mutableStateOf(false) }
     var waiting by remember { mutableStateOf(false) }
-    var activeId by remember { mutableStateOf<String?>(null) }
+    var activeId by remember { mutableStateOf<String?>(store.newId()) }
     var chats by remember { mutableStateOf(store.list()) }
     var renameChat by remember { mutableStateOf<Chat?>(null) }
     var renameDraft by remember { mutableStateOf("") }
@@ -183,14 +183,6 @@ fun ThunderRoot() {
         tab = ThunderTab.Chat
     }
 
-    fun leaveChat() {
-        persistActive()
-        activeId = null
-        lines.clear()
-        draft = ""
-        waiting = false
-    }
-
     fun send() {
         val msg = draft.trim()
         if (msg.isEmpty() || waiting || activeId == null) return
@@ -247,11 +239,10 @@ fun ThunderRoot() {
     }
 
     ThunderTheme(dark = dark) {
-    BackHandler(enabled = drawerState.isOpen || tab == ThunderTab.Studio || activeId != null) {
+    BackHandler(enabled = drawerState.isOpen || tab == ThunderTab.Studio) {
         when {
             drawerState.isOpen -> scope.launch { drawerState.close() }
             tab == ThunderTab.Studio -> tab = ThunderTab.Chat
-            activeId != null -> leaveChat()
         }
     }
 
@@ -318,13 +309,6 @@ fun ThunderRoot() {
                         api = api,
                         store = creations,
                         modifier = Modifier.weight(1f)
-                    )
-                } else if (activeId == null) {
-                    ThunderHome(
-                        modifier = Modifier.weight(1f),
-                        hasChats = chats.isNotEmpty(),
-                        onStart = { startNewChat() },
-                        onOpenChats = { scope.launch { drawerState.open() } }
                     )
                 } else {
                     LazyColumn(
@@ -588,85 +572,6 @@ private fun ThunderTopBar(
         }
         IconButton(onClick = onSettings) {
             Icon(Icons.Outlined.Settings, contentDescription = "settings", tint = ThunderInk.Mute)
-        }
-    }
-}
-
-@Composable
-private fun ThunderHome(
-    modifier: Modifier = Modifier,
-    hasChats: Boolean,
-    onStart: () -> Unit,
-    onOpenChats: () -> Unit
-) {
-    Box(modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 28.dp)
-        ) {
-            Image(
-                painter = painterResource(R.drawable.thunder_face),
-                contentDescription = null,
-                contentScale = ContentScale.Fit,
-                modifier = Modifier.size(118.dp)
-            )
-            Spacer(Modifier.height(20.dp))
-            Text(
-                stringResource(R.string.brand_name),
-                color = ThunderInk.Ink,
-                fontSize = 24.sp,
-                fontWeight = FontWeight.Medium,
-                letterSpacing = 1.8.sp
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                stringResource(R.string.empty_state_line),
-                color = ThunderInk.Mute,
-                fontSize = 15.sp,
-                letterSpacing = 0.2.sp
-            )
-            Spacer(Modifier.height(36.dp))
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(ThunderInk.Surface.copy(alpha = 0.92f))
-                    .border(1.dp, ThunderInk.Gold.copy(alpha = 0.72f), RoundedCornerShape(14.dp))
-                    .clickable(onClick = onStart)
-                    .padding(horizontal = 20.dp, vertical = 16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
-            ) {
-                Icon(
-                    Icons.Outlined.Add,
-                    contentDescription = null,
-                    tint = ThunderInk.Gold,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(Modifier.width(10.dp))
-                Text(
-                    stringResource(R.string.start_new_chat),
-                    color = ThunderInk.Ink,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Medium,
-                    letterSpacing = 0.35.sp
-                )
-            }
-            if (hasChats) {
-                Spacer(Modifier.height(16.dp))
-                Text(
-                    stringResource(R.string.open_chats),
-                    color = ThunderInk.Gold.copy(alpha = 0.9f),
-                    fontSize = 14.sp,
-                    letterSpacing = 0.4.sp,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable(onClick = onOpenChats)
-                        .padding(horizontal = 12.dp, vertical = 8.dp)
-                )
-            }
         }
     }
 }
