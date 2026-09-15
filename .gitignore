@@ -6,3 +6,9 @@ Thunder-chat-v3/thunder-desktop/dist/
 .DS_Store
 Thunder-chat-v3/thunder-main-api/server.log
 Thunder-chat-v3/thunder-android/app/debug.keystore
+Thunder-chat-v3/thunder-android/local.properties
+Thunder-chat-v3/thunder-android/gradle/wrapper/gradle-wrapper.jar
+Thunder-chat-v3/thunder-android/.gradle/
+Thunder-chat-v3/thunder-android/app/build/
+Thunder-chat-v3/thunder-android/build/
+Thunder-chat-v3/thunder-android/.kotlin/
