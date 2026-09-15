@@ -378,6 +378,67 @@ def classify_search_query(msg: str) -> str | None:
     return answer.strip('"').strip()
 
 
+# Asking "is anything wrong" should not require a person with shell access.
+SYSTEM_HINTS = (
+    "system status", "how's the system", "hows the system", "how is the system",
+    "anything wrong", "everything ok", "everything okay", "system health",
+    "how are you running", "gpu usage", "vram", "how much memory",
+    "disk space", "is anything down", "are the nodes up", "bottleneck",
+    "how's thunder doing", "hows thunder doing",
+)
+
+
+def system_summary() -> str:
+    """A compact plain-text version of /system for the model to read."""
+    gpu = gpu_telemetry()
+    mem = memory_telemetry()
+    disks = disk_telemetry()
+    services = service_telemetry()
+    gen = genai_state()
+    ram = mem.get("ram", {})
+    swap = mem.get("swap", {})
+    lines = []
+    if gpu.get("present"):
+        lines.append(
+            f"GPU: {gpu['name']}, {gpu['vram_used_mb']}MB of {gpu['vram_total_mb']}MB VRAM used, "
+            f"{gpu['temp_c']}C, {gpu['util_pct']}% busy, fan {gpu['fan_pct']}%"
+        )
+    lines.append(
+        f"RAM: {ram.get('used_mb')}MB used of {ram.get('total_mb')}MB, "
+        f"{ram.get('available_mb')}MB available; swap {swap.get('used_mb')}MB of {swap.get('total_mb')}MB"
+    )
+    lines.append("Disks: " + ", ".join(f"{d['mount']} {d['used_pct']}% full" for d in disks))
+    lines.append("Services: " + ", ".join(f"{k}={v}" for k, v in services.items()))
+    lines.append(f"Chat model: {MODEL}")
+    lines.append(
+        "Generators: " + (
+            f"busy, {gen['progress'].get('step')}/{gen['progress'].get('total')} steps"
+            if gen.get("busy") else
+            f"idle, loaded={gen.get('loaded') or 'nothing'}"
+        )
+    )
+    heartbeat = odris_heartbeat()
+    if heartbeat:
+        lines.append("Nodes: " + ", ".join(f"{k}={v}" for k, v in heartbeat.get("nodes", {}).items()))
+    issues = bottlenecks(gpu, mem, disks, services)
+    lines.append("Problems: " + ("; ".join(issues) if issues else "none detected"))
+    return "\n".join(lines)
+
+
+def maybe_augment_with_system(msg: str) -> str | None:
+    lower = msg.lower()
+    if not any(h in lower for h in SYSTEM_HINTS):
+        return None
+    print("[system] status question detected")
+    return (
+        f"The user asked: {msg}\n\n"
+        f"Live readings from your own hardware, taken just now:\n{system_summary()}\n\n"
+        f"Answer directly and plainly from this. You are describing yourself - "
+        f"speak about it as your own machine, not a report you were handed. "
+        f"If nothing is wrong, say so briefly rather than listing every number."
+    )
+
+
 def maybe_augment_with_search(msg: str) -> str:
     """Fold live web results into the message before it ever reaches the
     model for its real reply - via Odris, the only thing allowed to touch
@@ -857,7 +918,7 @@ def chat(body: ChatIn):
     if ollama_up():
         try:
             reply = ollama_chat(
-                maybe_augment_with_search(msg),
+                maybe_augment_with_system(msg) or maybe_augment_with_search(msg),
                 memory_message=msg,
                 extra_history=body.messages,
             )
@@ -904,7 +965,8 @@ def chat_stream(body: ChatIn):
     def body_stream():
         try:
             for piece in ollama_chat_stream(
-                maybe_augment_with_search(msg), memory_message=msg,
+                maybe_augment_with_system(msg) or maybe_augment_with_search(msg),
+                memory_message=msg,
                 extra_history=body.messages,
             ):
                 yield json.dumps({"delta": piece}) + "\n"
