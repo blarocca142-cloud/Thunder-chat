@@ -45,4 +45,12 @@
     <string name="studio_done">Done</string>
     <string name="settings_dark">Dark mode</string>
     <string name="settings_dark_hint">Off by default. Turn on if you want the old underground look.</string>
+    <string name="studio_quality">QUALITY</string>
+    <string name="studio_loading_model">Loading the model…</string>
+    <string name="studio_queued">Waiting for the GPU…</string>
+    <string name="studio_step">Step %1$d of %2$d</string>
+    <string name="studio_eta_hint">1080p takes about 11 min for 5s. Leave it running — it keeps going if you close this.</string>
+    <string name="update_available">Update available</string>
+    <string name="update_install">Install</string>
+    <string name="update_later">Later</string>
 </resources>

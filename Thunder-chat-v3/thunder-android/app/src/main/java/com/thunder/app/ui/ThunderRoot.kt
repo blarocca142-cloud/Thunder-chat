@@ -37,12 +37,14 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
+import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -86,6 +88,8 @@ import com.thunder.app.data.Chat
 import com.thunder.app.data.ChatMessage
 import com.thunder.app.data.ChatStore
 import com.thunder.app.data.CreationStore
+import com.thunder.app.data.AppRelease
+import com.thunder.app.data.AppUpdater
 import com.thunder.app.data.ThunderApi
 import com.thunder.app.data.ThunderPrefs
 import com.thunder.app.data.titleFromMessage
@@ -123,6 +127,14 @@ fun ThunderRoot() {
     var maintenanceMessage by remember { mutableStateOf("") }
     var maintenanceUntil by remember { mutableStateOf<Long?>(null) }
     var nowEpoch by remember { mutableStateOf(System.currentTimeMillis() / 1000) }
+    var update by remember { mutableStateOf<AppRelease?>(null) }
+    var showUpdate by remember { mutableStateOf(false) }
+    var updating by remember { mutableStateOf(false) }
+    val installedVersion = remember {
+        runCatching {
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName
+        }.getOrNull().orEmpty()
+    }
 
     fun refreshChats() {
         chats = store.list()
@@ -208,6 +220,18 @@ fun ThunderRoot() {
         }
     }
 
+    // The app is sideloaded, not on Play, so it asks Main whether a newer APK
+    // has been published and surfaces a badge rather than silently going stale.
+    LaunchedEffect(server) {
+        while (true) {
+            if (server.isNotBlank()) {
+                val rel = api.appRelease(server)
+                update = rel?.takeIf { AppUpdater.isNewer(it.apkVersion, installedVersion) }
+            }
+            delay(6 * 60 * 60 * 1000L)
+        }
+    }
+
     LaunchedEffect(maintenanceActive) {
         while (maintenanceActive) {
             nowEpoch = System.currentTimeMillis() / 1000
@@ -259,8 +283,10 @@ fun ThunderRoot() {
                     inChat = tab == ThunderTab.Chat && activeId != null,
                     chatTitle = activeId?.let { id -> chats.find { it.id == id }?.title },
                     serverBlank = server.isBlank(),
+                    updateReady = update != null,
                     onMenu = { scope.launch { drawerState.open() } },
-                    onSettings = { showSettings = true }
+                    onSettings = { showSettings = true },
+                    onUpdate = { showUpdate = true }
                 )
                 Hairline()
 
@@ -359,6 +385,68 @@ fun ThunderRoot() {
         )
     }
 
+    if (showUpdate) {
+        val rel = update
+        AlertDialog(
+            onDismissRequest = { if (!updating) showUpdate = false },
+            containerColor = ThunderInk.Surface,
+            shape = RoundedCornerShape(14.dp),
+            title = {
+                Text(
+                    stringResource(R.string.update_available),
+                    color = ThunderInk.Ink,
+                    fontWeight = FontWeight.Medium
+                )
+            },
+            text = {
+                Column {
+                    Text(
+                        "${installedVersion.ifBlank { "?" }} \u2192 ${rel?.apkVersion ?: "?"}",
+                        color = ThunderInk.Ink,
+                        fontSize = 14.sp
+                    )
+                    val notes = rel?.notes.orEmpty()
+                    if (notes.isNotBlank()) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(notes, color = ThunderInk.Mute, fontSize = 12.sp, lineHeight = 17.sp)
+                    }
+                    if (updating) {
+                        Spacer(Modifier.height(12.dp))
+                        LinearProgressIndicator(
+                            color = ThunderInk.Gold,
+                            trackColor = ThunderInk.Hairline,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !updating && !rel?.apkUrl.isNullOrBlank(),
+                    onClick = {
+                        val url = rel?.apkUrl ?: return@TextButton
+                        updating = true
+                        scope.launch {
+                            val apk = AppUpdater.download(context, url)
+                            updating = false
+                            // Falling back to the browser covers both a failed
+                            // download and "install unknown apps" being denied.
+                            if (apk == null || !AppUpdater.installApk(context, apk)) {
+                                AppUpdater.openInBrowser(context, url)
+                            }
+                            showUpdate = false
+                        }
+                    }
+                ) { Text(stringResource(R.string.update_install), color = ThunderInk.Gold) }
+            },
+            dismissButton = {
+                TextButton(enabled = !updating, onClick = { showUpdate = false }) {
+                    Text(stringResource(R.string.update_later), color = ThunderInk.Mute)
+                }
+            }
+        )
+    }
+
     renameChat?.let { chat ->
         AlertDialog(
             onDismissRequest = { renameChat = null },
@@ -443,8 +531,10 @@ private fun ThunderTopBar(
     inChat: Boolean,
     chatTitle: String?,
     serverBlank: Boolean,
+    updateReady: Boolean,
     onMenu: () -> Unit,
-    onSettings: () -> Unit
+    onSettings: () -> Unit,
+    onUpdate: () -> Unit
 ) {
     Row(
         Modifier
@@ -480,6 +570,15 @@ private fun ThunderTopBar(
             letterSpacing = 0.6.sp,
             modifier = Modifier.padding(end = 2.dp)
         )
+        if (updateReady) {
+            IconButton(onClick = onUpdate) {
+                Icon(
+                    Icons.Outlined.FileDownload,
+                    contentDescription = stringResource(R.string.update_available),
+                    tint = ThunderInk.Gold
+                )
+            }
+        }
         IconButton(onClick = onSettings) {
             Icon(Icons.Outlined.Settings, contentDescription = "settings", tint = ThunderInk.Mute)
         }

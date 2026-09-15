@@ -3,11 +3,6 @@ package com.thunder.app.data
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
-import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.LinearGradient
-import android.graphics.Paint
-import android.graphics.Shader
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -121,49 +116,4 @@ class CreationStore(context: Context) {
         }
     }
 
-    companion object {
-        fun stubBitmap(prompt: String, style: String, aspect: String): Bitmap {
-            val (w, h) = when (aspect) {
-                "16:9" -> 960 to 540
-                "9:16" -> 540 to 960
-                "4:3" -> 800 to 600
-                else -> 768 to 768
-            }
-            val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-            val canvas = Canvas(bmp)
-            val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-            paint.shader = LinearGradient(
-                0f, 0f, 0f, h.toFloat(),
-                intArrayOf(0xFF2C3340.toInt(), 0xFF16191F.toInt()),
-                null,
-                Shader.TileMode.CLAMP
-            )
-            canvas.drawRect(0f, 0f, w.toFloat(), h.toFloat(), paint)
-            paint.shader = null
-            paint.color = 0xFFC4A35A.toInt()
-            paint.style = Paint.Style.STROKE
-            paint.strokeWidth = 3f
-            canvas.drawRect(28f, 28f, w - 28f, h - 28f, paint)
-            paint.style = Paint.Style.FILL
-            paint.textSize = 28f
-            canvas.drawText("THUNDER  ·  STUDIO", 50f, 80f, paint)
-            paint.color = 0xFFEDE8DF.toInt()
-            paint.textSize = 36f
-            canvas.drawText(style.ifBlank { "Cinematic" }, 50f, 130f, paint)
-            paint.textSize = 26f
-            val words = prompt.split(Regex("\\s+"))
-            var line = ""
-            var y = 190f
-            words.forEach { word ->
-                val trial = if (line.isEmpty()) word else "$line $word"
-                if (paint.measureText(trial) > w - 100) {
-                    canvas.drawText(line, 50f, y, paint)
-                    line = word
-                    y += 36f
-                } else line = trial
-            }
-            if (line.isNotEmpty()) canvas.drawText(line, 50f, y, paint)
-            return bmp
-        }
-    }
 }

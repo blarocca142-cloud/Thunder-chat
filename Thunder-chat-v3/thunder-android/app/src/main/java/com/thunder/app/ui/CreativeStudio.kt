@@ -28,10 +28,13 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -44,6 +47,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -52,6 +56,10 @@ import androidx.compose.ui.unit.sp
 import com.thunder.app.R
 import com.thunder.app.data.Creation
 import com.thunder.app.data.CreationStore
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.PlayerView
 import com.thunder.app.data.ThunderApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -60,7 +68,8 @@ import java.io.ByteArrayOutputStream
 
 private val Styles = listOf("Cinematic", "Noir", "Gold hour", "Raw", "Documentary", "Ink")
 private val Aspects = listOf("1:1", "16:9", "9:16", "4:3")
-private val Durations = listOf(5, 8, 15)
+private val Durations = listOf(5, 8, 15, 20)
+private val Qualities = listOf("480p", "720p", "1080p")
 
 private enum class StudioPane { Photo, Video, History }
 
@@ -78,11 +87,12 @@ fun CreativeStudio(
     var style by remember { mutableStateOf("Cinematic") }
     var aspect by remember { mutableStateOf("1:1") }
     var duration by remember { mutableStateOf(8) }
+    var quality by remember { mutableStateOf("480p") }
+    var gpu by remember { mutableStateOf(com.thunder.app.data.GpuState()) }
     var busy by remember { mutableStateOf(false) }
     var items by remember { mutableStateOf(store.list()) }
     var viewing by remember { mutableStateOf<Creation?>(null) }
     var preview by remember { mutableStateOf<Bitmap?>(null) }
-    var timedOut by remember { mutableStateOf(setOf<String>()) }
 
     fun reload(remote: List<Creation> = emptyList()) {
         val local = store.list()
@@ -97,18 +107,22 @@ fun CreativeStudio(
         reload(api.creations(server))
     }
 
+    // Live GPU state drives the progress UI. Only polled while something of
+    // ours is actually running, so an idle Studio tab costs nothing.
     LaunchedEffect(server) {
         if (server.isBlank()) return@LaunchedEffect
-        val deadlines = mutableMapOf<String, Long>()
         while (isActive) {
-            val pending = store.list().filter { it.isVideoPending() && it.id !in timedOut }
-            val now = System.currentTimeMillis()
+            val watching = busy || store.list().any { it.isVideoPending() }
+            gpu = if (watching) api.status(server).gpu else com.thunder.app.data.GpuState()
+            delay(if (watching) 2_000 else 6_000)
+        }
+    }
+
+    LaunchedEffect(server) {
+        if (server.isBlank()) return@LaunchedEffect
+        while (isActive) {
+            val pending = store.list().filter { it.isVideoPending() }
             pending.forEach { item ->
-                val until = deadlines.getOrPut(item.id) { now + 5 * 60 * 1000L }
-                if (now > until) {
-                    timedOut = timedOut + item.id
-                    return@forEach
-                }
                 val fresh = runCatching { api.creation(server, item.id) }.getOrNull()
                 if (fresh != null) store.add(fresh)
             }
@@ -125,9 +139,6 @@ fun CreativeStudio(
             val bytes = api.fetchBytes(server, item.url)
             if (bytes != null) preview = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
         }
-        if (preview == null) {
-            preview = CreationStore.stubBitmap(item.prompt, item.style, item.aspect)
-        }
     }
 
     fun generate() {
@@ -136,7 +147,7 @@ fun CreativeStudio(
         busy = true
         scope.launch {
             val made = if (pane == StudioPane.Video) {
-                api.video(server, text, style, duration)
+                api.video(server, text, style, duration, quality)
             } else {
                 api.image(server, text, style, aspect)
             }
@@ -231,6 +242,17 @@ fun CreativeStudio(
                     Text(stringResource(R.string.studio_length), color = ThunderInk.Mute, fontSize = 11.sp, letterSpacing = 0.7.sp)
                     Spacer(Modifier.height(8.dp))
                     ChipRow(Durations.map { "${it}s" }, "${duration}s") { duration = it.trimEnd('s').toInt() }
+                    Spacer(Modifier.height(12.dp))
+                    Text(stringResource(R.string.studio_quality), color = ThunderInk.Mute, fontSize = 11.sp, letterSpacing = 0.7.sp)
+                    Spacer(Modifier.height(8.dp))
+                    ChipRow(Qualities, quality) { quality = it }
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        estimateText(duration, quality),
+                        color = ThunderInk.Mute,
+                        fontSize = 11.sp,
+                        lineHeight = 15.sp
+                    )
                 }
                 Spacer(Modifier.height(18.dp))
                 Box(
@@ -281,7 +303,6 @@ fun CreativeStudio(
         val phase = item.videoPhase()
         val playHref = if (phase == "done") api.mediaHref(server, item.videoUrl) else null
         val statusText = when {
-            item.id in timedOut && item.isVideoPending() -> stringResource(R.string.studio_video_timeout)
             item.isVideoPending() -> item.message.ifBlank { stringResource(R.string.studio_processing) }
             phase == "done" -> item.message.ifBlank { stringResource(R.string.studio_video_ready) }
             else -> item.message
@@ -299,7 +320,25 @@ fun CreativeStudio(
             },
             text = {
                 Column {
-                    Box {
+                    if (playHref != null) {
+                        VideoPlayer(
+                            href = playHref,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(16f / 9f)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(ThunderInk.SlateDeep)
+                        )
+                    } else if (item.isVideoPending()) {
+                        GenerationProgress(
+                            gpu = gpu,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(16f / 9f)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(ThunderInk.SlateDeep)
+                        )
+                    } else {
                         preview?.let { bmp ->
                             Image(
                                 bitmap = bmp.asImageBitmap(),
@@ -309,19 +348,6 @@ fun CreativeStudio(
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(10.dp))
                                     .background(ThunderInk.SlateDeep)
-                            )
-                        }
-                        if (item.isVideoPending()) {
-                            Text(
-                                stringResource(R.string.studio_processing),
-                                color = ThunderInk.Gold,
-                                fontSize = 12.sp,
-                                modifier = Modifier
-                                    .align(Alignment.BottomStart)
-                                    .padding(10.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(ThunderInk.Drawer.copy(alpha = 0.82f))
-                                    .padding(horizontal = 8.dp, vertical = 4.dp)
                             )
                         }
                     }
@@ -458,7 +484,6 @@ private fun CreationThumb(
             val bytes = api.fetchBytes(server, item.url)
             if (bytes != null) bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
         }
-        if (bmp == null) bmp = CreationStore.stubBitmap(item.prompt, item.style, item.aspect)
     }
     Column(
         Modifier
@@ -481,6 +506,13 @@ private fun CreationThumb(
                     modifier = Modifier.fillMaxSize()
                 )
             }
+            if (bmp == null && item.isVideoPending()) {
+                CircularProgressIndicator(
+                    color = ThunderInk.Gold,
+                    strokeWidth = 2.dp,
+                    modifier = Modifier.align(Alignment.Center)
+                )
+            }
             if (item.isVideoPending()) {
                 Text(
                     stringResource(R.string.studio_processing),
@@ -493,6 +525,17 @@ private fun CreationThumb(
                         .background(ThunderInk.Drawer.copy(alpha = 0.82f))
                         .padding(horizontal = 6.dp, vertical = 3.dp)
                 )
+            } else if (item.kind == "video" && bmp != null) {
+                Text(
+                    "▶",
+                    color = ThunderInk.Ink,
+                    fontSize = 22.sp,
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(ThunderInk.Drawer.copy(alpha = 0.7f))
+                        .padding(horizontal = 14.dp, vertical = 6.dp)
+                )
             }
         }
         Text(
@@ -504,6 +547,85 @@ private fun CreationThumb(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
         )
     }
+}
+
+/** Rough wall-clock guide, from measurements on this hardware. Shown so the
+ *  UI sets honest expectations instead of implying everything is quick. */
+private fun estimateText(duration: Int, quality: String): String {
+    val perSecond = when (quality) {
+        "1080p" -> 134.0
+        "720p" -> 54.0
+        else -> 29.0
+    }
+    val minutes = (duration * perSecond / 60.0)
+    val rounded = if (minutes < 1.5) "about a minute" else "about ${Math.round(minutes)} min"
+    return "Roughly $rounded. It keeps rendering if you leave this screen."
+}
+
+@Composable
+private fun GenerationProgress(gpu: com.thunder.app.data.GpuState, modifier: Modifier = Modifier) {
+    Column(
+        modifier,
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        val label = when {
+            gpu.loading != null -> stringResource(R.string.studio_loading_model)
+            gpu.hasProgress() -> stringResource(R.string.studio_step, gpu.step, gpu.totalSteps)
+            gpu.busy -> stringResource(R.string.studio_processing)
+            else -> stringResource(R.string.studio_queued)
+        }
+        if (gpu.hasProgress()) {
+            LinearProgressIndicator(
+                progress = { gpu.fraction() },
+                color = ThunderInk.Gold,
+                trackColor = ThunderInk.Hairline,
+                modifier = Modifier.fillMaxWidth(0.7f).height(4.dp)
+            )
+        } else {
+            CircularProgressIndicator(color = ThunderInk.Gold, strokeWidth = 2.dp)
+        }
+        Spacer(Modifier.height(12.dp))
+        Text(label, color = ThunderInk.Ink, fontSize = 13.sp)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            stringResource(R.string.studio_eta_hint),
+            color = ThunderInk.Mute,
+            fontSize = 11.sp,
+            lineHeight = 15.sp,
+            modifier = Modifier.padding(horizontal = 24.dp)
+        )
+    }
+}
+
+/** Plays the finished mp4 in place. /media serves Accept-Ranges, so seeking
+ *  works without downloading the whole file first. */
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+@Composable
+private fun VideoPlayer(href: String, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val player = remember(href) {
+        ExoPlayer.Builder(context).build().apply {
+            setMediaItem(MediaItem.fromUri(href))
+            prepare()
+            playWhenReady = false
+            repeatMode = Player.REPEAT_MODE_ONE
+        }
+    }
+    DisposableEffect(href) {
+        onDispose { player.release() }
+    }
+    AndroidView(
+        factory = { ctx ->
+            PlayerView(ctx).apply {
+                this.player = player
+                useController = true
+                setShowNextButton(false)
+                setShowPreviousButton(false)
+            }
+        },
+        modifier = modifier
+    )
 }
 
 @Composable

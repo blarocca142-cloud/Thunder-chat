@@ -20,7 +20,8 @@ data class Creation(
     val videoUrl: String? = null,
     val videoStatus: String? = null,
     val stub: Boolean,
-    val message: String
+    val message: String,
+    val quality: String? = null
 ) {
     /** processing | done | error | stub | "" for stills */
     fun videoPhase(): String {
@@ -35,6 +36,27 @@ data class Creation(
     fun isVideoPending(): Boolean = kind == "video" && videoPhase() == "processing"
 }
 
+/** What the single GPU is doing, so the UI can show real progress rather than
+ *  an indefinite spinner. Mirrors the "gpu" object on /status. */
+data class GpuState(
+    val up: Boolean = false,
+    val loading: String? = null,
+    val busy: Boolean = false,
+    val step: Int = 0,
+    val totalSteps: Int = 0
+) {
+    fun hasProgress(): Boolean = busy && totalSteps > 0 && step > 0
+    fun fraction(): Float = if (totalSteps > 0) step.toFloat() / totalSteps else 0f
+}
+
+data class AppRelease(
+    val backendVersion: String,
+    val apkVersion: String?,
+    val apkUrl: String?,
+    val notes: String,
+    val mandatory: Boolean
+)
+
 data class ThunderStatus(
     val mode: String,
     val odriss: String,
@@ -46,7 +68,8 @@ data class ThunderStatus(
     val demo: Boolean = false,
     val maintenanceActive: Boolean = false,
     val maintenanceMessage: String? = null,
-    val maintenanceUntilEpochSec: Long? = null
+    val maintenanceUntilEpochSec: Long? = null,
+    val gpu: GpuState = GpuState()
 )
 
 class ThunderApi(
@@ -67,6 +90,8 @@ class ThunderApi(
                 if (!res.isSuccessful) return@use demoStatus("Main said ${res.code}")
                 val o = JSONObject(body)
                 val maint = o.optJSONObject("maintenance")
+                val g = o.optJSONObject("gpu")
+                val gp = g?.optJSONObject("progress")
                 ThunderStatus(
                     mode = o.optString("mode", "idle"),
                     odriss = o.optString("odriss", "no_heartbeat"),
@@ -78,7 +103,14 @@ class ThunderApi(
                     demo = false,
                     maintenanceActive = maint?.optBoolean("active", false) ?: false,
                     maintenanceMessage = maint?.optString("message")?.ifBlank { null },
-                    maintenanceUntilEpochSec = maint?.let { if (it.isNull("until")) null else it.optLong("until") }
+                    maintenanceUntilEpochSec = maint?.let { if (it.isNull("until")) null else it.optLong("until") },
+                    gpu = GpuState(
+                        up = g?.optBoolean("up", false) ?: false,
+                        loading = g?.optionalString("loading"),
+                        busy = g?.optBoolean("busy", false) ?: false,
+                        step = gp?.optInt("step", 0) ?: 0,
+                        totalSteps = gp?.optInt("total", 0) ?: 0
+                    )
                 )
             }
         } catch (e: Exception) {
@@ -114,13 +146,39 @@ class ThunderApi(
                 .put("aspect", aspect))
         }
 
-    suspend fun video(server: String, prompt: String, style: String, duration: Int): Creation =
-        withContext(Dispatchers.IO) {
-            studioPost(server, "/video", JSONObject()
-                .put("prompt", prompt)
-                .put("style", style)
-                .put("duration", duration))
+    suspend fun video(
+        server: String,
+        prompt: String,
+        style: String,
+        duration: Int,
+        quality: String
+    ): Creation = withContext(Dispatchers.IO) {
+        studioPost(server, "/video", JSONObject()
+            .put("prompt", prompt)
+            .put("style", style)
+            .put("duration", duration)
+            .put("quality", quality))
+    }
+
+    suspend fun appRelease(server: String): AppRelease? = withContext(Dispatchers.IO) {
+        if (server.isBlank()) return@withContext null
+        try {
+            val req = Request.Builder().url("${base(server)}/app/version").get().build()
+            client.newCall(req).execute().use { res ->
+                if (!res.isSuccessful) return@use null
+                val o = JSONObject(res.body?.string().orEmpty())
+                AppRelease(
+                    backendVersion = o.optString("backend_version"),
+                    apkVersion = o.optionalString("apk_version"),
+                    apkUrl = o.optionalString("apk_url"),
+                    notes = o.optString("notes"),
+                    mandatory = o.optBoolean("mandatory", false)
+                )
+            }
+        } catch (_: Exception) {
+            null
         }
+    }
 
     suspend fun creations(server: String): List<Creation> = withContext(Dispatchers.IO) {
         if (server.isBlank()) return@withContext emptyList()
@@ -235,7 +293,8 @@ class ThunderApi(
         videoUrl = o.optionalString("video_url"),
         videoStatus = o.optionalString("video_status"),
         stub = o.optBoolean("stub", true),
-        message = o.optString("message")
+        message = o.optString("message"),
+        quality = o.optionalString("quality")
     )
 
     private fun JSONObject.optionalString(key: String): String? {
