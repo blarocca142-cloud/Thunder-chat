@@ -5,6 +5,7 @@ import ast
 import base64
 import json
 import os
+import random
 import re
 import shutil
 import subprocess
@@ -427,6 +428,77 @@ def ollama_chat(message: str, memory_message: str | None = None, extra_history: 
     return reply
 
 
+BACKEND_VERSION = "0.9.0"
+APP_RELEASE = DATA / "app_release.json"
+
+
+def app_release() -> dict:
+    """Client update info, kept on disk so a new APK can be announced without
+    redeploying the API. CI (or Blayne) updates this file when a build ships."""
+    default = {"apk_version": None, "apk_url": None, "notes": "", "mandatory": False}
+    if APP_RELEASE.exists():
+        try:
+            default.update(json.loads(APP_RELEASE.read_text()))
+        except json.JSONDecodeError:
+            pass
+    return default
+
+
+GREETINGS = [
+    "Thunder here. What are we building?",
+    "Up and listening. What do you need?",
+    "Ready. What do you want to work on?",
+    "I'm here. What's the job?",
+    "Online. Where do we start?",
+]
+
+
+def genai_state() -> dict:
+    """What the GPU is doing right now, so the client can show a loader
+    instead of dead air while a model swaps in."""
+    try:
+        with urllib.request.urlopen(f"{GENAI}/health", timeout=2) as r:
+            body = json.loads(r.read().decode())
+    except Exception:
+        return {"up": False, "loaded": [], "loading": None, "busy": False}
+    return {
+        "up": True,
+        "loaded": body.get("loaded", []),
+        "loading": body.get("loading"),
+        "busy": bool(body.get("busy")),
+        "progress": body.get("progress") or {"step": 0, "total": 0},
+    }
+
+
+def release_chat_model() -> None:
+    """Evict the chat model from the GPU before a generation starts. One user,
+    one job at a time - whatever is running should own the whole card rather
+    than wait out Ollama's idle timer."""
+    payload = json.dumps({"model": MODEL, "prompt": "", "keep_alive": 0}).encode()
+    req = urllib.request.Request(
+        f"{OLLAMA}/api/generate", data=payload, headers={"Content-Type": "application/json"}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30):
+            pass
+    except Exception:
+        pass
+
+
+def warm_model() -> None:
+    """Ask Ollama to load the chat model without generating anything, so it is
+    resident by the time the user finishes reading the greeting."""
+    payload = json.dumps({"model": MODEL, "prompt": "", "keep_alive": "5m"}).encode()
+    req = urllib.request.Request(
+        f"{OLLAMA}/api/generate", data=payload, headers={"Content-Type": "application/json"}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=300):
+            pass
+    except Exception:
+        pass
+
+
 def read_status() -> dict:
     base = {
         "mode": "idle",
@@ -462,7 +534,8 @@ def read_status() -> dict:
     base["blocked_egress"] = recent_blocked_egress()
     if base["blocked_egress"]:
         base["state"] = "security_alert"
-    base["app_version"] = "0.8.0"
+    base["app_version"] = BACKEND_VERSION
+    base["gpu"] = genai_state()
     base["image_hook"] = bool(creative.IMAGE_HOOK)
     base["video_hook"] = bool(creative.VIDEO_HOOK)
     return base
@@ -533,6 +606,32 @@ def set_model(body: ModelIn):
 @app.get("/status")
 def status():
     return read_status()
+
+
+@app.get("/app/version")
+def app_version():
+    """The client polls this to decide whether to show an update badge."""
+    rel = app_release()
+    return {
+        "backend_version": BACKEND_VERSION,
+        "apk_version": rel["apk_version"],
+        "apk_url": rel["apk_url"],
+        "notes": rel["notes"],
+        "mandatory": rel["mandatory"],
+    }
+
+
+@app.get("/greeting")
+def greeting():
+    """Instant - never loads a model. The client shows this immediately on open
+    while /warm pulls the model in behind it."""
+    return {"reply": random.choice(GREETINGS), "model": MODEL}
+
+
+@app.post("/warm")
+def warm():
+    threading.Thread(target=warm_model, daemon=True).start()
+    return {"ok": True, "model": MODEL}
 
 
 @app.post("/chat")
@@ -829,6 +928,7 @@ def make_image(body: ImageIn):
     stub = True
     extra = {}
     if creative.IMAGE_HOOK:
+        release_chat_model()
         try:
             hooked = creative.forward_hook(
                 creative.IMAGE_HOOK,
@@ -883,6 +983,7 @@ def _video_worker(cid: str, prompt: str, style: str, duration: int, quality: str
     that looked like a real failure. Same fix already applied to
     _edit_worker; this was the one spot it got missed."""
     try:
+        release_chat_model()
         payload = json.dumps({"prompt": prompt, "style": style, "duration": duration, "quality": quality}).encode()
         req = urllib.request.Request(
             creative.VIDEO_HOOK, data=payload,
@@ -890,12 +991,22 @@ def _video_worker(cid: str, prompt: str, style: str, duration: int, quality: str
         )
         with urllib.request.urlopen(req, timeout=2700) as r:
             mp4_bytes = r.read()
+            poster = r.headers.get("X-Poster")
         name = f"{cid}.mp4"
         (CREATIONS / name).write_bytes(mp4_bytes)
+        extra = {}
+        if poster:
+            # Replace the placeholder graphic with an actual frame of the video.
+            try:
+                with urllib.request.urlopen(f"{GENAI}/media/{poster}", timeout=30) as pr:
+                    (CREATIONS / f"{cid}.png").write_bytes(pr.read())
+                extra["url"] = f"/media/{cid}.png"
+            except Exception:
+                pass
         creative.update_creation(
             CREATIONS, cid,
             video_url=f"/media/{name}", video_status="done",
-            stub=False, message="Video ready.",
+            stub=False, message="Video ready.", **extra,
         )
     except Exception as e:
         record_error("/video (background)", e)
@@ -911,7 +1022,7 @@ def make_video(body: VideoIn):
         raise HTTPException(400, "prompt required")
     style = body.style or "Cinematic"
     duration = max(3, min(int(body.duration or 8), 30))
-    quality = body.quality if body.quality in ("480p", "720p") else "480p"
+    quality = body.quality if body.quality in ("480p", "720p", "1080p") else "480p"
     png = creative.render_stub_png(prompt, style, "16:9", "video")
 
     if creative.VIDEO_HOOK:
@@ -947,6 +1058,7 @@ def _edit_worker(cid: str, source_path: Path, instruction: str) -> None:
     """Real edits measured at ~19 minutes (28 steps, FLUX Kontext) - always
     a background thread, never a live request, same reasoning as video."""
     try:
+        release_chat_model()
         image_b64 = base64.b64encode(source_path.read_bytes()).decode()
         payload = json.dumps({"image_b64": image_b64, "instruction": instruction}).encode()
         req = urllib.request.Request(
