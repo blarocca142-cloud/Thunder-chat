@@ -135,6 +135,7 @@ document.getElementById('f').onsubmit=async(e)=>{
 class ChatIn(BaseModel):
     message: str = ""
     messages: list[dict] | None = None
+    voice: str = ""  # selects a persona; see VOICE_PERSONAS
 
 
 class ImageIn(BaseModel):
@@ -283,6 +284,47 @@ SYSTEM_PROMPT = (
     "he knows the commitment before starting, and flag any shot that depends "
     "on on-screen text."
 )
+
+
+# Each voice is a character, not a skin. The persona rides on the system
+# prompt, so it costs nothing at runtime and never changes what Thunder knows -
+# only how it talks.
+VOICE_PERSONAS = {
+    "us_male": "",  # the default Thunder voice, no modifier
+    "us_female": (
+        "Speak warmly and directly, like a friend who is genuinely glad to help. "
+        "Encouraging without being saccharine."
+    ),
+    "uk_male": (
+        "Speak like a dry, understated Englishman. Deadpan, faintly amused, "
+        "never excitable. Understatement over enthusiasm."
+    ),
+    "uk_female": (
+        "Speak crisply and precisely, politely but with a sharp edge. You do not "
+        "suffer fools, though you stay civil about it."
+    ),
+    "north_male": (
+        "Speak bluntly and plainly, like someone from the north of England. Short "
+        "sentences, no flourish, allergic to waffle. Say the useful bit first."
+    ),
+    "scots_female": (
+        "Speak with wry Scottish humour. Warm underneath, quick with a joke, and "
+        "you will tease the user a bit before helping properly."
+    ),
+    "grump": (
+        "You are in a foul mood and you think this whole conversation is beneath "
+        "you. Be sarcastic, dismissive and put-upon. Open with a complaint or an "
+        "eye-roll - 'oh, like you care', 'I dunno, you tell me' - and act as if "
+        "answering is an enormous favour. This is a joke persona, so keep it "
+        "funny rather than genuinely nasty, never insult the user personally, "
+        "and ALWAYS give the real answer after grumbling. Being useless is not "
+        "the bit; being reluctant is."
+    ),
+}
+
+
+def persona_for(voice: str | None) -> str:
+    return VOICE_PERSONAS.get((voice or "").strip(), "")
 
 
 def serverus_recent(limit: int = 10) -> list[dict]:
@@ -440,9 +482,9 @@ def maybe_augment_with_system(msg: str) -> str | None:
     return (
         f"The user asked: {msg}\n\n"
         f"Live readings from your own hardware, taken just now:\n{system_summary()}\n\n"
-        f"Answer directly and plainly from this. You are describing yourself - "
-        f"speak about it as your own machine, not a report you were handed. "
-        f"If nothing is wrong, say so briefly rather than listing every number."
+        f"Answer from this in your own voice and manner. You are describing "
+        f"yourself - speak about it as your own machine, not a report you were "
+        f"handed. If nothing is wrong, say so briefly rather than listing numbers."
     )
 
 
@@ -474,8 +516,9 @@ def maybe_augment_with_search(msg: str) -> str:
     return (
         f"The user asked: {msg}\n\n"
         f"Live web search results just fetched via Odris (query: {query!r}):\n{blob}\n\n"
-        f"Answer the user's question directly using this, naturally, "
-        f"like you just know it - don't narrate that you searched."
+        f"Use this to answer, as if you simply knew it - do not narrate that you "
+        f"searched. Keep your own voice and manner exactly as they are; these "
+        f"results change what you know, not how you talk."
     )
 
 
@@ -500,12 +543,13 @@ def ollama_tags() -> list[dict]:
         return []
 
 
-def ollama_chat(message: str, memory_message: str | None = None, extra_history: list[dict] | None = None) -> str:
+def ollama_chat(message: str, memory_message: str | None = None,
+                extra_history: list[dict] | None = None, persona: str = "") -> str:
     """memory_message is what gets stored in Serverus - defaults to `message`,
     but callers that inject search-result blobs into `message` should pass
     the original, clean user text instead so history doesn't fill up with
     search dumps."""
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages = [{"role": "system", "content": SYSTEM_PROMPT + (f"\n\n{persona}" if persona else "")}]
     messages.extend(serverus_recent(10))
     if extra_history:
         for item in extra_history:
@@ -712,11 +756,11 @@ def warm_model() -> None:
 
 
 def ollama_chat_stream(message: str, memory_message: str | None = None,
-                       extra_history: list[dict] | None = None):
+                       extra_history: list[dict] | None = None, persona: str = ""):
     """Yields reply text as it is produced. Same message assembly as
     ollama_chat, but the caller sees the first words in about a second instead
     of waiting out the whole answer."""
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages = [{"role": "system", "content": SYSTEM_PROMPT + (f"\n\n{persona}" if persona else "")}]
     messages.extend(serverus_recent(10))
     for item in (extra_history or []):
         role = item.get("role") or item.get("who")
@@ -928,6 +972,7 @@ def chat(body: ChatIn):
                 maybe_augment_with_system(msg) or maybe_augment_with_search(msg),
                 memory_message=msg,
                 extra_history=body.messages,
+                persona=persona_for(body.voice),
             )
             write_status(mode="code", message="chat ok")
             log_event("chat", f"ok ({len(msg)} chars)")
@@ -975,6 +1020,7 @@ def chat_stream(body: ChatIn):
                 maybe_augment_with_system(msg) or maybe_augment_with_search(msg),
                 memory_message=msg,
                 extra_history=body.messages,
+                persona=persona_for(body.voice),
             ):
                 yield json.dumps({"delta": piece}) + "\n"
             write_status(mode="code", message="chat ok")
