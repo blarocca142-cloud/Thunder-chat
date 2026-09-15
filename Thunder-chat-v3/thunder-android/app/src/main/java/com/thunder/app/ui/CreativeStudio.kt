@@ -67,8 +67,18 @@ import java.io.ByteArrayOutputStream
 
 private val Styles = listOf("Cinematic", "Noir", "Gold hour", "Raw", "Documentary", "Ink")
 private val Aspects = listOf("1:1", "16:9", "9:16", "4:3")
-private val Durations = listOf(5, 8, 15, 20)
+private val Durations = listOf(4, 5, 6, 8, 10, 12, 15, 20, 25)
 private val Qualities = listOf("480p", "720p", "1080p")
+
+// Frames scale with duration and resolution, and VAE decode is the ceiling.
+// These mirror the server's limits, so an impossible job is never offered
+// rather than being accepted and rejected after the fact.
+private val MaxSeconds = mapOf("480p" to 25, "720p" to 12, "1080p" to 6)
+
+private fun durationsFor(quality: String): List<Int> {
+    val cap = MaxSeconds[quality] ?: 25
+    return Durations.filter { it <= cap }
+}
 
 private enum class StudioPane { Photo, Video, History }
 
@@ -251,11 +261,19 @@ fun CreativeStudio(
                     Spacer(Modifier.height(12.dp))
                     Text(stringResource(R.string.studio_length), color = ThunderInk.Mute, fontSize = 11.sp, letterSpacing = 0.7.sp)
                     Spacer(Modifier.height(8.dp))
-                    ChipRow(Durations.map { "${it}s" }, "${duration}s") { duration = it.trimEnd('s').toInt() }
+                    ChipRow(durationsFor(quality).map { "${it}s" }, "${duration}s") {
+                        duration = it.trimEnd('s').toInt()
+                    }
                     Spacer(Modifier.height(12.dp))
                     Text(stringResource(R.string.studio_quality), color = ThunderInk.Mute, fontSize = 11.sp, letterSpacing = 0.7.sp)
                     Spacer(Modifier.height(8.dp))
-                    ChipRow(Qualities, quality) { quality = it }
+                    ChipRow(Qualities, quality) { picked ->
+                        quality = picked
+                        // Raising quality lowers the ceiling, so pull the
+                        // length down with it instead of leaving an invalid pair.
+                        val allowed = durationsFor(picked)
+                        if (duration !in allowed) duration = allowed.last()
+                    }
                     Spacer(Modifier.height(8.dp))
                     Text(
                         estimateText(duration, quality),
