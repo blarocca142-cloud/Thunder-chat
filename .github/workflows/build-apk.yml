@@ -15,6 +15,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     defaults:
       run:
         working-directory: Thunder-chat-v3/thunder-android
@@ -42,3 +44,29 @@ jobs:
           name: thunder-debug-apk
           path: Thunder-chat-v3/thunder-android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+
+      # Actions artifacts need authentication to download, so they cannot back
+      # the in-app updater. A release gives a public, stable URL:
+      #   .../releases/latest/download/thunder.apk
+      # The asset name is deliberately version-free so that URL never changes.
+      - name: Publish release for in-app updater
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION=$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts)
+          if [ -z "$VERSION" ]; then echo "could not read versionName"; exit 1; fi
+          cp app/build/outputs/apk/debug/app-debug.apk thunder.apk
+          if gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "v$VERSION" thunder.apk \
+              --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "v$VERSION" thunder.apk \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Thunder $VERSION" \
+              --notes "Debug build of Thunder $VERSION, installed by the app's own updater.
+
+          Commit: $GITHUB_SHA"
+          fi
+          echo "Published v$VERSION"

@@ -8,18 +8,66 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.json.JSONObject
 import java.io.File
 import java.util.concurrent.TimeUnit
 
 /**
- * Sideloaded APK updates. The app is not on Play, so it checks Main for a
- * published build and hands the file to Android's package installer.
+ * Sideloaded APK updates. The app is not on Play, so it looks for a published
+ * build and hands the file to Android's package installer.
+ *
+ * Main gets first say (so a build can be pinned), but the fallback asks GitHub
+ * from the phone - that way updates still surface when Main is off, and Main
+ * needs no outbound internet access of its own.
  *
  * The user must have allowed "install unknown apps" for Thunder. If they have
  * not, the installer intent is refused, so [installApk] reports failure and the
  * caller falls back to opening the URL in a browser.
  */
 object AppUpdater {
+
+    /** CI publishes the APK as a release asset with no version in its name, so
+     *  the download URL this returns is stable across releases. */
+    private const val LATEST_API =
+        "https://api.github.com/repos/blarocca142-cloud/Thunder-chat/releases/latest"
+
+    /** Reads the newest published release straight from GitHub. */
+    suspend fun latestRelease(): AppRelease? = withContext(Dispatchers.IO) {
+        val client = OkHttpClient.Builder()
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(20, TimeUnit.SECONDS)
+            .build()
+        try {
+            val req = Request.Builder().url(LATEST_API)
+                .header("Accept", "application/vnd.github+json")
+                .get().build()
+            client.newCall(req).execute().use { res ->
+                if (!res.isSuccessful) return@withContext null
+                val o = JSONObject(res.body?.string().orEmpty())
+                val version = o.optString("tag_name").removePrefix("v").ifBlank { null }
+                    ?: return@withContext null
+                val assets = o.optJSONArray("assets") ?: return@withContext null
+                var url: String? = null
+                for (i in 0 until assets.length()) {
+                    val a = assets.getJSONObject(i)
+                    if (a.optString("name").endsWith(".apk")) {
+                        url = a.optString("browser_download_url").ifBlank { null }
+                        break
+                    }
+                }
+                if (url == null) return@withContext null
+                AppRelease(
+                    backendVersion = "",
+                    apkVersion = version,
+                    apkUrl = url,
+                    notes = o.optString("name").ifBlank { "Thunder $version" },
+                    mandatory = false
+                )
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
 
     /** True when [available] is a higher dotted version than [installed]. */
     fun isNewer(available: String?, installed: String): Boolean {

@@ -224,10 +224,12 @@ fun ThunderRoot() {
     // has been published and surfaces a badge rather than silently going stale.
     LaunchedEffect(server) {
         while (true) {
-            if (server.isNotBlank()) {
-                val rel = api.appRelease(server)
-                update = rel?.takeIf { AppUpdater.isNewer(it.apkVersion, installedVersion) }
-            }
+            // Main can pin a specific build; otherwise ask GitHub directly so
+            // updates still surface when Main is off.
+            val declared = if (server.isNotBlank()) api.appRelease(server) else null
+            val rel = declared?.takeIf { !it.apkVersion.isNullOrBlank() }
+                ?: AppUpdater.latestRelease()
+            update = rel?.takeIf { AppUpdater.isNewer(it.apkVersion, installedVersion) }
             delay(6 * 60 * 60 * 1000L)
         }
     }
