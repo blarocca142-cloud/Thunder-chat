@@ -349,12 +349,13 @@ def classify_search_query(msg: str) -> str | None:
                 {
                     "role": "system",
                     "content": (
-                        "Reply with ONLY one line. If answering the next message would "
-                        "benefit from a live web search (current events, game/software "
-                        "details, prices, versions, anything you might not know or that "
-                        "changes over time), reply with just the search query to use. "
-                        "If it's ordinary conversation, coding help, or something you "
-                        "already know confidently, reply with exactly: NONE"
+                        "You are a classifier, not an assistant. Do not answer the "
+                        "message. Reply with exactly one line, in one of two forms:\n"
+                        "SEARCH: <query>   - if answering would need a live web lookup "
+                        "(current events, game or software details, prices, versions, "
+                        "anything that changes over time)\n"
+                        "NONE              - for anything else\n"
+                        "Never reply with anything but those two forms."
                     ),
                 },
                 {"role": "user", "content": msg},
@@ -373,9 +374,15 @@ def classify_search_query(msg: str) -> str | None:
         answer = (body.get("message", {}).get("content") or "").strip()
     except Exception:
         return None
-    if not answer or answer.upper().startswith("NONE"):
+    # Require the marker rather than trusting the model to have obeyed. This
+    # model reliably ignores the instruction and answers the question instead -
+    # it wrote a haiku when asked to classify one - and searching for that text
+    # is worse than not searching. Anything unmarked is treated as NONE.
+    first = answer.splitlines()[0].strip() if answer else ""
+    if not first.upper().startswith("SEARCH:"):
         return None
-    return answer.strip('"').strip()
+    query = first[len("SEARCH:"):].strip().strip('"').strip()
+    return query if 0 < len(query) <= 120 else None
 
 
 # Asking "is anything wrong" should not require a person with shell access.
