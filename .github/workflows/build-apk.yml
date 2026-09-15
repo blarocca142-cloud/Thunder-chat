@@ -35,8 +35,36 @@ jobs:
             https://github.com/gradle/gradle/raw/v8.9.0/gradle/wrapper/gradle-wrapper.jar
           chmod +x gradlew
 
+      # Without a fixed key, every runner generates its own debug keystore, so
+      # each build is signed differently and Android refuses to install one
+      # over another - which also makes the in-app updater impossible. If the
+      # secret is present we reuse one key forever; if not, the build still
+      # works exactly as before, just uninstall-first.
+      - name: Restore signing key
+        id: signing
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_B64 }}
+        run: |
+          if [ -n "${KEYSTORE_B64:-}" ]; then
+            mkdir -p ~/.android
+            echo "$KEYSTORE_B64" | base64 -d > ~/.android/debug.keystore
+            echo "stable=true" >> "$GITHUB_OUTPUT"
+            echo "Using the repository's fixed debug key."
+          else
+            echo "stable=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::No ANDROID_DEBUG_KEYSTORE_B64 secret set - this build gets a throwaway key, so it cannot install over an existing Thunder and the in-app updater will not work."
+          fi
+
       - name: Build debug APK
         run: ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Report signing fingerprint
+        run: |
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          keytool -printcert -jarfile "$APK" 2>/dev/null \
+            | grep -i "SHA256:" | head -1 \
+            || echo "could not read certificate"
+          echo "stable key: ${{ steps.signing.outputs.stable }}"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

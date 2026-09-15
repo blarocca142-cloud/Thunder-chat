@@ -1,0 +1,71 @@
+name: Make signing key (one time)
+
+# Run this once from the Actions tab. It creates a debug keystore, uploads it
+# as an artifact, and prints instructions. Adding it as a secret then makes
+# every future APK share one signature, so builds install over each other and
+# the in-app updater works.
+#
+# The key is uploaded as an ARTIFACT, never printed to the log, because logs on
+# a public repo are public.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Generate keystore
+        run: |
+          set -euo pipefail
+          # These are Android's standard debug-keystore values. Gradle expects
+          # exactly these for a debug build, so they are not free choices.
+          keytool -genkeypair -v \
+            -keystore debug.keystore \
+            -storepass android -keypass android \
+            -alias androiddebugkey \
+            -dname "CN=Android Debug,O=Android,C=US" \
+            -keyalg RSA -keysize 2048 -validity 10950
+          base64 -w0 debug.keystore > debug.keystore.base64.txt
+          echo "Keystore created. Fingerprint:"
+          keytool -list -v -keystore debug.keystore -storepass android \
+            | grep -i "SHA256:" | head -1
+
+      - name: Upload keystore
+        uses: actions/upload-artifact@v4
+        with:
+          name: thunder-signing-key
+          path: |
+            debug.keystore
+            debug.keystore.base64.txt
+          retention-days: 1
+
+      - name: What to do next
+        run: |
+          cat <<'EOF'
+          =====================================================================
+          NEXT STEPS (one time, ~2 minutes)
+
+          1. Download the "thunder-signing-key" artifact from this run.
+          2. Open debug.keystore.base64.txt and copy the whole single line.
+          3. Go to: Settings > Secrets and variables > Actions > New secret
+             Name:  ANDROID_DEBUG_KEYSTORE_B64
+             Value: (paste that line)
+
+          After that, every build shares one signature. Consequences:
+            - APKs install over each other, no uninstall needed
+            - the in-app update badge actually works
+            - you must uninstall Thunder ONE last time before installing the
+              first build made with this key, because the currently installed
+              app was signed with a throwaway one
+
+          The artifact expires in 1 day on purpose. Delete it once the secret
+          is saved - and do not commit the keystore to the repo, since this one
+          is public.
+          =====================================================================
+          EOF
