@@ -53,4 +53,7 @@
     <string name="update_available">Update available</string>
     <string name="update_install">Install</string>
     <string name="update_later">Later</string>
+    <string name="copy_label">Copy</string>
+    <string name="copy_cd">copy message</string>
+    <string name="copied">Copied</string>
 </resources>

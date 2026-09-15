@@ -6,6 +6,7 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -37,6 +38,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
+import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Delete
@@ -76,6 +78,8 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
@@ -1013,18 +1017,54 @@ private fun ThunderWordmark(modifier: Modifier = Modifier) {
 @Composable
 private fun Bubble(line: Line) {
     val mine = line.who == "you"
+    val clipboard = LocalClipboardManager.current
+    val context = LocalContext.current
     Row(
         Modifier.fillMaxWidth(),
         horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start
     ) {
-        Box(
+        Column(
             Modifier
                 .widthIn(max = 320.dp)
                 .clip(RoundedCornerShape(10.dp))
                 .background(if (mine) ThunderInk.YouBubble else Color.Transparent)
                 .padding(horizontal = if (mine) 14.dp else 2.dp, vertical = 9.dp)
         ) {
-            Text(line.text, color = ThunderInk.Ink, fontSize = 15.sp, lineHeight = 22.sp)
+            // Selection handles partial copies; the button covers the common
+            // case of wanting the whole thing, which is miserable to drag-select
+            // inside a scrolling list.
+            SelectionContainer {
+                Text(line.text, color = ThunderInk.Ink, fontSize = 15.sp, lineHeight = 22.sp)
+            }
+            if (!mine) {
+                Row(
+                    Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable {
+                            clipboard.setText(AnnotatedString(line.text))
+                            Toast.makeText(
+                                context,
+                                context.getString(R.string.copied),
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                        .padding(horizontal = 4.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Outlined.ContentCopy,
+                        contentDescription = stringResource(R.string.copy_cd),
+                        tint = ThunderInk.Mute,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(Modifier.width(5.dp))
+                    Text(
+                        stringResource(R.string.copy_label),
+                        color = ThunderInk.Mute,
+                        fontSize = 11.sp
+                    )
+                }
+            }
         }
     }
 }
