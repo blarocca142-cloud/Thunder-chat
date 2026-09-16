@@ -72,6 +72,12 @@ VIDEO_RESOLUTIONS = {
     "480p": (480, 848),
     "720p": (704, 1280),
     "1080p": (1088, 1920),
+    # Portrait, for social and phone-first ads. Generating in the target shape
+    # beats cropping a landscape clip, which throws away the sides and wrecks
+    # whatever composition the model produced.
+    "480p_v": (848, 480),
+    "720p_v": (1280, 704),
+    "1080p_v": (1920, 1088),
 }
 # Each model's native rate, from its own model card: TI2V-5B is documented as
 # 720P@24fps, and the A14B line is 16fps. This is not a free choice - the frame

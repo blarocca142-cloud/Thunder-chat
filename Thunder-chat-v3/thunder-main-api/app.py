@@ -148,7 +148,8 @@ class ImageIn(BaseModel):
 # Frames scale with duration AND resolution, and VAE decode is the ceiling.
 # A 5s 1080p job already sits at 22.7GB of 24GB VRAM, so longer clips at that
 # tier cannot fit. Refusing immediately beats failing ten minutes in.
-MAX_SECONDS = {"480p": 25, "720p": 12, "1080p": 6}
+MAX_SECONDS = {"480p": 25, "720p": 12, "1080p": 6,
+               "480p_v": 25, "720p_v": 12, "1080p_v": 6}
 
 
 class VideoIn(BaseModel):
@@ -1506,7 +1507,7 @@ def make_video(body: VideoIn):
         raise HTTPException(400, "prompt required")
     style = body.style or "Cinematic"
     duration = max(3, min(int(body.duration or 8), 30))
-    quality = body.quality if body.quality in ("480p", "720p", "1080p") else "480p"
+    quality = body.quality if body.quality in MAX_SECONDS else "480p"
     cap = MAX_SECONDS[quality]
     if duration > cap:
         raise HTTPException(
