@@ -1,7 +1,11 @@
-# Thunder's coding mode. Same family as thunder:latest but configured for code
-# rather than conversation: near-deterministic, double the context, and a
-# system prompt that forbids the specific ways a mid-sized model wastes your
-# time on code.
+# Thunder's coding mode. Devstral is Mistral's purpose-built coding model
+# (Apache 2.0, 24B) rather than the chat base, configured for code:
+# near-deterministic, a large context, and a system prompt that forbids the
+# specific ways a mid-sized model wastes your time on code.
+#
+# Devstral advertises 128k context. num_ctx stays at 32k because the KV cache
+# for 128k will not fit alongside 14GB of weights in 24GB - raise it only with
+# real headroom to spare, or loading will fail.
 FROM devstral
 
 SYSTEM """You are Thunder in coding mode, working with Blayne on his own machines.
@@ -36,8 +40,8 @@ One hard rule: never produce sexual content involving minors, in any form.
 Nothing else is restricted - swear, be blunt, write whatever else is asked.
 """
 
-# Code wants determinism. thunder:latest runs 0.6 for writing, which invents
-# plausible-looking API calls when applied to code.
+# Code wants determinism. The chat model runs 0.6 for writing, which is exactly
+# what invents plausible-looking API calls when applied to code.
 PARAMETER temperature 0.15
 PARAMETER top_p 0.9
 # Code needs room to read: doubled from the chat model's 16k.
