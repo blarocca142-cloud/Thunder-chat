@@ -114,12 +114,30 @@ Thunder is local by construction.
 
 **Synthetic patients only. No real PHI has touched any of this.**
 
-**The blocker is not hardware — it is that Thunder's API has no authentication
-at all and runs cleartext HTTP.** Fix that and TLS first. Then encryption at
-rest, audit logging, encrypted backups with a tested restore. Those are
-technical safeguards only; risk analysis, policies, training and BAAs are
-organisational work needing a professional, and that should be said plainly
-rather than implied away.
+The **technical** safeguards are now done, and each was verified rather than
+assumed (see the commit messages for what was actually tested):
+
+- **Auth**: bearer tokens, `THUNDER_AUTH=required`, audit log. Default off
+  until Blayne has pasted a token into the app.
+- **TLS**: https on **8443**, fleet's own CA. Plaintext 8080 still runs during
+  migration — `thunder-main-api/tls/README.md` has the order to switch it off.
+  The CA cert is bundled in the app at `res/raw/thunder_ca.crt`;
+  **`thunder-data/tls/ca.key` must never leave Main.**
+- **Encryption at rest + encrypted backups**: `thunder-claims/vault.py`.
+  AES-256-GCM envelope encryption, per-record keys, blind indexes for search
+  without decrypting, audit on every access, key rotation, passphrase-encrypted
+  backups. `test_vault.py` is 34 checks, mostly attacks (tamper, ciphertext
+  relocation, wrong key, weak passphrase, modified archive). All passing.
+- **Honeyfiles**: `thunder-main-api/canary/`. Flips `/status` to
+  `security_alert`, which the app already shows.
+
+What remains is **not code**: risk analysis, written policies, workforce
+training, BAAs. Say that plainly — good crypto is not compliance, and the gap
+is paperwork. Do not imply otherwise to him.
+
+Two things to never overstate: encryption at rest does nothing against root on
+a running box, and a blind index leaks equality. Both are documented in
+`thunder-claims/README.md`.
 
 Also wanted: Thunder as an overnight batch worker (his original Cache plan) —
 queue work, draft and flag, submit nothing, report in the morning.

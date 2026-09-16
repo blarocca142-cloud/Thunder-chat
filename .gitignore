@@ -12,3 +12,5 @@ Thunder-chat-v3/thunder-android/.gradle/
 Thunder-chat-v3/thunder-android/app/build/
 Thunder-chat-v3/thunder-android/build/
 Thunder-chat-v3/thunder-android/.kotlin/
+Thunder-chat-v3/thunder-claims/vault/
+*.tvb
