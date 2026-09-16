@@ -25,6 +25,7 @@ from pydantic import BaseModel
 
 import codestore
 import creative
+import memory
 
 OLLAMA = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
 MODEL = os.environ.get("THUNDER_MODEL", "dolphin3")  # never default to a Qwen/Alibaba model
@@ -61,6 +62,11 @@ CREATIONS.mkdir(exist_ok=True)
 # overnight worker can compile it and a project zips without an export step.
 CODE = DATA / "code"
 CODE.mkdir(exist_ok=True)
+# What Thunder knows about Blayne and the fleet. Most of the distance between
+# this 24B and a frontier model is context, not reasoning - so it gets context.
+MEM = memory.Memory(DATA / "memory")
+if not MEM.profile().strip():
+    MEM.set_profile(memory.DEFAULT_PROFILE)
 WEB = Path(__file__).resolve().parent.parent / "thunder-web"
 LOGS: deque[dict] = deque(maxlen=200)
 STATUS = DATA / "status.json"
@@ -662,13 +668,35 @@ def ollama_tags() -> list[dict]:
         return []
 
 
+def remember_if_asked(message: str) -> dict | None:
+    """Store a fact only when actually told to.
+
+    Inferring what is worth keeping fills memory with rubbish, and rubbish in
+    the prompt is worse than an empty memory - the model will try to use it.
+    """
+    fact = memory.extract_instruction(message)
+    if not fact:
+        return None
+    rec = MEM.remember(fact, source="asked")
+    if rec:
+        log_event("memory", f"remembered: {fact[:80]}")
+    return rec
+
+
 def ollama_chat(message: str, memory_message: str | None = None,
                 extra_history: list[dict] | None = None, persona: str = "") -> str:
     """memory_message is what gets stored in Serverus - defaults to `message`,
     but callers that inject search-result blobs into `message` should pass
     the original, clean user text instead so history doesn't fill up with
     search dumps."""
-    messages = [{"role": "system", "content": SYSTEM_PROMPT + (f"\n\n{persona}" if persona else "")}]
+    # Recall runs on the clean user text: when a search blob has been stuffed
+    # into `message`, embedding that would recall against the search results
+    # rather than against what he actually asked.
+    recall_text = memory_message if memory_message is not None else message
+    profile = MEM.profile().strip()
+    messages = [{"role": "system", "content": SYSTEM_PROMPT
+                 + (f"\n\n{profile}" if profile else "")
+                 + (f"\n\n{persona}" if persona else "")}]
     messages.extend(serverus_recent(6))
     if extra_history:
         for item in extra_history:
@@ -682,6 +710,9 @@ def ollama_chat(message: str, memory_message: str | None = None,
                 continue
             if content:
                 messages.append({"role": role, "content": content})
+    notes = MEM.recall_block(recall_text)
+    if notes:
+        messages.append({"role": "system", "content": notes})
     messages.append({"role": "user", "content": message})
     payload = json.dumps({
         "model": MODEL, "stream": False, "messages": messages, "options": CHAT_OPTIONS,
@@ -695,7 +726,9 @@ def ollama_chat(message: str, memory_message: str | None = None,
     with urllib.request.urlopen(req, timeout=300) as r:
         body = json.loads(r.read().decode())
     reply = body.get("message", {}).get("content") or body.get("response") or json.dumps(body)
-    serverus_append(memory_message if memory_message is not None else message, reply)
+    clean = memory_message if memory_message is not None else message
+    serverus_append(clean, reply)
+    remember_if_asked(clean)
     return reply
 
 
@@ -949,7 +982,14 @@ def ollama_chat_stream(message: str, memory_message: str | None = None,
     """Yields reply text as it is produced. Same message assembly as
     ollama_chat, but the caller sees the first words in about a second instead
     of waiting out the whole answer."""
-    messages = [{"role": "system", "content": SYSTEM_PROMPT + (f"\n\n{persona}" if persona else "")}]
+    # Recall runs on the clean user text: when a search blob has been stuffed
+    # into `message`, embedding that would recall against the search results
+    # rather than against what he actually asked.
+    recall_text = memory_message if memory_message is not None else message
+    profile = MEM.profile().strip()
+    messages = [{"role": "system", "content": SYSTEM_PROMPT
+                 + (f"\n\n{profile}" if profile else "")
+                 + (f"\n\n{persona}" if persona else "")}]
     messages.extend(serverus_recent(6))
     for item in (extra_history or []):
         role = item.get("role") or item.get("who")
@@ -957,6 +997,9 @@ def ollama_chat_stream(message: str, memory_message: str | None = None,
         role = {"you": "user", "thunder": "assistant", "bot": "assistant"}.get(role, role)
         if content and role in ("user", "assistant"):
             messages.append({"role": role, "content": content})
+    notes = MEM.recall_block(recall_text)
+    if notes:
+        messages.append({"role": "system", "content": notes})
     messages.append({"role": "user", "content": message})
 
     payload = json.dumps({
@@ -982,7 +1025,9 @@ def ollama_chat_stream(message: str, memory_message: str | None = None,
                 yield piece
             if chunk.get("done"):
                 break
-    serverus_append(memory_message if memory_message is not None else message, "".join(parts))
+    clean = memory_message if memory_message is not None else message
+    serverus_append(clean, "".join(parts))
+    remember_if_asked(clean)
 
 
 def read_status() -> dict:
@@ -1090,6 +1135,69 @@ def set_model(body: ModelIn):
     log_event("model", f"model set to {MODEL}")
     write_status(model=MODEL, message=f"Model {MODEL}")
     return {"current": MODEL, "models": ollama_tags()}
+
+
+class MemoryIn(BaseModel):
+    text: str = ""
+
+
+class ProfileIn(BaseModel):
+    text: str = ""
+
+
+@app.get("/memory")
+def memory_list():
+    """Everything Thunder has been told, newest first. Vectors are omitted -
+    they are large and unreadable."""
+    return {"profile": MEM.profile(), "facts": MEM.all_facts()}
+
+
+@app.post("/memory")
+def memory_add(body: MemoryIn):
+    rec = MEM.remember(body.text, source="manual")
+    if not rec:
+        raise HTTPException(400, "too short to be worth remembering")
+    log_event("memory", f"added: {body.text[:80]}")
+    return {k: v for k, v in rec.items() if k != "vector"}
+
+
+@app.get("/memory/recall")
+def memory_recall(q: str):
+    """What Thunder would recall for this message. Useful for seeing why an
+    answer went the way it did."""
+    return {"query": q, "hits": [
+        {k: v for k, v in h.items() if k != "vector"} for h in MEM.recall(q)]}
+
+
+@app.delete("/memory/{fact_id}")
+def memory_delete(fact_id: str):
+    if not MEM.forget(fact_id):
+        raise HTTPException(404, "no such fact")
+    return {"forgotten": fact_id}
+
+
+class IngestIn(BaseModel):
+    label: str = ""
+    text: str = ""
+
+
+@app.post("/memory/ingest")
+def memory_ingest(body: IngestIn):
+    """Teach Thunder a document. Re-ingesting the same label replaces it."""
+    if not body.label.strip() or not body.text.strip():
+        raise HTTPException(400, "label and text are both required")
+    added = MEM.ingest(body.label.strip(), body.text)
+    log_event("memory", f"ingested {body.label}: {added} notes")
+    return {"label": body.label, "notes": added}
+
+
+@app.put("/memory/profile")
+def memory_profile(body: ProfileIn):
+    """The always-injected part. Kept hand-editable on purpose - it is the
+    single most effective knob on answer quality."""
+    MEM.set_profile(body.text)
+    log_event("memory", f"profile updated ({len(body.text)} chars)")
+    return {"bytes": len(body.text)}
 
 
 @app.get("/health")
