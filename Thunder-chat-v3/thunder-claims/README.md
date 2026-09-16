@@ -19,6 +19,77 @@ products; a claims store that is local *and* encrypted at rest, with lookup
 that works without decrypting, is the part nobody sells - because the market
 went to the cloud, and the cloud needs a BAA.
 
+## Measured accuracy
+
+Numbers, not impressions. `synthetic.py` invents patients and renders them as
+superbills that are then degraded on purpose - rotated, blurred, speckled,
+re-compressed - because an accuracy figure measured on a crisp PNG is a figure
+about nothing. Each page ships with the truth it was drawn from, so the
+pipeline can be scored against it.
+
+    ./synthetic.py 25 cases/
+    ./evaluate.py cases/          # raw extractions are cached after the first run
+    ./evaluate.py cases/ --no-repair
+
+**25 synthetic documents, ~8s per page:**
+
+| | |
+|---|---|
+| patient_name, dob, sex, insurer, clinic_name, clinic_npi | 100% |
+| NPIs (referring / treating) | 92% |
+| claim_number, tax ID, both dates | 96-100% |
+| **diagnosis codes** | **94% recall, 94% precision** |
+| **procedure codes** | **100% recall, 100% precision** |
+| every field on the page exactly right | 8/25 |
+| wrong, and nothing flagged it | 6/25 |
+
+The last row is the one that matters and the one to keep driving down. The
+others are mostly omissions, and an omission is caught - a required field left
+empty is a blocking error. A wrong value that passes every check is what
+becomes a wrong claim.
+
+### What the measurement actually found
+
+**The model is not the weak link. OCR is.** Every silent error traced back to
+tesseract misreading the page, with the model copying it faithfully - which is
+what it was told to do:
+
+    Sex: E                      <- F misread as E
+    |. Mbeki, DO                <- I misread as a pipe
+    Motor vehicle.accident      <- stray period
+    $39.012A / 644.309          <- S and G misread in code positions
+
+Preprocessing does not fix this. Median filtering, 2x upscaling, binarisation
+and autocontrast were all tried, and the `$` survives every one of them.
+
+What fixes it is `repair.py`, which uses the field's format as the constraint.
+Measured, same pages, same extractions:
+
+| | diagnosis codes |
+|---|---|
+| no repair | 45% |
+| with repair | **94%** |
+
+That is the single largest improvement in the pipeline and it costs no GPU time
+at all.
+
+### Honesty about the metric
+
+Scoring counts a stray period in an address as equal to a wrong NPI, which
+would make the headline number meaningless - one is noise, the other is a
+rejected claim. So cosmetic differences are reported separately (14 of them
+across 25 documents). Free text is compared on its words; codes, dates and
+numbers are compared strictly.
+
+The remaining silent errors are free-text OCR noise: a dropped phone number, a
+pipe in place of an initial, punctuation inside a mechanism-of-injury phrase.
+None would change what is billed, but they are still counted, because deciding
+they do not matter is not the pipeline's call to make.
+
+The obvious next step is looking codes up in the real CMS ICD-10 release rather
+than only checking their shape. That turns "well-formed" into "real", and it
+needs the code list on disk.
+
 ## Why the validator exists
 
 The model corrupts things. On the first real run it turned `S46.012A` into
