@@ -23,9 +23,17 @@ class ThunderPrefs(context: Context) {
             prefs.edit().putBoolean(KEY_SPEAK, value).apply()
         }
 
+    /** Empty means use the phone's built-in TTS. */
+    var voice: String
+        get() = prefs.getString(KEY_VOICE, "us_male").orEmpty()
+        set(value) {
+            prefs.edit().putString(KEY_VOICE, value).apply()
+        }
+
     companion object {
         private const val KEY_SERVER = "server_url"
         private const val KEY_DARK = "dark_mode"
         private const val KEY_SPEAK = "speak_replies"
+        private const val KEY_VOICE = "voice"
     }
 }

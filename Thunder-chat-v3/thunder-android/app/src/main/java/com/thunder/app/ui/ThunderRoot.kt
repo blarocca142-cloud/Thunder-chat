@@ -144,10 +144,12 @@ fun ThunderRoot() {
     var updating by remember { mutableStateOf(false) }
     var studioPrefill by remember { mutableStateOf<String?>(null) }
     var speakReplies by remember { mutableStateOf(prefs.speakReplies) }
+    var voice by remember { mutableStateOf(prefs.voice) }
     // Android's on-device engine - no server, no model to ship.
     val tts = remember { TextToSpeech(context) { } }
+    var replyPlayer by remember { mutableStateOf<android.media.MediaPlayer?>(null) }
     DisposableEffect(Unit) {
-        onDispose { tts.stop(); tts.shutdown() }
+        onDispose { tts.stop(); tts.shutdown(); replyPlayer?.release() }
     }
     val installedVersion = remember {
         runCatching {
@@ -210,7 +212,7 @@ fun ThunderRoot() {
             val slot = lines.size
             lines.add(Line("thunder", ""))
             var first = true
-            val full = api.chatStream(server, msg) { delta ->
+            val full = api.chatStream(server, msg, voice) { delta ->
                 if (first) {
                     waiting = false
                     first = false
@@ -221,13 +223,27 @@ fun ThunderRoot() {
             waiting = false
             persistActive()
             if (speakReplies && full.isNotBlank()) {
-                // Speak the prose only - reading a generation prompt aloud is
-                // noise.
+                // Prose only - reading a generation prompt aloud is noise.
                 val spoken = parseSegments(full)
                     .filterIsInstance<Segment.Prose>()
                     .joinToString(" ") { it.text }
                     .ifBlank { full }
-                tts.speak(spoken, TextToSpeech.QUEUE_FLUSH, null, "thunder-reply")
+                val audio = api.speak(server, spoken, voice)
+                if (audio != null) {
+                    // Odris's neural voice.
+                    runCatching {
+                        val f = java.io.File(context.cacheDir, "reply.wav")
+                        f.writeBytes(audio)
+                        replyPlayer?.release()
+                        replyPlayer = android.media.MediaPlayer().apply {
+                            setDataSource(f.absolutePath); prepare(); start()
+                        }
+                    }
+                } else {
+                    // Voice node unreachable - the phone's own engine rather
+                    // than silence.
+                    tts.speak(spoken, TextToSpeech.QUEUE_FLUSH, null, "thunder-reply")
+                }
             }
         }
     }
@@ -408,6 +424,12 @@ fun ThunderRoot() {
                 server = it
                 prefs.serverUrl = it
             },
+            voice = voice,
+            onVoice = {
+                voice = it
+                prefs.voice = it
+            },
+            api = api,
             speak = speakReplies,
             onSpeak = {
                 speakReplies = it
@@ -846,12 +868,21 @@ private fun ThunderComposer(
     }
 }
 
+private fun installedName(context: android.content.Context): String =
+    runCatching {
+        context.packageManager.getPackageInfo(context.packageName, 0).versionName
+    }.getOrNull() ?: "?"
+
+
 @Composable
 private fun ServerDialog(
     server: String,
     onServer: (String) -> Unit,
     dark: Boolean,
     onDark: (Boolean) -> Unit,
+    voice: String,
+    onVoice: (String) -> Unit,
+    api: ThunderApi,
     speak: Boolean,
     onSpeak: (Boolean) -> Unit,
     onDismiss: () -> Unit
@@ -915,6 +946,26 @@ private fun ServerDialog(
                     )
                 }
                 Spacer(Modifier.height(14.dp))
+                Text(
+                    stringResource(R.string.settings_voice),
+                    color = ThunderInk.Ink,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    stringResource(R.string.settings_voice_hint),
+                    color = ThunderInk.Mute,
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp
+                )
+                VoicePicker(
+                    server = server,
+                    api = api,
+                    selected = voice,
+                    onSelect = onVoice,
+                    cacheDir = LocalContext.current.cacheDir
+                )
+                Spacer(Modifier.height(14.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text(
@@ -941,6 +992,14 @@ private fun ServerDialog(
                         )
                     )
                 }
+                Spacer(Modifier.height(16.dp))
+                // Shown so "which build am I on" never means digging through
+                // Android's own settings.
+                Text(
+                    stringResource(R.string.settings_version, installedName(LocalContext.current)),
+                    color = ThunderInk.Mute,
+                    fontSize = 11.sp
+                )
             }
         },
         confirmButton = {

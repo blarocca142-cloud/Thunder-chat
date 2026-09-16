@@ -63,4 +63,7 @@
     <string name="speak_replies">Speak replies</string>
     <string name="speak_replies_hint">Read Thunder\'s answers aloud using your phone\'s voice</string>
     <string name="update_signature_mismatch">This build was signed with a different key, so it cannot install over the current app. Reinstall once from the releases page.</string>
+    <string name="settings_voice">Voice</string>
+    <string name="settings_voice_hint">Each voice has its own personality</string>
+    <string name="settings_version">Thunder %1$s</string>
 </resources>

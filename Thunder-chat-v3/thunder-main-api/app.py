@@ -18,7 +18,7 @@ from pathlib import Path
 
 from collections import deque
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
@@ -32,6 +32,7 @@ ENGINE = os.environ.get("ENGINE_URL", "http://10.168.168.12:9002")
 ODRIS = os.environ.get("ODRIS_URL", "http://10.168.168.15:9003")
 WEBSEARCH = os.environ.get("WEBSEARCH_URL", "http://10.168.168.15:9004")
 GENAI = os.environ.get("GENAI_URL", "http://127.0.0.1:9010")
+TTS = os.environ.get("TTS_URL", "http://10.168.168.15:9006")
 
 # The model itself never gets internet access (see net-lockdown/) - only Odris
 # does, and only for this one job. An explicit prefix always triggers a
@@ -155,6 +156,12 @@ class VideoIn(BaseModel):
     style: str = "Cinematic"
     duration: int = 8
     quality: str = "480p"  # or "720p" - see genai_server.py VIDEO_RESOLUTIONS
+
+
+class SpeakIn(BaseModel):
+    text: str = ""
+    voice: str = "us_male"
+    rate: float = 1.0
 
 
 class ModelIn(BaseModel):
@@ -901,6 +908,36 @@ def set_model(body: ModelIn):
 @app.get("/status")
 def status():
     return read_status()
+
+
+@app.get("/voices")
+def list_voices():
+    """Proxied from Odris so the phone only ever talks to Main."""
+    try:
+        with urllib.request.urlopen(f"{TTS}/voices", timeout=5) as r:
+            return json.loads(r.read().decode())
+    except Exception as e:
+        return {"voices": {}, "error": str(e)}
+
+
+@app.post("/speak")
+def speak(body: SpeakIn):
+    """Neural speech from Odris's CPU. Returns wav bytes, or 503 if that node
+    is down - the client falls back to the phone's own TTS rather than going
+    silent."""
+    payload = json.dumps({
+        "text": body.text, "voice": body.voice, "rate": body.rate,
+    }).encode()
+    req = urllib.request.Request(
+        f"{TTS}/speak", data=payload,
+        headers={"Content-Type": "application/json"}, method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=120) as r:
+            audio = r.read()
+    except Exception as e:
+        raise HTTPException(503, f"voice service unavailable: {e}")
+    return Response(content=audio, media_type="audio/wav")
 
 
 @app.get("/system")
