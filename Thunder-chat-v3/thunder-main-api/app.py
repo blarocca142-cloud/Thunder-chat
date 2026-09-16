@@ -865,6 +865,27 @@ def bottlenecks(gpu: dict, mem: dict, disks: list[dict], services: dict) -> list
     return out
 
 
+CANARY_ALERTS = DATA / "canary_alerts.log"
+
+
+def canary_hits(limit: int = 5) -> list[dict]:
+    """Honeyfile accesses. Nothing legitimate reads those files, so any entry
+    here is a real intrusion signal rather than something to triage."""
+    if not CANARY_ALERTS.exists():
+        return []
+    try:
+        lines = CANARY_ALERTS.read_text().strip().splitlines()[-limit:]
+    except OSError:
+        return []
+    out = []
+    for line in lines:
+        try:
+            out.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    return out
+
+
 def genai_state() -> dict:
     """What the GPU is doing right now, so the client can show a loader
     instead of dead air while a model swaps in."""
@@ -986,6 +1007,9 @@ def read_status() -> dict:
         base["state"] = "maintenance"
     base["blocked_egress"] = recent_blocked_egress()
     if base["blocked_egress"]:
+        base["state"] = "security_alert"
+    base["canary"] = canary_hits()
+    if base["canary"]:
         base["state"] = "security_alert"
     base["app_version"] = BACKEND_VERSION
     base["gpu"] = genai_state()
@@ -1134,6 +1158,7 @@ def system_report():
         "disks": disks,
         "services": services,
         "generators": genai_state(),
+        "canary": canary_hits(),
         "bottlenecks": bottlenecks(gpu, mem, disks, services),
         "checked_at": utc_ts(),
     }
