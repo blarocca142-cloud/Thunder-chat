@@ -589,15 +589,62 @@ BACKEND_VERSION = "0.9.0"
 APP_RELEASE = DATA / "app_release.json"
 
 
+_RELEASE_CACHE: dict = {"at": 0, "data": None}
+GITHUB_LATEST = (
+    "https://api.github.com/repos/blarocca142-cloud/Thunder-chat/releases/latest"
+)
+
+
+def github_latest() -> dict | None:
+    """Ask GitHub here rather than leaving it to the phone.
+
+    The client falls back to querying GitHub itself, but that is the leg we
+    cannot see or debug, and it shares this network's unauthenticated rate
+    limit - 60/hour for the whole house - so a burst of polling from here can
+    silently stop phones from ever seeing an update. Answering from Main makes
+    the check observable and costs one request per 10 minutes instead of one
+    per phone per check.
+    """
+    now = utc_ts()
+    if _RELEASE_CACHE["data"] and now - _RELEASE_CACHE["at"] < 600:
+        return _RELEASE_CACHE["data"]
+    try:
+        req = urllib.request.Request(
+            GITHUB_LATEST, headers={"Accept": "application/vnd.github+json"}
+        )
+        with urllib.request.urlopen(req, timeout=8) as r:
+            body = json.loads(r.read().decode())
+        version = (body.get("tag_name") or "").lstrip("v").strip()
+        url = next(
+            (a["browser_download_url"] for a in body.get("assets", [])
+             if a.get("name", "").endswith(".apk")),
+            None,
+        )
+        if not version or not url:
+            return _RELEASE_CACHE["data"]
+        data = {"apk_version": version, "apk_url": url,
+                "notes": body.get("name") or f"Thunder {version}", "mandatory": False}
+        _RELEASE_CACHE.update({"at": now, "data": data})
+        return data
+    except Exception:
+        return _RELEASE_CACHE["data"]  # stale beats nothing
+
+
 def app_release() -> dict:
-    """Client update info, kept on disk so a new APK can be announced without
-    redeploying the API. CI (or Blayne) updates this file when a build ships."""
+    """Client update info. A file on disk wins, so a build can be pinned or
+    held back; otherwise whatever GitHub currently has."""
     default = {"apk_version": None, "apk_url": None, "notes": "", "mandatory": False}
     if APP_RELEASE.exists():
         try:
-            default.update(json.loads(APP_RELEASE.read_text()))
+            pinned = json.loads(APP_RELEASE.read_text())
+            if pinned.get("apk_version"):
+                default.update(pinned)
+                return default
         except json.JSONDecodeError:
             pass
+    live = github_latest()
+    if live:
+        default.update(live)
     return default
 
 
