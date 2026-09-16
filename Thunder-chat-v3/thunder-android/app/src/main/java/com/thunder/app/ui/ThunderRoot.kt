@@ -70,6 +70,9 @@ import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.Lifecycle
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -269,16 +272,34 @@ fun ThunderRoot() {
 
     // The app is sideloaded, not on Play, so it asks Main whether a newer APK
     // has been published and surfaces a badge rather than silently going stale.
+    suspend fun checkForUpdate() {
+        // Main can pin a specific build; otherwise ask GitHub directly, which
+        // needs no server at all and so works in shell mode too.
+        val declared = if (server.isNotBlank()) api.appRelease(server) else null
+        val rel = declared?.takeIf { !it.apkVersion.isNullOrBlank() }
+            ?: AppUpdater.latestRelease()
+        update = rel?.takeIf { AppUpdater.isNewer(it.apkVersion, installedVersion) }
+    }
+
     LaunchedEffect(server) {
         while (true) {
-            // Main can pin a specific build; otherwise ask GitHub directly so
-            // updates still surface when Main is off.
-            val declared = if (server.isNotBlank()) api.appRelease(server) else null
-            val rel = declared?.takeIf { !it.apkVersion.isNullOrBlank() }
-                ?: AppUpdater.latestRelease()
-            update = rel?.takeIf { AppUpdater.isNewer(it.apkVersion, installedVersion) }
-            delay(6 * 60 * 60 * 1000L)
+            checkForUpdate()
+            delay(60 * 60 * 1000L)
         }
+    }
+
+    // Also check whenever the app comes back to the foreground. A periodic
+    // timer alone means a resumed app - which Android does not recompose -
+    // could sit for an hour showing no badge when one is already available.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, server) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                scope.launch { checkForUpdate() }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     LaunchedEffect(maintenanceActive) {
