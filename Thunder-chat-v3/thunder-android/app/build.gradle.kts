@@ -11,8 +11,8 @@ android {
         applicationId = "com.thunder.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 37
-        versionName = "1.1.0"
+        versionCode = 38
+        versionName = "1.2.0"
     }
     signingConfigs {
         getByName("debug") {

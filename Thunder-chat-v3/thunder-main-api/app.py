@@ -1080,6 +1080,14 @@ def set_model(body: ModelIn):
     return {"current": MODEL, "models": ollama_tags()}
 
 
+@app.get("/health")
+def health():
+    """Liveness only. Unauthenticated by design, so it must stay this boring -
+    no model name, no node list, no version. "Is the process answering" is the
+    entire question, and anything more is free reconnaissance."""
+    return {"ok": True}
+
+
 @app.get("/status")
 def status():
     return read_status()

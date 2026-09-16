@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Thunder answers on a LAN address, so no public certificate authority can
+  vouch for it. The fleet's own CA certificate is bundled here as an extra
+  trust anchor, which is what lets the app speak https to Main.
+
+  It is added app-wide rather than tied to one address on purpose: the server
+  URL is typed in by hand, and pinning to 10.168.168.10 would break silently
+  the day the LAN changes. The cost is one additional issuer next to the
+  hundred-odd public ones Android already trusts - and unlike those, nobody can
+  mint a certificate under it without the private key, which never leaves Main.
+
+  System anchors stay so that ordinary https (GitHub, for the updater) works.
+
+  cleartextTrafficPermitted is still true because Main also answers plaintext
+  on 8080 during the migration. Once the server URL here is https, that unit
+  gets disabled and this flips to false - at which point an attacker cannot
+  downgrade the app to http even by answering in Main's place.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="@raw/thunder_ca" />
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

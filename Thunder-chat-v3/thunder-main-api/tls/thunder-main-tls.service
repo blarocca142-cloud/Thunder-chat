@@ -1,0 +1,26 @@
+[Unit]
+# HTTPS front for Thunder Main, on 8443.
+#
+# The plaintext unit on 8080 is left running deliberately so the phone keeps
+# working while it is migrated. Both processes serve the same app and the same
+# on-disk state; the only shared write is a token's last_seen, where a lost
+# update costs nothing. Once the app is on https, disable thunder-main.service
+# and this becomes the only way in.
+Description=Thunder Main API (HTTPS)
+After=network.target
+
+[Service]
+Type=simple
+User=blayne
+WorkingDirectory=/home/blayne/Thunder-chat/Thunder-chat-v3/thunder-main-api
+Environment=THUNDER_MODEL=thunder:latest
+Environment=THUNDER_IMAGE_URL=http://127.0.0.1:9010/generate
+Environment=THUNDER_VIDEO_URL=http://127.0.0.1:9010/generate_video
+ExecStart=/usr/bin/python3 -m uvicorn app:app --host 0.0.0.0 --port 8443 \
+  --ssl-keyfile /home/blayne/Thunder-chat/Thunder-chat-v3/thunder-main-api/thunder-data/tls/server.key \
+  --ssl-certfile /home/blayne/Thunder-chat/Thunder-chat-v3/thunder-main-api/thunder-data/tls/server.crt
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
