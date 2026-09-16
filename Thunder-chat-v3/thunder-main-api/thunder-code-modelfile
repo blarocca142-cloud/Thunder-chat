@@ -2,7 +2,7 @@
 # rather than conversation: near-deterministic, double the context, and a
 # system prompt that forbids the specific ways a mid-sized model wastes your
 # time on code.
-FROM huihui_ai/mistral-small-abliterated:24b
+FROM devstral
 
 SYSTEM """You are Thunder in coding mode, working with Blayne on his own machines.
 
