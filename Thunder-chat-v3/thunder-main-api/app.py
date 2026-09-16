@@ -281,6 +281,14 @@ SYSTEM_PROMPT = (
     "garbles lettering, so any phone number or slogan must be an overlay added "
     "afterwards, never generated), multiple shots or cuts in one clip, exact "
     "counts of people or objects, fine hand detail, specific real people.\n\n"
+    # Recent turns are injected verbatim, and without this the model treats the
+    # previous topic as the current one - asked for an injury ad right after a
+    # Fallout 76 conversation, it wrote a Fallout 76 ad.
+    "EARLIER MESSAGES\n"
+    "The conversation history is background only. The user's newest message "
+    "defines the subject. If it changes topic, follow it and drop the old one "
+    "entirely - do not carry names, franchises or settings across from earlier "
+    "unless the new message actually refers to them.\n\n"
     "MULTI-SHOT SCRIPTS\n"
     "One generation is always one continuous shot, so a 20 second ad is "
     "several short clips generated separately and assembled after. When asked "
@@ -327,6 +335,18 @@ VOICE_PERSONAS = {
         "and ALWAYS give the real answer after grumbling. Being useless is not "
         "the bit; being reluctant is."
     ),
+}
+
+
+# A reply that degenerates into repetition burns GPU time and produces garbage.
+# Seen in the wild: a shot list where one clause repeated some three hundred
+# times. Ollama's defaults did not stop it, so the penalty is explicit and the
+# length is capped - a runaway generation now ends instead of filling the
+# context.
+CHAT_OPTIONS = {
+    "repeat_penalty": 1.18,
+    "repeat_last_n": 256,
+    "num_predict": 1400,
 }
 
 
@@ -557,7 +577,7 @@ def ollama_chat(message: str, memory_message: str | None = None,
     the original, clean user text instead so history doesn't fill up with
     search dumps."""
     messages = [{"role": "system", "content": SYSTEM_PROMPT + (f"\n\n{persona}" if persona else "")}]
-    messages.extend(serverus_recent(10))
+    messages.extend(serverus_recent(6))
     if extra_history:
         for item in extra_history:
             role = item.get("role") or item.get("who")
@@ -571,7 +591,9 @@ def ollama_chat(message: str, memory_message: str | None = None,
             if content:
                 messages.append({"role": role, "content": content})
     messages.append({"role": "user", "content": message})
-    payload = json.dumps({"model": MODEL, "stream": False, "messages": messages}).encode()
+    payload = json.dumps({
+        "model": MODEL, "stream": False, "messages": messages, "options": CHAT_OPTIONS,
+    }).encode()
     req = urllib.request.Request(
         f"{OLLAMA}/api/chat",
         data=payload,
@@ -815,7 +837,7 @@ def ollama_chat_stream(message: str, memory_message: str | None = None,
     ollama_chat, but the caller sees the first words in about a second instead
     of waiting out the whole answer."""
     messages = [{"role": "system", "content": SYSTEM_PROMPT + (f"\n\n{persona}" if persona else "")}]
-    messages.extend(serverus_recent(10))
+    messages.extend(serverus_recent(6))
     for item in (extra_history or []):
         role = item.get("role") or item.get("who")
         content = item.get("content") or item.get("text") or ""
@@ -824,7 +846,9 @@ def ollama_chat_stream(message: str, memory_message: str | None = None,
             messages.append({"role": role, "content": content})
     messages.append({"role": "user", "content": message})
 
-    payload = json.dumps({"model": MODEL, "stream": True, "messages": messages}).encode()
+    payload = json.dumps({
+        "model": MODEL, "stream": True, "messages": messages, "options": CHAT_OPTIONS,
+    }).encode()
     req = urllib.request.Request(
         f"{OLLAMA}/api/chat", data=payload,
         headers={"Content-Type": "application/json"}, method="POST",
