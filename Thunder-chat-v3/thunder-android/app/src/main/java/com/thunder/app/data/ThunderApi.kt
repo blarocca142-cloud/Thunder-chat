@@ -51,6 +51,23 @@ data class GpuState(
 
 data class ThunderVoice(val key: String, val label: String)
 
+/** A project in the code vault - just a directory on Main. */
+data class CodeProject(
+    val name: String,
+    val files: Int,
+    val bytes: Long,
+    val updated: String
+)
+
+data class CodeFile(
+    val name: String,
+    val project: String = "",
+    val language: String = "",
+    val bytes: Long = 0,
+    val lines: Int = 0,
+    val updated: String = ""
+)
+
 data class AppRelease(
     val backendVersion: String,
     val apkVersion: String?,
@@ -280,6 +297,135 @@ class ThunderApi(
             null
         }
     }
+
+    // ---- code vault -------------------------------------------------------
+
+    /** Save a code block. Returns the stored filename, or null on failure. */
+    suspend fun saveCode(
+        server: String, content: String, project: String,
+        filename: String?, language: String
+    ): CodeFile? = withContext(Dispatchers.IO) {
+        if (server.isBlank() || content.isBlank()) return@withContext null
+        try {
+            val payload = JSONObject()
+                .put("content", content)
+                .put("project", project.ifBlank { "scratch" })
+                .put("language", language)
+            if (!filename.isNullOrBlank()) payload.put("filename", filename)
+            val req = Request.Builder().url("${base(server)}/code")
+                .post(payload.toString().toRequestBody(jsonType)).build()
+            client.newCall(req).execute().use { res ->
+                if (!res.isSuccessful) return@use null
+                parseCodeFile(JSONObject(res.body?.string().orEmpty()))
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    suspend fun codeProjects(server: String): List<CodeProject> = withContext(Dispatchers.IO) {
+        if (server.isBlank()) return@withContext emptyList()
+        try {
+            val req = Request.Builder().url("${base(server)}/code").get().build()
+            client.newCall(req).execute().use { res ->
+                if (!res.isSuccessful) return@use emptyList()
+                val arr = JSONObject(res.body?.string().orEmpty())
+                    .optJSONArray("projects") ?: return@use emptyList()
+                buildList {
+                    for (i in 0 until arr.length()) {
+                        val o = arr.getJSONObject(i)
+                        add(CodeProject(
+                            name = o.optString("project"),
+                            files = o.optInt("files"),
+                            bytes = o.optLong("bytes"),
+                            updated = o.optString("updated")
+                        ))
+                    }
+                }
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    suspend fun codeFiles(server: String, project: String): List<CodeFile> =
+        withContext(Dispatchers.IO) {
+            if (server.isBlank()) return@withContext emptyList()
+            try {
+                val req = Request.Builder()
+                    .url("${base(server)}/code/${enc(project)}").get().build()
+                client.newCall(req).execute().use { res ->
+                    if (!res.isSuccessful) return@use emptyList()
+                    val arr = JSONObject(res.body?.string().orEmpty())
+                        .optJSONArray("files") ?: return@use emptyList()
+                    buildList {
+                        for (i in 0 until arr.length()) {
+                            add(parseCodeFile(arr.getJSONObject(i)).copy(project = project))
+                        }
+                    }
+                }
+            } catch (_: Exception) {
+                emptyList()
+            }
+        }
+
+    /** Full text of one file. */
+    suspend fun codeContent(server: String, project: String, name: String): String? =
+        withContext(Dispatchers.IO) {
+            if (server.isBlank()) return@withContext null
+            try {
+                val req = Request.Builder()
+                    .url("${base(server)}/code/${enc(project)}/file/${enc(name)}")
+                    .get().build()
+                client.newCall(req).execute().use { res ->
+                    if (!res.isSuccessful) return@use null
+                    JSONObject(res.body?.string().orEmpty()).optString("content")
+                }
+            } catch (_: Exception) {
+                null
+            }
+        }
+
+    suspend fun deleteCode(server: String, project: String, name: String): Boolean =
+        withContext(Dispatchers.IO) {
+            if (server.isBlank()) return@withContext false
+            try {
+                val req = Request.Builder()
+                    .url("${base(server)}/code/${enc(project)}/file/${enc(name)}")
+                    .delete().build()
+                client.newCall(req).execute().use { it.isSuccessful }
+            } catch (_: Exception) {
+                false
+            }
+        }
+
+    /** The whole project zipped, for getting work off the phone in one go. */
+    suspend fun codeArchive(server: String, project: String): ByteArray? =
+        withContext(Dispatchers.IO) {
+            if (server.isBlank()) return@withContext null
+            try {
+                val req = Request.Builder()
+                    .url("${base(server)}/code/${enc(project)}/archive").get().build()
+                client.newCall(req).execute().use { res ->
+                    if (!res.isSuccessful) return@use null
+                    res.body?.bytes()
+                }
+            } catch (_: Exception) {
+                null
+            }
+        }
+
+    private fun enc(s: String): String =
+        java.net.URLEncoder.encode(s, "UTF-8").replace("+", "%20")
+
+    private fun parseCodeFile(o: JSONObject) = CodeFile(
+        name = o.optString("name"),
+        project = o.optString("project"),
+        language = o.optString("language"),
+        bytes = o.optLong("bytes"),
+        lines = o.optInt("lines"),
+        updated = o.optString("updated")
+    )
 
     suspend fun creations(server: String): List<Creation> = withContext(Dispatchers.IO) {
         if (server.isBlank()) return@withContext emptyList()

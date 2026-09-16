@@ -10,11 +10,15 @@ package com.thunder.app.ui
  */
 sealed interface Segment {
     data class Prose(val text: String) : Segment
-    /** [isPrompt] marks a block the Studio can generate from directly. */
-    data class Block(val text: String, val isPrompt: Boolean) : Segment
+    /**
+     * [isPrompt] marks a block the Studio can generate from directly.
+     * [language] is the fence tag (```python), kept because it is what names
+     * the file when the block is saved - a kotlin block should not land as .txt.
+     */
+    data class Block(val text: String, val isPrompt: Boolean, val language: String = "") : Segment
 }
 
-private val FENCE = Regex("```[a-zA-Z0-9_+-]*\\n?([\\s\\S]*?)```")
+private val FENCE = Regex("```([a-zA-Z0-9_+-]*)\\n?([\\s\\S]*?)```")
 private val PROMPT_LINE = Regex("""(?im)^\s*prompt\s*:\s*["“]?(.+?)["”]?\s*$""")
 
 fun parseSegments(reply: String): List<Segment> {
@@ -37,8 +41,10 @@ fun parseSegments(reply: String): List<Segment> {
 
     for (m in FENCE.findAll(reply)) {
         addProse(reply.substring(cursor, m.range.first))
-        val body = m.groupValues[1].trim()
-        if (body.isNotEmpty()) out.add(Segment.Block(body, isPrompt = false))
+        val body = m.groupValues[2].trim()
+        if (body.isNotEmpty()) {
+            out.add(Segment.Block(body, isPrompt = false, language = m.groupValues[1].trim()))
+        }
         cursor = m.range.last + 1
     }
     addProse(reply.substring(cursor))

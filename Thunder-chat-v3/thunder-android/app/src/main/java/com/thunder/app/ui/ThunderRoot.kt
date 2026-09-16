@@ -44,6 +44,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
+import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.Close
@@ -51,6 +52,7 @@ import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.Mic
+import androidx.compose.material.icons.outlined.Save
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.LinearProgressIndicator
@@ -113,7 +115,7 @@ import kotlinx.coroutines.launch
 
 data class Line(val who: String, val text: String)
 
-private enum class ThunderTab { Chat, Studio }
+private enum class ThunderTab { Chat, Studio, Code }
 
 @Composable
 fun ThunderRoot() {
@@ -146,6 +148,11 @@ fun ThunderRoot() {
     var showUpdate by remember { mutableStateOf(false) }
     var updating by remember { mutableStateOf(false) }
     var studioPrefill by remember { mutableStateOf<String?>(null) }
+    // Code saved from a conversation lands in a project named after it, so a
+    // week of chats does not become one undifferentiated heap of snippets.
+    val codeProject = remember(activeId, chats) {
+        chats.firstOrNull { it.id == activeId }?.title?.takeIf { it.isNotBlank() } ?: "scratch"
+    }
     var apiToken by remember { mutableStateOf(prefs.apiToken) }
     var speakReplies by remember { mutableStateOf(prefs.speakReplies) }
     var voice by remember { mutableStateOf(prefs.voice) }
@@ -311,10 +318,10 @@ fun ThunderRoot() {
     }
 
     ThunderTheme(dark = dark) {
-    BackHandler(enabled = drawerState.isOpen || tab == ThunderTab.Studio) {
+    BackHandler(enabled = drawerState.isOpen || tab != ThunderTab.Chat) {
         when {
             drawerState.isOpen -> scope.launch { drawerState.close() }
-            tab == ThunderTab.Studio -> tab = ThunderTab.Chat
+            tab != ThunderTab.Chat -> tab = ThunderTab.Chat
         }
     }
 
@@ -375,7 +382,13 @@ fun ThunderRoot() {
                     }
                 }
 
-                if (tab == ThunderTab.Studio) {
+                if (tab == ThunderTab.Code) {
+                    CodeVault(
+                        server = server,
+                        api = api,
+                        modifier = Modifier.weight(1f)
+                    )
+                } else if (tab == ThunderTab.Studio) {
                     CreativeStudio(
                         server = server,
                         api = api,
@@ -392,10 +405,29 @@ fun ThunderRoot() {
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         items(lines) { line ->
-                            Bubble(line) { prompt ->
-                                studioPrefill = prompt
-                                tab = ThunderTab.Studio
-                            }
+                            Bubble(
+                                line = line,
+                                onSendToStudio = { prompt ->
+                                    studioPrefill = prompt
+                                    tab = ThunderTab.Studio
+                                },
+                                onSaveCode = { body, language ->
+                                    scope.launch {
+                                        val saved = api.saveCode(
+                                            server, body, codeProject, null, language
+                                        )
+                                        Toast.makeText(
+                                            context,
+                                            // saved.project, not the chat title: the
+                                            // server sanitises the name, and the toast
+                                            // should say where the file actually went.
+                                            if (saved != null) "Saved ${saved.name} to ${saved.project}"
+                                            else "Could not save - is Main reachable?",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                }
+                            )
                         }
                         if (waiting) item { ThunderThinking() }
                     }
@@ -432,6 +464,13 @@ fun ThunderRoot() {
                         onClick = { tab = ThunderTab.Studio },
                         icon = { Icon(Icons.Outlined.AutoAwesome, contentDescription = null) },
                         label = { Text(stringResource(R.string.tab_studio)) },
+                        colors = colors
+                    )
+                    NavigationBarItem(
+                        selected = tab == ThunderTab.Code,
+                        onClick = { tab = ThunderTab.Code },
+                        icon = { Icon(Icons.Outlined.Code, contentDescription = null) },
+                        label = { Text(stringResource(R.string.tab_code)) },
                         colors = colors
                     )
                 }
@@ -1082,7 +1121,7 @@ private fun thunderFieldColors() = TextFieldDefaults.colors(
 )
 
 @Composable
-private fun Hairline(dim: Boolean = false) {
+internal fun Hairline(dim: Boolean = false) {
     Box(
         Modifier
             .fillMaxWidth()
@@ -1157,7 +1196,11 @@ private fun ThunderWordmark(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun Bubble(line: Line, onSendToStudio: (String) -> Unit = {}) {
+private fun Bubble(
+    line: Line,
+    onSendToStudio: (String) -> Unit = {},
+    onSaveCode: (String, String) -> Unit = { _, _ -> }
+) {
     val mine = line.who == "you"
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
@@ -1188,6 +1231,7 @@ private fun Bubble(line: Line, onSendToStudio: (String) -> Unit = {}) {
                         is Segment.Block -> ActionBlock(
                             text = seg.text,
                             isPrompt = seg.isPrompt,
+                            onSave = { onSaveCode(seg.text, seg.language) },
                             onCopy = {
                                 clipboard.setText(AnnotatedString(seg.text))
                                 Toast.makeText(context, context.getString(R.string.copied), Toast.LENGTH_SHORT).show()
@@ -1237,7 +1281,8 @@ private fun ActionBlock(
     text: String,
     isPrompt: Boolean,
     onCopy: () -> Unit,
-    onSendToStudio: () -> Unit
+    onSendToStudio: () -> Unit,
+    onSave: () -> Unit = {}
 ) {
     Column(
         Modifier
@@ -1256,6 +1301,9 @@ private fun ActionBlock(
             if (isPrompt) {
                 Spacer(Modifier.width(14.dp))
                 BlockAction(Icons.Outlined.AutoAwesome, stringResource(R.string.send_to_studio), onSendToStudio)
+            } else {
+                Spacer(Modifier.width(14.dp))
+                BlockAction(Icons.Outlined.Save, stringResource(R.string.save_code), onSave)
             }
         }
     }

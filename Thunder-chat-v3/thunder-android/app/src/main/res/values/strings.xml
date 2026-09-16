@@ -16,6 +16,7 @@
     <string name="close_menu_cd">Close chats</string>
     <string name="tab_chat">Chat</string>
     <string name="tab_studio">Studio</string>
+    <string name="tab_code">Code</string>
     <string name="studio_photo">Photo</string>
     <string name="studio_video">Video</string>
     <string name="studio_history">History</string>
@@ -57,6 +58,7 @@
     <string name="copy_cd">copy message</string>
     <string name="copied">Copied</string>
     <string name="send_to_studio">Send to Studio</string>
+    <string name="save_code">Save</string>
     <string name="voice_prompt">Talk to Thunder</string>
     <string name="voice_cd">voice input</string>
     <string name="voice_unavailable">No speech recogniser on this device</string>

@@ -23,6 +23,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
+import codestore
 import creative
 
 OLLAMA = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
@@ -56,6 +57,10 @@ ERRORS = DATA / "errors"
 ERRORS.mkdir(exist_ok=True)
 CREATIONS = DATA / "creations"
 CREATIONS.mkdir(exist_ok=True)
+# Code gets a real directory tree rather than rows in a database, so the
+# overnight worker can compile it and a project zips without an export step.
+CODE = DATA / "code"
+CODE.mkdir(exist_ok=True)
 WEB = Path(__file__).resolve().parent.parent / "thunder-web"
 LOGS: deque[dict] = deque(maxlen=200)
 STATUS = DATA / "status.json"
@@ -236,6 +241,13 @@ class VideoIn(BaseModel):
 class TokenIn(BaseModel):
     admin_secret: str = ""
     name: str = ""
+
+
+class CodeIn(BaseModel):
+    content: str = ""
+    project: str = "scratch"
+    filename: str | None = None
+    language: str = ""
 
 
 class SpeakIn(BaseModel):
@@ -1747,6 +1759,75 @@ def one_creation(cid: str):
     if not item:
         raise HTTPException(404, "not found")
     return item
+
+
+@app.post("/code")
+def code_save(body: CodeIn):
+    """Save a block of code. Filenames come from a language model, so every
+    path decision happens in codestore under test, never here."""
+    try:
+        rec = codestore.save(CODE, body.content, body.project,
+                             body.filename, body.language)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    log_event("code", f"saved {rec['project']}/{rec['name']} ({rec['bytes']}B)")
+    return rec
+
+
+@app.get("/code")
+def code_projects():
+    return {"projects": codestore.list_projects(CODE)}
+
+
+@app.get("/code/{project}")
+def code_files(project: str):
+    return {"project": project, "files": codestore.list_files(CODE, project)}
+
+
+@app.get("/code/{project}/archive")
+def code_archive(project: str):
+    """The whole project as a zip - the one-tap way to get work off the phone."""
+    made = codestore.archive(CODE, project)
+    if not made:
+        raise HTTPException(404, "no such project, or it is empty")
+    name, blob = made
+    return Response(content=blob, media_type="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+@app.get("/code/{project}/file/{name}")
+def code_read(project: str, name: str):
+    rec = codestore.read(CODE, project, name)
+    if not rec:
+        raise HTTPException(404, "not found")
+    return rec
+
+
+@app.get("/code/{project}/file/{name}/download")
+def code_download(project: str, name: str):
+    rec = codestore.read(CODE, project, name)
+    if not rec:
+        raise HTTPException(404, "not found")
+    return Response(
+        content=rec["content"].encode("utf-8"),
+        media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{rec["name"]}"'})
+
+
+@app.get("/code/{project}/file/{name}/previous")
+def code_previous(project: str, name: str):
+    """What this file said before it was last overwritten."""
+    prev = codestore.previous(CODE, project, name)
+    if prev is None:
+        raise HTTPException(404, "no earlier version kept")
+    return {"project": project, "name": name, "content": prev}
+
+
+@app.delete("/code/{project}/file/{name}")
+def code_delete(project: str, name: str):
+    if not codestore.delete(CODE, project, name):
+        raise HTTPException(404, "not found")
+    return {"deleted": True, "project": project, "name": name}
 
 
 @app.get("/media/{name}")
