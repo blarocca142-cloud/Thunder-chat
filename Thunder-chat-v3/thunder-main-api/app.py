@@ -75,7 +75,81 @@ def get_admin_secret() -> str:
         ADMIN_SECRET_FILE.chmod(0o600)
     return ADMIN_SECRET_FILE.read_text().strip()
 
+TOKENS_FILE = DATA / "tokens.json"
+AUDIT_LOG = DATA / "audit.log"
+# Off by default so turning auth on is a deliberate act and cannot strand a
+# client mid-rollout. Set THUNDER_AUTH=required once every client sends a token.
+AUTH_MODE = os.environ.get("THUNDER_AUTH", "off").strip().lower()
+# Reachable without a token: liveness, and the page that explains how to get one.
+OPEN_PATHS = {"/health", "/", "/app.js", "/styles.css", "/icon.png", "/favicon.ico"}
+
+
+def load_tokens() -> dict:
+    if not TOKENS_FILE.exists():
+        return {}
+    try:
+        return json.loads(TOKENS_FILE.read_text())
+    except json.JSONDecodeError:
+        return {}
+
+
+def save_tokens(tokens: dict) -> None:
+    TOKENS_FILE.write_text(json.dumps(tokens, indent=2))
+    TOKENS_FILE.chmod(0o600)
+
+
+def mint_token(name: str) -> str:
+    import secrets
+
+    token = secrets.token_urlsafe(32)
+    tokens = load_tokens()
+    tokens[token] = {"name": name, "created": utc_ts(), "last_seen": None}
+    save_tokens(tokens)
+    return token
+
+
+def audit(who: str, method: str, path: str, status: int) -> None:
+    """Append-only record of who touched what.
+
+    Required for handling health information, and useful long before that: it
+    is the only way to answer "what actually called this" after the fact.
+    """
+    line = json.dumps({"at": utc_ts(), "who": who, "method": method,
+                       "path": path, "status": status})
+    with AUDIT_LOG.open("a") as f:
+        f.write(line + "\n")
+
+
 app = FastAPI(title="Thunder Main")
+
+
+@app.middleware("http")
+async def authenticate(request: Request, call_next):
+    """Bearer-token auth, plus an audit trail.
+
+    Deliberately a middleware rather than a dependency on each route: there are
+    35 endpoints and one missed decorator is an unauthenticated hole. Default
+    deny, with an explicit exemption list.
+    """
+    path = request.url.path
+    who = "anonymous"
+    if AUTH_MODE == "required" and path not in OPEN_PATHS and not path.startswith("/media/"):
+        header = request.headers.get("authorization", "")
+        token = header[7:].strip() if header.lower().startswith("bearer ") else ""
+        tokens = load_tokens()
+        record = tokens.get(token) if token else None
+        if not record:
+            audit("anonymous", request.method, path, 401)
+            return JSONResponse(status_code=401,
+                                content={"error": "a bearer token is required"})
+        who = record.get("name", "unknown")
+        record["last_seen"] = utc_ts()
+        save_tokens(tokens)
+    response = await call_next(request)
+    # Status polling would otherwise drown the log in noise.
+    if path not in ("/status", "/health"):
+        audit(who, request.method, path, response.status_code)
+    return response
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -157,6 +231,11 @@ class VideoIn(BaseModel):
     style: str = "Cinematic"
     duration: int = 8
     quality: str = "480p"  # or "720p" - see genai_server.py VIDEO_RESOLUTIONS
+
+
+class TokenIn(BaseModel):
+    admin_secret: str = ""
+    name: str = ""
 
 
 class SpeakIn(BaseModel):
@@ -1010,6 +1089,31 @@ def speak(body: SpeakIn):
     except Exception as e:
         raise HTTPException(503, f"voice service unavailable: {e}")
     return Response(content=audio, media_type="audio/wav")
+
+
+@app.post("/auth/token")
+def create_token(body: TokenIn):
+    """Mint a client token. Gated by the admin secret, which is the one thing
+    that exists before any token does."""
+    if body.admin_secret != get_admin_secret():
+        raise HTTPException(403, "admin secret required")
+    name = (body.name or "").strip() or "unnamed client"
+    token = mint_token(name)
+    log_event("auth", f"token issued for {name}")
+    return {"token": token, "name": name,
+            "note": "Store this now - it is not recoverable."}
+
+
+@app.get("/auth/status")
+def auth_status():
+    """What mode auth is in and which clients exist. Never returns a token."""
+    tokens = load_tokens()
+    return {
+        "mode": AUTH_MODE,
+        "clients": [{"name": v.get("name"), "created": v.get("created"),
+                     "last_seen": v.get("last_seen")} for v in tokens.values()],
+        "hint": "set THUNDER_AUTH=required on thunder-main once clients send tokens",
+    }
 
 
 @app.get("/system")

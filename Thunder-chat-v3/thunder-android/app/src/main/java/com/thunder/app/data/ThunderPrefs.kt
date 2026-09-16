@@ -30,10 +30,18 @@ class ThunderPrefs(context: Context) {
             prefs.edit().putString(KEY_VOICE, value).apply()
         }
 
+    /** Bearer token for Main. Empty until one is pasted in Settings. */
+    var apiToken: String
+        get() = prefs.getString(KEY_TOKEN, "").orEmpty()
+        set(value) {
+            prefs.edit().putString(KEY_TOKEN, value.trim()).apply()
+        }
+
     companion object {
         private const val KEY_SERVER = "server_url"
         private const val KEY_DARK = "dark_mode"
         private const val KEY_SPEAK = "speak_replies"
         private const val KEY_VOICE = "voice"
+        private const val KEY_TOKEN = "api_token"
     }
 }

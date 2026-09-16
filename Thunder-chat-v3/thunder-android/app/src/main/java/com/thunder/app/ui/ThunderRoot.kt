@@ -118,10 +118,10 @@ private enum class ThunderTab { Chat, Studio }
 @Composable
 fun ThunderRoot() {
     val context = LocalContext.current
-    val api = remember { ThunderApi() }
+    val prefs = remember { ThunderPrefs(context) }
+    val api = remember { ThunderApi(token = prefs.apiToken) }
     val store = remember { ChatStore(context) }
     val creations = remember { CreationStore(context) }
-    val prefs = remember { ThunderPrefs(context) }
     val scope = rememberCoroutineScope()
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val listState = rememberLazyListState()
@@ -146,6 +146,7 @@ fun ThunderRoot() {
     var showUpdate by remember { mutableStateOf(false) }
     var updating by remember { mutableStateOf(false) }
     var studioPrefill by remember { mutableStateOf<String?>(null) }
+    var apiToken by remember { mutableStateOf(prefs.apiToken) }
     var speakReplies by remember { mutableStateOf(prefs.speakReplies) }
     var voice by remember { mutableStateOf(prefs.voice) }
     // Android's on-device engine - no server, no model to ship.
@@ -444,6 +445,12 @@ fun ThunderRoot() {
             onServer = {
                 server = it
                 prefs.serverUrl = it
+            },
+            token = apiToken,
+            onToken = {
+                apiToken = it
+                prefs.apiToken = it
+                api.token = it
             },
             voice = voice,
             onVoice = {
@@ -901,6 +908,8 @@ private fun ServerDialog(
     onServer: (String) -> Unit,
     dark: Boolean,
     onDark: (Boolean) -> Unit,
+    token: String,
+    onToken: (String) -> Unit,
     voice: String,
     onVoice: (String) -> Unit,
     api: ThunderApi,
@@ -966,6 +975,36 @@ private fun ServerDialog(
                         )
                     )
                 }
+                Spacer(Modifier.height(14.dp))
+                Text(
+                    stringResource(R.string.settings_token),
+                    color = ThunderInk.Ink,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    stringResource(R.string.settings_token_hint),
+                    color = ThunderInk.Mute,
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp
+                )
+                Spacer(Modifier.height(6.dp))
+                TextField(
+                    value = token,
+                    onValueChange = onToken,
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    placeholder = { Text("not set", color = ThunderInk.Mute) },
+                    colors = TextFieldDefaults.colors(
+                        focusedTextColor = ThunderInk.Ink,
+                        unfocusedTextColor = ThunderInk.Ink,
+                        focusedContainerColor = ThunderInk.SlateDeep,
+                        unfocusedContainerColor = ThunderInk.SlateDeep,
+                        cursorColor = ThunderInk.Gold,
+                        focusedIndicatorColor = ThunderInk.Gold.copy(alpha = 0.7f),
+                        unfocusedIndicatorColor = ThunderInk.Hairline
+                    )
+                )
                 Spacer(Modifier.height(14.dp))
                 Text(
                     stringResource(R.string.settings_voice),

@@ -66,4 +66,6 @@
     <string name="settings_voice">Voice</string>
     <string name="settings_voice_hint">Each voice has its own personality</string>
     <string name="settings_version">Thunder %1$s</string>
+    <string name="settings_token">Access token</string>
+    <string name="settings_token_hint">Needed once the server requires authentication</string>
 </resources>

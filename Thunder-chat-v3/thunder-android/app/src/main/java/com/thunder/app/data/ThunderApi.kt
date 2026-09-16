@@ -75,11 +75,26 @@ data class ThunderStatus(
 )
 
 class ThunderApi(
-    private val client: OkHttpClient = OkHttpClient.Builder()
+    /** Set from prefs. Sent on every request so enabling auth server-side does
+     *  not require touching each call site. */
+    var token: String = "",
+    private val baseClient: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(120, TimeUnit.SECONDS)
         .build()
 ) {
+    private val client: OkHttpClient = baseClient.newBuilder()
+        .addInterceptor { chain ->
+            val req = chain.request()
+            chain.proceed(
+                if (token.isBlank()) req
+                else req.newBuilder()
+                    .header("Authorization", "Bearer $token")
+                    .build()
+            )
+        }
+        .build()
+
     private val jsonType = "application/json; charset=utf-8".toMediaType()
 
     // A stream stays open for the whole reply, so it must not inherit the
