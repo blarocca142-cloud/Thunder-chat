@@ -152,6 +152,22 @@ def repair_sex(value: str) -> tuple[str, str | None]:
     return fixed, f"OCR repair (sex): {raw} -> {fixed}"
 
 
+NOTE = re.compile(r"^OCR repair(?: \(([^)]+)\))?: (.+?) -> (.+)$")
+
+
+def parse_note(note: str) -> tuple[str, str, str] | None:
+    """(label, before, after) from a repair note.
+
+    Lives here, beside the code that writes these strings, so the writer and
+    the reader cannot drift apart. Callers need the before-and-after to judge
+    whether a repair can be trusted without a human.
+    """
+    m = NOTE.match(note or "")
+    if not m:
+        return None
+    return (m.group(1) or "ICD-10"), m.group(2), m.group(3)
+
+
 def repair_claim(claim: dict) -> tuple[dict, list[str]]:
     """Repair every coded field in an extracted claim.
 

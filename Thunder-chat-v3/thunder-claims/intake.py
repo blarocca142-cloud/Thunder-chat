@@ -48,7 +48,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "thunder-nodes"))
 import vault  # noqa: E402
 from extract import extract  # noqa: E402
-from repair import repair_claim  # noqa: E402
+import codelist  # noqa: E402
+from repair import parse_note, repair_claim  # noqa: E402
 from validate import check  # noqa: E402
 
 try:
@@ -99,20 +100,57 @@ def ocr_document(path: Path) -> str:
     return run(["tesseract", str(path), "stdout", "--dpi", "200"]) or ""
 
 
+def repair_is_proven(note: str) -> bool:
+    """Can this repair stand without a human reading it?
+
+    Only when the real code list settles it: the damaged value is not a code,
+    and the repaired value is. That is not a guess the format forced, it is the
+    only reading that corresponds to something CMS publishes.
+
+    Anything else is a no. A CPT repair cannot be proven at all while the AMA
+    list is unlicensed, and "probably right" is not a standard to bill on.
+    """
+    parsed = parse_note(note)
+    if not parsed:
+        return False
+    label, before, after = parsed
+    if label != "ICD-10":
+        return False          # CPT/NPI/sex - no authoritative list to check
+    return codelist.icd10_exists(after) is True and \
+        codelist.icd10_exists(before) is False
+
+
+def unknown_codes(claim: dict) -> list[str]:
+    """Well-formed codes that are not real codes.
+
+    The format check passes "S39.019A" happily. Only the published list knows
+    it does not exist, and a claim carrying one will be rejected by the payer.
+    """
+    out = []
+    for dx in claim.get("diagnoses") or []:
+        code = (dx or {}).get("code")
+        if code and codelist.icd10_exists(code) is False:
+            out.append(f"diagnosis {code} is well-formed but is not a real "
+                       f"ICD-10 code")
+    return out
+
+
 def triage(issues: list[dict], repairs: list[str], claim: dict) -> tuple[str, list[str]]:
     """Which pile does this land in, and why."""
     blocks = [i for i in issues if i.get("severity") == "BLOCK"]
     warns = [i for i in issues if i.get("severity") == "WARN"]
-    reasons = []
-    for i in blocks:
-        reasons.append(f"{i['field']}: {i['problem']}")
-    if blocks:
+    reasons = [f"{i['field']}: {i['problem']}" for i in blocks]
+    reasons += unknown_codes(claim)          # a payer would reject these
+    if reasons:
         return "BLOCK", reasons
-    for i in warns:
-        reasons.append(f"{i['field']}: {i['problem']}")
-    # A repaired code is a repaired code, not a clean read. Somebody looks.
+
+    reasons = [f"{i['field']}: {i['problem']}" for i in warns]
+    # Repairs the code list proves are noted but do not cost a review. This is
+    # the whole point at thirteen offices: a human should read the doubtful
+    # ones, not all of them.
     for r in repairs:
-        reasons.append(r)
+        if not repair_is_proven(r):
+            reasons.append(r)
     if not (claim.get("diagnoses") or []):
         reasons.append("no diagnosis codes found on the page")
     if not (claim.get("procedures") or []):
@@ -235,6 +273,7 @@ def main() -> int:
             "status": status,
             "reasons": reasons,
             "repairs": repairs,
+            "repairs_proven": [r for r in repairs if repair_is_proven(r)],
             "diagnosis_count": len(claim.get("diagnoses") or []),
             "procedure_count": len(claim.get("procedures") or []),
             "seconds": round(time.time() - t, 1),
