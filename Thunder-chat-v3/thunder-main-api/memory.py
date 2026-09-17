@@ -41,6 +41,10 @@ MIN_SCORE = 0.52
 MAX_RECALL = 6
 # A fact this similar to an existing one is the same fact said again.
 DUPLICATE = 0.93
+# Raw exchanges are kept separately from facts and matched far more strictly:
+# a vaguely related old conversation pulled into a new one is how context bleeds.
+EXCHANGE_LIMIT = 4000
+EXCHANGE_MIN_SCORE = 0.66
 
 
 def utc() -> str:
@@ -193,6 +197,87 @@ class Memory:
             "or say that you are remembering.\n\n" + lines
         )
 
+
+    # ---- past conversations ----------------------------------------------
+
+    def remember_exchange(self, user: str, reply: str) -> None:
+        """Keep an exchange so it can be found again by meaning.
+
+        Facts are what somebody decided to extract. This is the raw record, and
+        it answers the questions extraction cannot: "what did we decide about
+        the P40s", "what was that command". A hundred exchanges sat on serverus
+        unsearchable - present but unreachable.
+
+        Only the user's words are embedded. Thunder's replies are long, and
+        embedding them makes every search match its own chatter rather than the
+        question that prompted it.
+        """
+        user = " ".join((user or "").split())
+        if len(user) < 12:
+            return                      # "ok", "thanks" - nothing to find later
+        vec = self.embed(user)
+        if not vec:
+            return
+        rec = {
+            "id": uuid.uuid4().hex[:10],
+            "user": user[:1500],
+            "reply": " ".join((reply or "").split())[:2500],
+            "at": utc(),
+            "vector": vec,
+        }
+        path = self.root / "exchanges.json"
+        items = []
+        if path.is_file():
+            try:
+                items = json.loads(path.read_text())
+            except json.JSONDecodeError:
+                items = []
+        items.append(rec)
+        items = items[-EXCHANGE_LIMIT:]
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(items))
+        tmp.replace(path)
+
+    def recall_exchanges(self, query: str, limit: int = 3) -> list[dict]:
+        path = self.root / "exchanges.json"
+        if not path.is_file():
+            return []
+        try:
+            items = json.loads(path.read_text())
+        except json.JSONDecodeError:
+            return []
+        vec = self.embed(query)
+        if not vec:
+            return []
+        scored = []
+        for it in items:
+            if not it.get("vector"):
+                continue
+            score = cosine(vec, it["vector"])
+            # A far higher bar than facts. A loosely related old exchange
+            # dragged into the prompt is how Thunder ended up writing a
+            # Fallout 76 advert when asked for an injury advert - old context
+            # bleeding into a new question is worse than no memory at all.
+            if score >= EXCHANGE_MIN_SCORE:
+                scored.append((score, it))
+        scored.sort(key=lambda p: p[0], reverse=True)
+        return [dict(it, score=round(sc, 3)) for sc, it in scored[:limit]]
+
+    def exchange_block(self, message: str) -> str:
+        hits = self.recall_exchanges(message)
+        if not hits:
+            return ""
+        lines = []
+        for h in hits:
+            when = h["at"][:10]
+            lines.append(f"[{when}] Blayne asked: {h['user']}\n"
+                         f"           You answered: {h['reply'][:700]}")
+        return (
+            "AN EARLIER CONVERSATION THAT LOOKS RELATED. Use it ONLY if Blayne "
+            "is referring back to it. If his new message is about something "
+            "else, ignore this completely - answering the old question instead "
+            "of the new one is worse than not remembering.\n\n"
+            + "\n\n".join(lines))
 
     # ---- documents -------------------------------------------------------
 

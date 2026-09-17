@@ -69,6 +69,11 @@ CODE.mkdir(exist_ok=True)
 # this 24B and a frontier model is context, not reasoning - so it gets context.
 UPLOADS = uploads.Uploads(DATA / "uploads")
 VISION_MODEL = os.environ.get("THUNDER_VISION", "thunder-vision")
+ODRIS_YOUTUBE = "http://10.168.168.15:9008/youtube"
+# Only Odris reaches the internet, so every outside lookup goes through it.
+# Main asking YouTube directly would mean punching a hole in the lockdown.
+YOUTUBE_URL = re.compile(
+    r"https?://(?:www\.|m\.)?(?:youtube\.com/watch\?\S*v=|youtu\.be/)([\w-]{11})")
 MEM = memory.Memory(DATA / "memory")
 if not MEM.profile().strip():
     MEM.set_profile(memory.DEFAULT_PROFILE)
@@ -728,6 +733,52 @@ def with_attachment(message: str, attachment_id: str | None) -> tuple[str, str |
             f"({rec.get('how_read')}) ---\n{text}\n--- end of {rec['name']} ---"),  None, rec
 
 
+def youtube_lookup(url: str) -> dict:
+    """Ask Odris what a video says."""
+    payload = json.dumps({"url": url}).encode()
+    req = urllib.request.Request(ODRIS_YOUTUBE, data=payload,
+                                 headers={"Content-Type": "application/json"},
+                                 method="POST")
+    with urllib.request.urlopen(req, timeout=400) as r:
+        return json.loads(r.read().decode())
+
+
+def youtube_search(query: str, limit: int = 5) -> dict:
+    payload = json.dumps({"query": query, "limit": limit}).encode()
+    req = urllib.request.Request(ODRIS_YOUTUBE, data=payload,
+                                 headers={"Content-Type": "application/json"},
+                                 method="POST")
+    with urllib.request.urlopen(req, timeout=240) as r:
+        return json.loads(r.read().decode())
+
+
+def maybe_augment_with_youtube(message: str) -> str | None:
+    """If the message contains a video link, put what it says in front of it.
+
+    Same shape as an attached document: Thunder is given the words and answers
+    from them rather than guessing from a title. Returns None when there is no
+    link, so the caller falls through to its normal path.
+    """
+    m = YOUTUBE_URL.search(message or "")
+    if not m:
+        return None
+    try:
+        info = youtube_lookup(m.group(0))
+    except Exception as e:
+        return (f"{message}\n\n[could not fetch that video: {e}. Say that you "
+                f"could not watch it rather than guessing from the link.]")
+    if info.get("error"):
+        return f"{message}\n\n[could not fetch that video: {info['error']}]"
+    text = info.get("transcript") or ""
+    header = (f"--- transcript of \"{info.get('title')}\" by "
+              f"{info.get('channel')} ({info.get('seconds')} seconds) ---")
+    if not text:
+        return (f"{message}\n\n{header}\n"
+                f"[{info.get('note') or 'no captions available'}]")
+    log_event("youtube", f"{info.get('title')} ({info.get('chars')} chars)")
+    return f"{message}\n\n{header}\n{text}\n--- end of transcript ---"
+
+
 def remember_if_asked(message: str) -> dict | None:
     """Store a fact only when actually told to.
 
@@ -773,6 +824,9 @@ def ollama_chat(message: str, memory_message: str | None = None,
     notes = MEM.recall_block(recall_text)
     if notes:
         messages.append({"role": "system", "content": notes})
+    past = MEM.exchange_block(recall_text)
+    if past:
+        messages.append({"role": "system", "content": past})
     messages.append({"role": "user", "content": message})
     payload = json.dumps({
         "model": MODEL, "stream": False, "messages": messages, "options": CHAT_OPTIONS,
@@ -788,6 +842,7 @@ def ollama_chat(message: str, memory_message: str | None = None,
     reply = body.get("message", {}).get("content") or body.get("response") or json.dumps(body)
     clean = memory_message if memory_message is not None else message
     serverus_append(clean, reply)
+    MEM.remember_exchange(clean, reply)
     remember_if_asked(clean)
     return reply
 
@@ -1060,6 +1115,9 @@ def ollama_chat_stream(message: str, memory_message: str | None = None,
     notes = MEM.recall_block(recall_text)
     if notes:
         messages.append({"role": "system", "content": notes})
+    past = MEM.exchange_block(recall_text)
+    if past:
+        messages.append({"role": "system", "content": past})
     messages.append({"role": "user", "content": message})
 
     payload = json.dumps({
@@ -1086,7 +1144,9 @@ def ollama_chat_stream(message: str, memory_message: str | None = None,
             if chunk.get("done"):
                 break
     clean = memory_message if memory_message is not None else message
-    serverus_append(clean, "".join(parts))
+    full = "".join(parts)
+    serverus_append(clean, full)
+    MEM.remember_exchange(clean, full)
     remember_if_asked(clean)
 
 
@@ -1251,6 +1311,14 @@ def memory_ingest(body: IngestIn):
     return {"label": body.label, "notes": added}
 
 
+@app.get("/memory/exchanges")
+def memory_exchanges(q: str):
+    """Which past conversations Thunder would pull up for this message."""
+    return {"query": q, "hits": [
+        {k: v for k, v in h.items() if k != "vector"}
+        for h in MEM.recall_exchanges(q, limit=5)]}
+
+
 @app.get("/memory/pending")
 def memory_pending():
     """What the overnight run proposed and nobody has approved yet.
@@ -1341,6 +1409,26 @@ def daily_digest():
         app_version=release.get("apk_version") if isinstance(release, dict) else None,
         latest_version=release.get("apk_version") if isinstance(release, dict) else None,
     )
+
+
+class YouTubeIn(BaseModel):
+    url: str = ""
+    query: str = ""
+    limit: int = 5
+
+
+@app.post("/youtube")
+def youtube(body: YouTubeIn):
+    """What a video says, or what videos exist for a search. Fetched by Odris,
+    because it is the only box with a route out."""
+    try:
+        if body.url.strip():
+            return youtube_lookup(body.url.strip())
+        if body.query.strip():
+            return youtube_search(body.query.strip(), body.limit)
+    except Exception as e:
+        raise HTTPException(502, f"Odris could not reach YouTube: {e}")
+    raise HTTPException(400, "give a url or a query")
 
 
 @app.post("/upload")
@@ -1517,7 +1605,9 @@ def chat(body: ChatIn):
     if ollama_up():
         try:
             reply = ollama_chat(
-                maybe_augment_with_system(msg) or maybe_augment_with_search(msg),
+                maybe_augment_with_youtube(msg)
+                or maybe_augment_with_system(msg)
+                or maybe_augment_with_search(msg),
                 memory_message=body.message or msg,
                 extra_history=body.messages,
                 persona=persona_for(body.voice),
@@ -1586,7 +1676,9 @@ def chat_stream(body: ChatIn):
     def body_stream():
         try:
             for piece in ollama_chat_stream(
-                maybe_augment_with_system(msg) or maybe_augment_with_search(msg),
+                maybe_augment_with_youtube(msg)
+                or maybe_augment_with_system(msg)
+                or maybe_augment_with_search(msg),
                 memory_message=msg,
                 extra_history=body.messages,
                 persona=persona_for(body.voice),

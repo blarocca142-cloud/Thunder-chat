@@ -62,10 +62,18 @@ PROMPT = """You are reading things Blayne said to Thunder, his local AI, to
 find facts worth remembering permanently.
 
 A fact is worth keeping ONLY if it will still be true and useful next month:
-- Something about Blayne: his work, his family, his tools, what he prefers,
-  how he wants things done.
+- Something about Blayne: his work, his family, his tools.
 - Something about his machines, network, or software setup.
 - A decision he made and the reason for it.
+
+Pay particular attention to two kinds, which matter more than the rest:
+
+- **A preference**: how he wants things done. "Blayne wants X, not Y."
+- **A correction**: something he said was wrong, or asked for twice because it
+  was not done the way he meant. If he repeated himself or sounded annoyed,
+  whatever he was repeating is the most valuable thing in the excerpt.
+
+Write those as an instruction that would stop the mistake happening again.
 
 Do NOT extract:
 - Anything he asked Thunder to DO. A request is not a fact.
@@ -231,9 +239,18 @@ def consolidate(root: Path, dry_run: bool = False) -> dict:
                 if known:
                     rejected.append({"text": fact, "why": "already known"})
                     continue
+            # A preference or a correction is worth more than a fact and is
+            # worth seeing first in the morning queue.
+            low = fact.lower()
+            kind = "fact"
+            if any(w in low for w in ("prefer", "wants", "does not want",
+                                      "doesn't want", "rather than", "instead of",
+                                      "not in", "asked for", "corrected")):
+                kind = "preference"
             entry = {
                 "id": digest(fact + utc()),
                 "text": fact,
+                "kind": kind,
                 "proposed": utc(),
                 "source": "overnight",
             }
@@ -260,6 +277,7 @@ def consolidate(root: Path, dry_run: bool = False) -> dict:
 
     for p in proposed:
         p.pop("vector", None)
+    proposed.sort(key=lambda p: 0 if p.get("kind") == "preference" else 1)
 
     if dry_run:
         return {**report, "facts": proposed, "dry_run": True}
