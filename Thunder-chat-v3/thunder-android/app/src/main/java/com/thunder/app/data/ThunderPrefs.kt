@@ -37,7 +37,18 @@ class ThunderPrefs(context: Context) {
             prefs.edit().putString(KEY_TOKEN, value.trim()).apply()
         }
 
+    /** Fingerprint of the last digest shown, so the same finding does not
+     *  notify twice. A phone that buzzes every six hours about one six-year-old
+     *  disk is a phone with notifications switched off, and then the one that
+     *  mattered goes unseen too. */
+    var lastDigestSignature: String
+        get() = prefs.getString(KEY_DIGEST_SIG, "").orEmpty()
+        set(value) {
+            prefs.edit().putString(KEY_DIGEST_SIG, value).apply()
+        }
+
     companion object {
+        private const val KEY_DIGEST_SIG = "last_digest_sig"
         private const val KEY_SERVER = "server_url"
         private const val KEY_DARK = "dark_mode"
         private const val KEY_SPEAK = "speak_replies"

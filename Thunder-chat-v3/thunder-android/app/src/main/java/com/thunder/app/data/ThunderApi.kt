@@ -344,6 +344,20 @@ class ThunderApi(
         }
     }
 
+    /** What Thunder would say if asked "anything I should know?" */
+    suspend fun digest(server: String): Digest? = withContext(Dispatchers.IO) {
+        if (server.isBlank()) return@withContext null
+        try {
+            val req = Request.Builder().url("${base(server)}/digest").get().build()
+            client.newCall(req).execute().use { res ->
+                if (!res.isSuccessful) return@use null
+                parseDigest(JSONObject(res.body?.string().orEmpty()))
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     // ---- fleet health -----------------------------------------------------
 
     /** Hardware health for every node. [refresh] forces Odris to re-poll,

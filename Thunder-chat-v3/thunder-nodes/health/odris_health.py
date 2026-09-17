@@ -40,6 +40,9 @@ HISTORY = HOME / "health_history.jsonl"
 LATEST = HOME / "health_latest.json"
 NODES = ["thunder-main", "thunder-cache", "thunder-engine", "serverus"]
 KEEP_SAMPLES = 2000          # a couple of months of hourly polls
+# A baseline younger than this is not a baseline. At an hourly poll that is a
+# day of readings, which covers an idle night and a working afternoon.
+MIN_BASELINE_HOURS = 24
 POLL_SECONDS = 3600
 
 _lock = threading.Lock()
@@ -150,6 +153,14 @@ def trend(node: str, key: str, current: float | None,
     """
     hist = history_for(node)
     if current is None or len(hist) < min_samples:
+        return None, None
+    # A baseline has to span time, not just count samples. Fifteen readings
+    # taken over half an hour produced "package temperature up 8C on its usual
+    # 36C" on a machine doing nothing - the values swing 33 to 44 naturally,
+    # and a busy minute became a fault. Idle-to-busy variation within one
+    # afternoon is not a trend; a month of afternoons is.
+    span_hours = (hist[-1]["at"] - hist[0]["at"]) / 3600
+    if span_hours < MIN_BASELINE_HOURS:
         return None, None
     values = [h["temps"].get(key) for h in hist[:-3]] if key.count("/") else []
     values = [v for v in values if isinstance(v, (int, float))]

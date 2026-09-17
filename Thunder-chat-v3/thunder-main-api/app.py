@@ -26,6 +26,7 @@ from pydantic import BaseModel
 import codestore
 import consolidate
 import creative
+import digest
 import memory
 
 OLLAMA = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
@@ -1264,6 +1265,24 @@ def fleet_health(refresh: bool = False):
     except Exception as e:
         return {"error": f"Odris health service unreachable: {e}",
                 "fleet_status": "unknown", "nodes": []}
+
+
+@app.get("/digest")
+def daily_digest():
+    """What Thunder would say if asked "anything I should know?"
+
+    Everything in here already existed behind an endpoint nobody opens. A
+    system that only answers when asked is one whose warnings arrive late.
+    Stays quiet when nothing needs a person - a digest that speaks every day
+    is one that stops being read.
+    """
+    release = app_release()
+    return digest.build(
+        data_dir=DATA,
+        vault_dir=Path(__file__).parent.parent / "thunder-claims" / "vault",
+        app_version=release.get("apk_version") if isinstance(release, dict) else None,
+        latest_version=release.get("apk_version") if isinstance(release, dict) else None,
+    )
 
 
 @app.get("/health")

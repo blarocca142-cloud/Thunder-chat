@@ -11,8 +11,8 @@ android {
         applicationId = "com.thunder.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 40
-        versionName = "1.4.0"
+        versionCode = 41
+        versionName = "1.5.0"
     }
     signingConfigs {
         getByName("debug") {
@@ -63,5 +63,8 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer:1.4.1")
     implementation("androidx.media3:media3-ui:1.4.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+    // Background check-ins for the digest. WorkManager rather than a service:
+    // it survives reboots and respects doze, which a service would fight.
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
