@@ -142,6 +142,37 @@ a running box, and a blind index leaks equality. Both are documented in
 Also wanted: Thunder as an overnight batch worker (his original Cache plan) —
 queue work, draft and flag, submit nothing, report in the morning.
 
+## Memory
+
+Most of the distance between Thunder and a frontier model is context, not
+reasoning. `thunder-main-api/memory.py` holds three things:
+
+- **profile** (`/memory/profile`) - always injected: who Blayne is, how he
+  types (with his shorthand), the fleet, the hardware facts that are easy to
+  get wrong. **The single most effective knob on answer quality.**
+- **facts** - recalled by meaning via nomic-embed-text, only when relevant.
+- **documents** - the handbook and the TLS/claims/honeyfile/code-vault docs,
+  chunked on headings. Re-ingest with `POST /memory/ingest` after editing them
+  or Thunder will answer from a stale copy.
+
+Two things learned the hard way, both in the commit history:
+
+1. **Retrieval working is not retrieval being used.** Notes recalled at 0.749
+   were ignored in favour of the training prior until they were moved to
+   immediately before the user's question and labelled as authoritative.
+2. **Never let it read its own replies back.** The overnight job originally
+   learned Thunder's own hallucinated file path as a fact about Blayne.
+
+`consolidate.py` runs nightly at 3am (`thunder-consolidate.timer`) and reads
+only **Blayne's** messages, never Thunder's. It **proposes**; nothing enters
+memory unreviewed - see `/memory/pending`, then approve or reject. Contradictory
+proposals are flagged against each other rather than one being picked.
+
+Do not "improve" this by writing straight to memory. An unsupervised model
+writing its own beliefs into its own long-term memory compounds: one confident
+mistake becomes permanent context for every later answer, and afterwards there
+is no way to tell which facts were real.
+
 ## How Blayne works
 
 - Baby steps, one thing at a time. He is often on a phone.

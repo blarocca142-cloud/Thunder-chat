@@ -1,0 +1,12 @@
+[Unit]
+Description=Nightly Thunder memory consolidation
+
+[Timer]
+# 3am: the GPU is free, and the proposals are waiting when he wakes up.
+OnCalendar=*-*-* 03:00:00
+# If the tower was off at 3am, run once it is back rather than skipping a day.
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

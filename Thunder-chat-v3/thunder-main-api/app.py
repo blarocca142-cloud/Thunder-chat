@@ -24,6 +24,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Streamin
 from pydantic import BaseModel
 
 import codestore
+import consolidate
 import creative
 import memory
 
@@ -1189,6 +1190,52 @@ def memory_ingest(body: IngestIn):
     added = MEM.ingest(body.label.strip(), body.text)
     log_event("memory", f"ingested {body.label}: {added} notes")
     return {"label": body.label, "notes": added}
+
+
+@app.get("/memory/pending")
+def memory_pending():
+    """What the overnight run proposed and nobody has approved yet.
+
+    Nothing here is in memory. It is a queue precisely because an unsupervised
+    model writing its own beliefs into its own long-term memory compounds: one
+    confident mistake becomes permanent context for every later answer.
+    """
+    path = MEM.root / "pending.json"
+    items = json.loads(path.read_text()) if path.exists() else []
+    report_path = MEM.root / "last_report.json"
+    report = json.loads(report_path.read_text()) if report_path.exists() else {}
+    return {"pending": items, "last_run": report}
+
+
+@app.post("/memory/pending/{item_id}/approve")
+def memory_approve(item_id: str):
+    path = MEM.root / "pending.json"
+    items = json.loads(path.read_text()) if path.exists() else []
+    match = next((i for i in items if i["id"] == item_id), None)
+    if not match:
+        raise HTTPException(404, "no such proposal")
+    rec = MEM.remember(match["text"], source="overnight-approved")
+    path.write_text(json.dumps([i for i in items if i["id"] != item_id], indent=2))
+    log_event("memory", f"approved: {match['text'][:80]}")
+    return {"remembered": rec["text"] if rec else None}
+
+
+@app.post("/memory/pending/{item_id}/reject")
+def memory_reject(item_id: str):
+    path = MEM.root / "pending.json"
+    items = json.loads(path.read_text()) if path.exists() else []
+    if not any(i["id"] == item_id for i in items):
+        raise HTTPException(404, "no such proposal")
+    path.write_text(json.dumps([i for i in items if i["id"] != item_id], indent=2))
+    return {"rejected": item_id}
+
+
+@app.post("/memory/consolidate")
+def memory_consolidate(dry: bool = False):
+    """Run the overnight pass now. Slow - minutes, not seconds."""
+    result = consolidate.consolidate(MEM.root, dry_run=dry)
+    log_event("memory", f"consolidation proposed {result['proposed']}")
+    return result
 
 
 @app.put("/memory/profile")

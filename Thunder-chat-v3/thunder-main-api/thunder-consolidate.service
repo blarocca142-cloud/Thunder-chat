@@ -1,0 +1,13 @@
+[Unit]
+# Reads the day's conversations and PROPOSES facts worth remembering.
+# It writes nothing into memory - everything waits for Blayne to approve.
+Description=Thunder overnight memory consolidation
+After=network.target
+
+[Service]
+Type=oneshot
+User=blayne
+WorkingDirectory=/home/blayne/Thunder-chat/Thunder-chat-v3/thunder-main-api
+ExecStart=/usr/bin/python3 consolidate.py
+# Minutes, not seconds: a couple of hundred exchanges through a 24B.
+TimeoutStartSec=3600
