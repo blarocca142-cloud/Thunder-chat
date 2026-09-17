@@ -45,10 +45,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent / "thunder-nodes"))
 import vault  # noqa: E402
 from extract import extract  # noqa: E402
 from repair import repair_claim  # noqa: E402
 from validate import check  # noqa: E402
+
+try:
+    import workpool  # noqa: E402
+except Exception:      # the pool is an optimisation, never a dependency
+    workpool = None
 
 IMAGES = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"}
 PDFS = {".pdf"}
@@ -159,6 +165,24 @@ def main() -> int:
     queue, counts = [], {"CLEAN": 0, "REVIEW": 0, "BLOCK": 0, "FAILED": 0}
     started = time.time()
 
+    # OCR every image up front, spread across whatever machines are free.
+    # Images only: a PDF has to be rendered to pages first, and that is handled
+    # per-document below. If the pool is unavailable or no other machine has
+    # tesseract, this quietly runs everything locally and costs nothing.
+    todo = [p for p in docs if file_id(p) not in state["processed"] or a.again]
+    prefetched: dict[Path, str] = {}
+    images = [p for p in todo if p.suffix.lower() in IMAGES]
+    if workpool and len(images) > 1:
+        caps = workpool.capabilities()
+        machines = [n for n, _ in workpool.workers_for("tesseract", caps)]
+        if len(machines) > 1:
+            print(f"OCR spread across: {', '.join(machines)}")
+            out = workpool.ocr_batch(images)
+            report = out.pop("_report", {})
+            prefetched = {k: v for k, v in out.items() if v}
+            if report.get("placement"):
+                print(f"  {report['placement']}  in {report.get('seconds')}s\n")
+
     print(f"{len(docs)} documents in {folder}\n")
     for path in docs:
         fid = file_id(path)
@@ -167,7 +191,7 @@ def main() -> int:
             continue
 
         t = time.time()
-        text = ocr_document(path)
+        text = prefetched.get(path) or ocr_document(path)
         if not text.strip():
             print(f"  FAIL  {path.name}  nothing readable on the page")
             counts["FAILED"] += 1
