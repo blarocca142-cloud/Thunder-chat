@@ -189,11 +189,18 @@ def memory() -> dict:
             out["dimms"] = [r for c in controllers for r in c["ranks"]]
 
     # Per-DIMM thermal sensors, where the board has them (jc42 on serverus).
+    # Each DIMM has its own jc42 chip, and every one of them calls its reading
+    # "temp1_input". Numbering them in the order the kernel enumerates them is
+    # what turns four identical readings into "slot 1, slot 2, slot 3, slot 4",
+    # which is the entire reason for showing them.
     dimm_temps = []
+    slot = 0
     for chip in hwmon_chips():
         if chip["chip"].startswith("jc42"):
             for t in chip["temps"]:
-                dimm_temps.append({"label": t["label"], "celsius": t["celsius"]})
+                slot += 1
+                dimm_temps.append({"label": f"slot {slot}", "celsius": t["celsius"],
+                                   "sensor": t["label"]})
     if dimm_temps:
         out["dimm_temps"] = dimm_temps
     return out

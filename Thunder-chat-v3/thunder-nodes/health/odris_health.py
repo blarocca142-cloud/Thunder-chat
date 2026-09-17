@@ -232,11 +232,18 @@ def score_cpu(node: str, d: dict) -> dict:
     if len(cores) >= 2:
         temps = [c["celsius"] for c in cores]
         spread = round(max(temps) - min(temps), 1)
-        readings.append({"label": "core spread", "value": f"{spread}C"})
-        if spread >= 15:
+        idle = (cpu.get("load_15m") or 0) < 0.5
+        if spread >= 15 and idle:
+            # Seen on serverus: core 0 at 44C with the rest at 28C and the
+            # machine doing nothing. That is one core handling interrupts, not
+            # a crooked heatsink, and calling it a fault would be the third
+            # false alarm in a day.
+            readings.append({"label": "core spread",
+                             "value": f"{spread}C (at idle - not diagnostic)"})
+        elif spread >= 15:
             score -= 25
             findings.append(finding(
-                f"{spread}C spread between hottest and coolest core",
+                f"{spread}C spread between hottest and coolest core under load",
                 "Cores on one die should sit within a few degrees. A wide spread means the "
                 "cooler is making uneven contact - crooked mount, or paste that has dried "
                 "unevenly.",
