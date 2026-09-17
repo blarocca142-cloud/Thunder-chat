@@ -208,7 +208,43 @@ def memory() -> dict:
 
 # ---------------------------------------------------------------- storage
 
+def disk_mounts() -> dict[str, list[str]]:
+    """Which mount points each physical disk carries.
+
+    "A drive is 6 years old" is trivia. "The drive your OS boots from is 6
+    years old" is a decision. Partitions and LVM volumes are walked back to the
+    physical disk so a finding can name what is actually at stake.
+    """
+    out: dict[str, list[str]] = {}
+    text = run(["lsblk", "-nro", "KNAME,PKNAME,MOUNTPOINT"])
+    if not text:
+        return out
+    parent: dict[str, str] = {}
+    mounted: list[tuple[str, str]] = []
+    for line in text.splitlines():
+        parts = line.split(None, 2)
+        if not parts:
+            continue
+        kname = parts[0]
+        pk = parts[1] if len(parts) > 1 and parts[1] else ""
+        mp = parts[2].strip() if len(parts) > 2 else ""
+        if pk:
+            parent[kname] = pk
+        if mp and mp != "[SWAP]":
+            mounted.append((kname, mp))
+    for kname, mp in mounted:
+        node = kname
+        # Walk up through partitions and LVM until the physical disk.
+        for _ in range(6):
+            if node not in parent:
+                break
+            node = parent[node]
+        out.setdefault(node, []).append(mp)
+    return out
+
+
 def storage() -> dict:
+    mount_map = disk_mounts()
     disks = []
     # Works out for itself how smartctl can be run, so that the moment
     # smartmontools is installed on a node this starts reporting with no code
@@ -234,6 +270,7 @@ def storage() -> dict:
             "size_gb": round(size_sectors * 512 / 1e9, 1),
             "rotational": read(d / "queue/rotational") == "1",
             "model": read(d / "device/model"),
+            "mounts": mount_map.get(name, []),
             "smart": None,
         }
         # ios and ioerr counters the kernel keeps regardless of SMART access.

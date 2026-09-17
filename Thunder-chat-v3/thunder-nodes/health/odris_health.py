@@ -353,12 +353,23 @@ def score_drives(node: str, d: dict) -> dict:
                 readings.append({"label": f"{disk['device']} powered on",
                                  "value": f"{s['power_on_hours']}h ({years:.1f} yr)"})
                 if years >= 5:
+                    holds = disk.get("mounts") or []
+                    boots = any(m in ("/", "/boot") for m in holds)
+                    where = f" carrying {', '.join(holds)}" if holds else ""
                     findings.append(finding(
-                        f"/dev/{disk['device']} has {years:.1f} years of runtime",
-                        "Age alone is not failure, but past about five years the odds change "
-                        "enough to matter for anything not backed up.",
-                        "Make sure this drive holds nothing that is not copied elsewhere.",
-                        "info"))
+                        f"/dev/{disk['device']} has {years:.1f} years of runtime{where}",
+                        ("This is the drive the machine boots from. Its health counters are "
+                         "clean, but at this age a failure takes the whole node down rather "
+                         "than costing one filesystem."
+                         if boots else
+                         "Age alone is not failure - the counters here are clean. Past about "
+                         "five years the odds change enough to matter for anything that is "
+                         "not copied elsewhere."),
+                        ("Keep a copy of the system configuration somewhere else, so this "
+                         "machine can be rebuilt rather than reconstructed from memory."
+                         if boots else
+                         "Check that what it holds exists somewhere else too."),
+                        "watch" if boots else "info"))
             for key, label in (("reallocated", "reallocated sectors"),
                                ("pending", "pending sectors"),
                                ("uncorrectable", "uncorrectable sectors")):
