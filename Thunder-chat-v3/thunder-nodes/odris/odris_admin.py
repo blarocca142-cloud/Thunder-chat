@@ -30,7 +30,27 @@ def get_dashboard_password() -> str:
     return DASHBOARD_PASSWORD_FILE.read_text().strip()
 
 
+# Set once per process. Browsers reliably return cookies on fetch(); several
+# mobile browsers do NOT re-send HTTP Basic credentials on same-origin fetch,
+# which is why the dashboard logged in fine and then every panel stayed empty -
+# each API call came back 401, the page parsed the error as data, and the render
+# died. Basic gets you in, the cookie keeps you in.
+SESSION_TOKEN = secrets.token_urlsafe(24)
+
+
+def _cookie_ok(handler) -> bool:
+    raw = handler.headers.get("Cookie", "")
+    for part in raw.split(";"):
+        name, _, value = part.strip().partition("=")
+        if name == "odris_session" and value and secrets.compare_digest(
+                value, SESSION_TOKEN):
+            return True
+    return False
+
+
 def check_auth(handler) -> bool:
+    if _cookie_ok(handler):
+        return True
     header = handler.headers.get("Authorization", "")
     if not header.startswith("Basic "):
         return False
@@ -39,7 +59,10 @@ def check_auth(handler) -> bool:
         _, _, password = decoded.partition(":")
     except Exception:
         return False
-    return password == get_dashboard_password()
+    if not secrets.compare_digest(password, get_dashboard_password()):
+        return False
+    handler.grant_session = True
+    return True
 
 ODRIS_SYSTEM_PROMPT = (
     "You are Odris, Blayne's ops/admin assistant for the Thunder AI stack. "
@@ -111,8 +134,24 @@ small{color:#6b7280}
   <div class="card full"><h2>Recent Conversation (Serverus)</h2><div id="serverus" style="font-size:13px;max-height:200px;overflow:auto"></div></div>
 </div>
 <script>
+function showProblem(msg){
+  const el = document.getElementById('ts');
+  if (el) el.textContent = msg;
+}
 async function refresh(){
-  const r = await fetch('/api/overview'); const d = await r.json();
+  let d;
+  try {
+    const r = await fetch('/api/overview', {credentials:'same-origin'});
+    if (!r.ok) { showProblem('cannot load: HTTP ' + r.status + ' - reload the page'); return; }
+    d = await r.json();
+  } catch (e) {
+    showProblem('cannot reach Odris: ' + e.message);
+    return;
+  }
+  // One missing field must not blank every panel below it, which is exactly
+  // what happened before: an error object came back where data was expected
+  // and the whole render threw on the first field it touched.
+  try {
   document.getElementById('ts').textContent = new Date().toLocaleTimeString();
 
   const blocked = (d.status && d.status.blocked_egress) || [];
@@ -170,6 +209,10 @@ async function refresh(){
 
   const sEl = document.getElementById('serverus');
   sEl.innerHTML = (d.serverus || []).map(t => `<div class="row ${t.role==='user'?'me':'bot'}">${t.role}: ${t.content}</div>`).join('');
+
+  } catch (e) {
+    showProblem('render failed: ' + e.message);
+  }
 }
 
 async function startMaint(){
@@ -342,11 +385,20 @@ def odris_chat(message: str) -> str:
 
 
 class Handler(BaseHTTPRequestHandler):
+    grant_session = False
+
     def _send(self, code, obj, content_type="application/json"):
         body = obj if isinstance(obj, bytes) else json.dumps(obj).encode() if content_type == "application/json" else obj.encode()
         self.send_response(code)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
+        if self.grant_session:
+            # HttpOnly and SameSite: the page never needs to read this, and no
+            # other site should be able to make the browser send it.
+            self.send_header("Set-Cookie",
+                             f"odris_session={SESSION_TOKEN}; Path=/; "
+                             f"HttpOnly; SameSite=Strict; Max-Age=86400")
+            self.grant_session = False
         self.end_headers()
         self.wfile.write(body)
 
