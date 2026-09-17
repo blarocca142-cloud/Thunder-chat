@@ -90,6 +90,40 @@ The obvious next step is looking codes up in the real CMS ICD-10 release rather
 than only checking their shape. That turns "well-formed" into "real", and it
 needs the code list on disk.
 
+## The actual tool
+
+    ./vault.py init                  once, ever - creates the master key
+    ./intake.py scans/               a folder in, a review queue out
+    ./review.py                      what is waiting, worst first
+    ./review.py <record>             open one claim (decrypted and audited)
+
+`intake.py` OCRs each scan (images or PDFs), extracts, repairs OCR damage,
+validates, and files the result straight into the encrypted vault. Documents
+are identified by content hash, so the same scan re-filed under a new name is
+not billed twice, and a re-run skips what is already done.
+
+Everything lands in one of three piles:
+
+| | |
+|---|---|
+| **BLOCK** | mechanically wrong - bad NPI check digit, malformed code, impossible date. Cannot be billed. |
+| **REVIEW** | passed the checks, but something was repaired or is missing. A human reads it. |
+| **CLEAN** | passed everything with nothing repaired. **Still a draft.** |
+
+Nothing is ever submitted. A repaired code always means REVIEW, because a
+repair is a guess the format forced - correct, but not something to bill on
+without a glance.
+
+### The review queue holds no patient data
+
+It was tempting to put names in it so the list reads nicely. That would have
+made the queue plaintext PHI sitting beside the encrypted records it exists to
+protect. It carries file name, record id, status and reasons only - not even
+codes and dates, since a diagnosis with a date is identifying enough in a
+small practice. Names come from the vault via `review.py`, where the read is
+decrypted and **audited**, because looking at a patient's data is an event
+worth recording even when it is you.
+
 ## Why the validator exists
 
 The model corrupts things. On the first real run it turned `S46.012A` into

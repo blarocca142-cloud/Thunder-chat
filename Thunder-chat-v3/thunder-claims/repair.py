@@ -62,7 +62,10 @@ def repair_icd10(code: str) -> tuple[str, str | None]:
     # The list number off the page sometimes lands inside the code ("2. M99.01").
     # Only stripped when followed by whitespace in the original, so that a real
     # code misread as digits ("644.309") is never mistaken for a list index.
-    s = re.sub(r"^\d{1,2}[.)]\s+", "", raw.replace(",", ".")).replace(" ", "") or s
+    # "3... $16.1XXA" and "4.\u00b0 S16.1XXA" both came off real pages: the list
+    # number arrives with a run of dots or a speck attached. One dot was not
+    # enough, and these blocked two claims out of four in the first batch run.
+    s = re.sub(r"^\d{1,2}[.)]+\s*", "", raw.replace(",", ".")).replace(" ", "") or s
     # Leading rubbish from bullets and specks ("-", "\u00b0"). Characters that carry
     # meaning are kept: "$" is a misread "S", so it must survive to be repaired.
     s = re.sub(r"^[^A-Z0-9]+", lambda m: "".join(
