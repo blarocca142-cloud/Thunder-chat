@@ -17,6 +17,8 @@
     <string name="tab_chat">Chat</string>
     <string name="tab_studio">Studio</string>
     <string name="tab_code">Code</string>
+    <string name="settings_health">Fleet health</string>
+    <string name="settings_health_hint">Hardware condition of every machine, checked by Odris</string>
     <string name="studio_photo">Photo</string>
     <string name="studio_video">Video</string>
     <string name="studio_history">History</string>

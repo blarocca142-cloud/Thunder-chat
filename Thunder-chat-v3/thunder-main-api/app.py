@@ -1247,6 +1247,25 @@ def memory_profile(body: ProfileIn):
     return {"bytes": len(body.text)}
 
 
+@app.get("/fleet/health")
+def fleet_health(refresh: bool = False):
+    """Hardware health for every node, collected by Odris.
+
+    Odris owns this because it already owns the fleet heartbeat, and because
+    the checks are sysfs reads that have no business competing with the 3090.
+    Served from Odris's last poll unless refresh=true, so the phone is not
+    waiting on four SSH round trips.
+    """
+    path = "/fleet/health/refresh" if refresh else "/fleet/health"
+    try:
+        with urllib.request.urlopen(f"http://10.168.168.15:9007{path}",
+                                    timeout=120 if refresh else 15) as r:
+            return json.loads(r.read().decode())
+    except Exception as e:
+        return {"error": f"Odris health service unreachable: {e}",
+                "fleet_status": "unknown", "nodes": []}
+
+
 @app.get("/health")
 def health():
     """Liveness only. Unauthenticated by design, so it must stay this boring -
