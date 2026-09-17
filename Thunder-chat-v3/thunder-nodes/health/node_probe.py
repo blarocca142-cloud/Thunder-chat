@@ -498,6 +498,22 @@ def power() -> dict:
             "draw_only": bool(watts and not rails)}
 
 
+def rescue_status() -> dict:
+    """What the automatic rescue has done, if anything.
+
+    The probe stays read-only - it reports on the rescue, it never triggers it.
+    Separating the two is what keeps a read-only key read-only.
+    """
+    state_path = Path.home() / "rescue_state.json"
+    out = {"installed": (Path.home() / "node_rescue.py").is_file(), "drives": {}}
+    if state_path.is_file():
+        try:
+            out["drives"] = json.loads(state_path.read_text())
+        except Exception:
+            pass
+    return out
+
+
 def uptime_info() -> dict:
     up = read("/proc/uptime", "0").split()[0]
     boots = run(["journalctl", "--list-boots", "--no-pager", "-q"])
@@ -520,6 +536,7 @@ def main() -> None:
         "gpu": gpu(),
         "sensors": hwmon_chips(),
         "board": board(),
+        "rescue": rescue_status(),
         "power": power(),
         "kernel_events": kernel_events(),
         "uptime": uptime_info(),

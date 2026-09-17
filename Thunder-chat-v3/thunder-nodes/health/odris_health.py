@@ -436,6 +436,30 @@ def score_drives(node: str, d: dict) -> dict:
                 "Swap the SATA cable, and move the drive to a different port to tell cable "
                 "from port.", "watch"))
 
+    # A rescue having run is the loudest thing this page can say: a drive was
+    # found failing and the machine already acted on it.
+    for dev, r in (d.get("rescue", {}).get("drives") or {}).items():
+        why = "; ".join(r.get("reasons", [])) or "failing"
+        if r.get("status") == "copied":
+            score -= 60
+            findings.append(finding(
+                f"/dev/{dev} is failing - data was automatically copied off it",
+                f"Odris found {why}. Everything mounted on that drive has been copied to "
+                f"{r.get('destination')} ({r.get('needed_gb')} GB). The copy is a rescue, "
+                f"not a backup - the drive is still failing and still in the machine.",
+                "Replace the drive. The rescued copy is on a healthy disk in the same "
+                "machine, so it is safe from this failure but not from the next one.",
+                "attention"))
+        elif r.get("status") == "no_destination":
+            score -= 60
+            findings.append(finding(
+                f"/dev/{dev} is failing and there is nowhere to copy it to",
+                f"Odris found {why}, and no healthy disk in this machine has room for the "
+                f"{r.get('needed_gb')} GB on it. Nothing has been copied.",
+                "Free space on another drive or attach one, then the next check will copy "
+                "it automatically. Do this today.",
+                "attention"))
+
     if not assessable and st.get("smart_installed"):
         findings.append(finding(
             "smartmontools is installed but cannot read the drives",
