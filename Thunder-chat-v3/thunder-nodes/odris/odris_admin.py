@@ -74,6 +74,13 @@ ODRIS_SYSTEM_PROMPT = (
     "use it to answer accurately rather than guessing."
 )
 
+# NOTE: this is a plain triple-quoted string, not a raw one, so every
+# backslash escape written here is interpreted by PYTHON before the browser
+# sees it. A `\n` inside a JavaScript string literal became a real newline,
+# which broke the string, which broke the parse, which meant NO script ran at
+# all - the dashboard showed its headings and nothing else, and every handler
+# including chat was silently dead. Use String.fromCharCode(10) or double the
+# backslash. Check with:  node --check  on the served page, not the source.
 PAGE = """<!doctype html>
 <html><head><meta charset="utf-8"><title>Odris Admin</title>
 <style>
@@ -158,7 +165,7 @@ async function refresh(){
   const secCard = document.getElementById('securityCard');
   if (blocked.length) {
     secCard.style.display = 'block';
-    document.getElementById('securityLog').textContent = blocked.join('\n');
+    document.getElementById('securityLog').textContent = blocked.join(String.fromCharCode(10));
   } else {
     secCard.style.display = 'none';
   }
