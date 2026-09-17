@@ -1,0 +1,12 @@
+[Unit]
+Description=Nightly Thunder backup
+
+[Timer]
+# 04:30, after the 03:00 memory consolidation, so the night's approved facts
+# are included in the same run.
+OnCalendar=*-*-* 04:30:00
+Persistent=true
+RandomizedDelaySec=600
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,15 @@
+[Unit]
+# Copies the irreplaceable things - vault key, TLS CA, memory, code vault,
+# audit log - encrypted, to two other machines. Everything else is on GitHub.
+Description=Thunder encrypted backup
+After=network.target
+
+[Service]
+Type=oneshot
+User=blayne
+WorkingDirectory=/home/blayne/Thunder-chat/Thunder-chat-v3/thunder-main-api
+ExecStart=/usr/bin/python3 backup.py
+# And prove it restores, weekly-ish, by actually doing one. A backup nobody has
+# restored is a rumour.
+ExecStartPost=/usr/bin/python3 backup.py --verify
+TimeoutStartSec=1800
