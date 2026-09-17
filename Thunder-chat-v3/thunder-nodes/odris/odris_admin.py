@@ -112,6 +112,23 @@ form{display:flex;gap:8px}
 input{flex:1;padding:8px;border-radius:8px;border:1px solid #333;background:#0b0d10;color:#fff}
 .full{grid-column:1/-1}
 small{color:#6b7280}
+  .hwnode{border:1px solid #333;border-radius:8px;margin-bottom:6px;overflow:hidden}
+  .hwhead{display:flex;align-items:center;gap:10px;padding:10px 12px;cursor:pointer}
+  .hwhead:hover{background:#15181d}
+  .hwname{flex:1;font-weight:600}
+  .hwscore{font-family:monospace}
+  .hwcomp{display:flex;align-items:center;gap:10px;padding:8px 12px 8px 30px;cursor:pointer;border-top:1px solid #23272e;font-size:14px}
+  .hwcomp:hover{background:#15181d}
+  .hwdetail{padding:8px 12px 12px 30px;border-top:1px solid #23272e;font-size:13px}
+  .hwread{display:flex;justify-content:space-between;color:#9aa4ae;padding:1px 0}
+  .hwread b{color:#e6e9eb;font-family:monospace;font-weight:400}
+  .hwfind{background:#15181d;border-radius:6px;padding:9px;margin-top:7px}
+  .hwfind .what{color:#e6e9eb;font-weight:600}
+  .hwfind .why{color:#9aa4ae;margin-top:3px}
+  .hwfind .fix{color:#ffd479;margin-top:3px}
+  .dot{width:9px;height:9px;border-radius:50%;flex:none}
+  .dot.ok{background:#3fb950}.dot.watch{background:#d29922}
+  .dot.attention{background:#f85149}.dot.unknown{background:#6b7280}
 </style></head><body>
 <header><h1>Odris - Thunder Ops</h1><small id="ts"></small></header>
 <div class="grid">
@@ -123,6 +140,13 @@ small{color:#6b7280}
     <h2>Talk to Odris</h2>
     <div id="chatlog"></div>
     <form id="f"><input id="m" placeholder="ask odris about system status, jobs, errors..."><button>send</button></form>
+  </div>
+  <div class="card full"><h2>Hardware Health</h2>
+    <div style="font-size:12px;color:#6b7280;margin-bottom:8px">
+      tap a machine for its parts, tap a part for readings and what to do about it.
+      a dash means this hardware cannot report on it - not a pass and not a fault.
+    </div>
+    <div id="hw">reading sensors...</div>
   </div>
   <div class="card"><h2>Node Health</h2><div id="nodes"></div></div>
   <div class="card"><h2>Thunder-Main Status</h2><div id="mainstatus"></div></div>
@@ -146,6 +170,7 @@ function showProblem(msg){
   if (el) el.textContent = msg;
 }
 async function refresh(){
+  if (HW === null) loadHealth();
   let d;
   try {
     const r = await fetch('/api/overview', {credentials:'same-origin'});
@@ -220,6 +245,80 @@ async function refresh(){
   } catch (e) {
     showProblem('render failed: ' + e.message);
   }
+}
+
+let HW = null;
+let hwOpenNode = null, hwOpenComp = null;
+
+function pct(v){ return (v === null || v === undefined) ? '--' : v + '%'; }
+
+async function loadHealth(){
+  try {
+    const r = await fetch('/api/health', {credentials:'same-origin'});
+    HW = await r.json();
+  } catch (e) {
+    document.getElementById('hw').textContent = 'cannot reach health service: ' + e.message;
+    return;
+  }
+  drawHealth();
+}
+
+function drawHealth(){
+  const el = document.getElementById('hw');
+  if (!el) return;
+  if (!HW || !HW.nodes || !HW.nodes.length){
+    el.textContent = (HW && HW.error) ? HW.error : 'no hardware report yet';
+    return;
+  }
+  let html = '';
+  HW.nodes.forEach((n, ni) => {
+    const open = hwOpenNode === ni;
+    html += '<div class="hwnode"><div class="hwhead" onclick="toggleNode(' + ni + ')">'
+         + '<span class="dot ' + n.status + '"></span>'
+         + '<span class="hwname">' + n.host + '</span>'
+         + '<span style="color:#6b7280;font-size:12px">' + n.summary + '</span>'
+         + '<span class="hwscore">' + pct(n.score) + '</span>'
+         + '<span style="color:#6b7280">' + (open ? '&#9652;' : '&#9662;') + '</span></div>';
+    if (open){
+      (n.components || []).forEach((c, ci) => {
+        const key = ni + '-' + ci;
+        html += '<div class="hwcomp" onclick="toggleComp(event, &quot;' + key + '&quot;)">'
+             + '<span class="dot ' + c.status + '"></span>'
+             + '<span style="flex:1">' + c.component
+             + ' <span style="color:#6b7280">' + c.detail + '</span></span>'
+             + '<span class="hwscore">' + pct(c.score) + '</span></div>';
+        if (hwOpenComp === key){
+          html += '<div class="hwdetail">';
+          (c.readings || []).forEach(r => {
+            html += '<div class="hwread"><span>' + r.label + '</span><b>' + r.value
+                 + (r.limit ? ' (limit ' + r.limit + ')' : '') + '</b></div>';
+          });
+          (c.findings || []).forEach(f => {
+            html += '<div class="hwfind"><div class="what">' + f.finding + '</div>'
+                 + '<div class="why">' + f.why + '</div>'
+                 + (f.fix ? '<div class="fix">Fix: ' + f.fix + '</div>' : '') + '</div>';
+          });
+          if (!(c.readings || []).length && !(c.findings || []).length){
+            html += '<span style="color:#6b7280">nothing to report</span>';
+          }
+          html += '</div>';
+        }
+      });
+    }
+    html += '</div>';
+  });
+  el.innerHTML = html;
+}
+
+function toggleNode(ni){
+  hwOpenNode = (hwOpenNode === ni) ? null : ni;
+  hwOpenComp = null;
+  drawHealth();
+}
+function toggleComp(ev, key){
+  ev.stopPropagation();
+  hwOpenComp = (hwOpenComp === key) ? null : key;
+  drawHealth();
 }
 
 async function startMaint(){
@@ -426,6 +525,17 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path == "/":
             return self._send(200, PAGE, content_type="text/html")
+        if self.path == "/api/health":
+            # The health service on 9007 has no auth of its own; it is reached
+            # through this dashboard so the login is the only door to it.
+            try:
+                with urllib.request.urlopen(
+                        "http://127.0.0.1:9007/fleet/health", timeout=20) as r:
+                    return self._send(200, json.loads(r.read().decode()))
+            except Exception as e:
+                return self._send(200, {"error": f"health service: {e}",
+                                        "nodes": []})
+
         if self.path == "/api/overview":
             return self._send(200, build_overview())
         return self._send(404, {"error": "not found"})
