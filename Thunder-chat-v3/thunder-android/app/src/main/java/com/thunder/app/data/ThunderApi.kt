@@ -51,47 +51,6 @@ data class GpuState(
 
 data class ThunderVoice(val key: String, val label: String)
 
-/** One hardware item on a node: RAM, PSU, motherboard, CPU, GPU or drives. */
-data class HealthComponent(
-    val component: String,
-    val status: String,          // ok | watch | attention | unknown
-    /** Null means not assessable - never shown as a number, never invented. */
-    val score: Int?,
-    val detail: String,
-    val readings: List<HealthReading>,
-    val findings: List<HealthFinding>
-)
-
-data class HealthReading(val label: String, val value: String, val limit: String?)
-
-data class HealthFinding(
-    val finding: String,
-    val why: String,
-    val fix: String,
-    val severity: String
-)
-
-data class NodeHealth(
-    val node: String,
-    val host: String,
-    val status: String,
-    val score: Int?,
-    val summary: String,
-    val notAssessable: List<String>,
-    val uptimeHours: Double?,
-    val components: List<HealthComponent>
-)
-
-data class FleetHealth(
-    val fleetStatus: String,
-    val nodesReporting: Int,
-    val nodesExpected: Int,
-    val attention: Int,
-    val at: String,
-    val error: String?,
-    val nodes: List<NodeHealth>
-)
-
 /** A project in the code vault - just a directory on Main. */
 data class CodeProject(
     val name: String,
@@ -356,90 +315,6 @@ class ThunderApi(
         } catch (_: Exception) {
             null
         }
-    }
-
-    // ---- fleet health -----------------------------------------------------
-
-    /** Hardware health for every node. [refresh] forces Odris to re-poll,
-     *  which takes a while - four SSH round trips - so it is not the default. */
-    suspend fun fleetHealth(server: String, refresh: Boolean = false): FleetHealth? =
-        withContext(Dispatchers.IO) {
-            if (server.isBlank()) return@withContext null
-            try {
-                val url = "${base(server)}/fleet/health" + if (refresh) "?refresh=true" else ""
-                val req = Request.Builder().url(url).get().build()
-                val call = if (refresh) longClient else client
-                call.newCall(req).execute().use { res ->
-                    if (!res.isSuccessful) return@use null
-                    parseFleet(JSONObject(res.body?.string().orEmpty()))
-                }
-            } catch (_: Exception) {
-                null
-            }
-        }
-
-    private fun parseFleet(o: JSONObject): FleetHealth {
-        val nodes = mutableListOf<NodeHealth>()
-        val arr = o.optJSONArray("nodes")
-        for (i in 0 until (arr?.length() ?: 0)) {
-            val n = arr!!.getJSONObject(i)
-            val comps = mutableListOf<HealthComponent>()
-            val ca = n.optJSONArray("components")
-            for (j in 0 until (ca?.length() ?: 0)) {
-                val c = ca!!.getJSONObject(j)
-                val readings = mutableListOf<HealthReading>()
-                val ra = c.optJSONArray("readings")
-                for (k in 0 until (ra?.length() ?: 0)) {
-                    val r = ra!!.getJSONObject(k)
-                    readings.add(HealthReading(
-                        label = r.optString("label"),
-                        value = r.opt("value")?.toString().orEmpty(),
-                        limit = r.optionalString("limit")
-                    ))
-                }
-                val findings = mutableListOf<HealthFinding>()
-                val fa = c.optJSONArray("findings")
-                for (k in 0 until (fa?.length() ?: 0)) {
-                    val f = fa!!.getJSONObject(k)
-                    findings.add(HealthFinding(
-                        finding = f.optString("finding"),
-                        why = f.optString("why"),
-                        fix = f.optString("fix"),
-                        severity = f.optString("severity", "watch")
-                    ))
-                }
-                comps.add(HealthComponent(
-                    component = c.optString("component"),
-                    status = c.optString("status", "unknown"),
-                    score = if (c.isNull("score")) null else c.optInt("score"),
-                    detail = c.optString("detail"),
-                    readings = readings,
-                    findings = findings
-                ))
-            }
-            val na = n.optJSONArray("not_assessable")
-            nodes.add(NodeHealth(
-                node = n.optString("node"),
-                host = n.optString("host"),
-                status = n.optString("status", "unknown"),
-                score = if (n.isNull("score")) null else n.optInt("score"),
-                summary = n.optString("summary"),
-                notAssessable = buildList {
-                    for (k in 0 until (na?.length() ?: 0)) add(na!!.getString(k))
-                },
-                uptimeHours = if (n.isNull("uptime_hours")) null else n.optDouble("uptime_hours"),
-                components = comps
-            ))
-        }
-        return FleetHealth(
-            fleetStatus = o.optString("fleet_status", "unknown"),
-            nodesReporting = o.optInt("nodes_reporting"),
-            nodesExpected = o.optInt("nodes_expected"),
-            attention = o.optInt("attention"),
-            at = o.optString("at"),
-            error = o.optionalString("error"),
-            nodes = nodes
-        )
     }
 
     // ---- code vault -------------------------------------------------------

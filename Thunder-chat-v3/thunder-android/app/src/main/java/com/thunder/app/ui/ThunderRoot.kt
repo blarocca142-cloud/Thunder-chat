@@ -52,7 +52,6 @@ import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.Mic
-import androidx.compose.material.icons.outlined.MonitorHeart
 import androidx.compose.material.icons.outlined.Save
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.AlertDialog
@@ -133,7 +132,6 @@ fun ThunderRoot() {
     var dark by remember { mutableStateOf(prefs.darkMode) }
     var draft by remember { mutableStateOf("") }
     var showSettings by remember { mutableStateOf(false) }
-    var showHealth by remember { mutableStateOf(false) }
     var waiting by remember { mutableStateOf(false) }
     var activeId by remember { mutableStateOf<String?>(store.newId()) }
     var chats by remember { mutableStateOf(store.list()) }
@@ -320,10 +318,9 @@ fun ThunderRoot() {
     }
 
     ThunderTheme(dark = dark) {
-    BackHandler(enabled = drawerState.isOpen || showHealth || tab != ThunderTab.Chat) {
+    BackHandler(enabled = drawerState.isOpen || tab != ThunderTab.Chat) {
         when {
             drawerState.isOpen -> scope.launch { drawerState.close() }
-            showHealth -> showHealth = false
             tab != ThunderTab.Chat -> tab = ThunderTab.Chat
         }
     }
@@ -385,14 +382,7 @@ fun ThunderRoot() {
                     }
                 }
 
-                if (showHealth) {
-                    FleetHealthPanel(
-                        server = server,
-                        api = api,
-                        onBack = { showHealth = false },
-                        modifier = Modifier.weight(1f)
-                    )
-                } else if (tab == ThunderTab.Code) {
+                if (tab == ThunderTab.Code) {
                     CodeVault(
                         server = server,
                         api = api,
@@ -517,10 +507,6 @@ fun ThunderRoot() {
             onDark = {
                 dark = it
                 prefs.darkMode = it
-            },
-            onHealth = {
-                showSettings = false
-                showHealth = true
             },
             onDismiss = { showSettings = false }
         )
@@ -968,7 +954,6 @@ private fun ServerDialog(
     api: ThunderApi,
     speak: Boolean,
     onSpeak: (Boolean) -> Unit,
-    onHealth: () -> Unit,
     onDismiss: () -> Unit
 ) {
     AlertDialog(
@@ -1027,35 +1012,6 @@ private fun ServerDialog(
                             uncheckedThumbColor = ThunderInk.Surface,
                             uncheckedTrackColor = ThunderInk.Hairline
                         )
-                    )
-                }
-                Spacer(Modifier.height(14.dp))
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable(onClick = onHealth)
-                        .padding(vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            stringResource(R.string.settings_health),
-                            color = ThunderInk.Ink,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Text(
-                            stringResource(R.string.settings_health_hint),
-                            color = ThunderInk.Mute,
-                            fontSize = 12.sp,
-                            lineHeight = 16.sp
-                        )
-                    }
-                    Icon(
-                        Icons.Outlined.MonitorHeart,
-                        contentDescription = null,
-                        tint = ThunderInk.Gold
                     )
                 }
                 Spacer(Modifier.height(14.dp))
