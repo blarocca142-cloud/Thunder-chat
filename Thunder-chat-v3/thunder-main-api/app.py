@@ -28,6 +28,7 @@ import consolidate
 import creative
 import digest
 import memory
+import uploads
 
 OLLAMA = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
 MODEL = os.environ.get("THUNDER_MODEL", "dolphin3")  # never default to a Qwen/Alibaba model
@@ -66,6 +67,8 @@ CODE = DATA / "code"
 CODE.mkdir(exist_ok=True)
 # What Thunder knows about Blayne and the fleet. Most of the distance between
 # this 24B and a frontier model is context, not reasoning - so it gets context.
+UPLOADS = uploads.Uploads(DATA / "uploads")
+VISION_MODEL = os.environ.get("THUNDER_VISION", "thunder-vision")
 MEM = memory.Memory(DATA / "memory")
 if not MEM.profile().strip():
     MEM.set_profile(memory.DEFAULT_PROFILE)
@@ -221,6 +224,11 @@ document.getElementById('f').onsubmit=async(e)=>{
 
 
 class ChatIn(BaseModel):
+    # id from POST /upload. An image goes to the vision model; a document has
+    # its text put in front of the chat model, which reasons about words far
+    # better than a 4B vision model does.
+    attachment: str | None = None
+
     message: str = ""
     messages: list[dict] | None = None
     voice: str = ""  # selects a persona; see VOICE_PERSONAS
@@ -249,6 +257,11 @@ class VideoIn(BaseModel):
 class TokenIn(BaseModel):
     admin_secret: str = ""
     name: str = ""
+
+
+class UploadIn(BaseModel):
+    filename: str = ""
+    content_base64: str = ""
 
 
 class CodeIn(BaseModel):
@@ -668,6 +681,51 @@ def ollama_tags() -> list[dict]:
         ]
     except Exception:
         return []
+
+
+def ollama_vision(message: str, image_b64: str) -> str:
+    """Ask the vision model about an image.
+
+    Its own model, not the chat model - the 23.6B cannot see. Both fit on the
+    card at once (14GB + 3GB of 24GB), so looking at a picture does not evict
+    the chat model and nothing has to be reloaded afterwards.
+    """
+    payload = json.dumps({
+        "model": VISION_MODEL,
+        "prompt": message or "Describe what this is, and read any text in it.",
+        "images": [image_b64],
+        "stream": False,
+        "options": {"temperature": 0.2, "num_predict": 900},
+    }).encode()
+    req = urllib.request.Request(f"{OLLAMA}/api/generate", data=payload,
+                                 headers={"Content-Type": "application/json"},
+                                 method="POST")
+    with urllib.request.urlopen(req, timeout=600) as r:
+        body = json.loads(r.read().decode())
+    return body.get("response", "").strip()
+
+
+def with_attachment(message: str, attachment_id: str | None) -> tuple[str, str | None, dict | None]:
+    """(message to send, image to send, the record) for a chat request.
+
+    Returns the image separately so the caller can route to the vision model,
+    and returns the record so the reply can say how the file was read - a wrong
+    answer about a scanned page should be traceable to the OCR rather than
+    blamed on the model.
+    """
+    if not attachment_id:
+        return message, None, None
+    rec = UPLOADS.get(attachment_id)
+    if not rec:
+        return f"{message}\n\n[attachment not found - it may have been deleted]", None, None
+    if rec["kind"] == "image":
+        return message, UPLOADS.image_b64(attachment_id), rec
+    text = UPLOADS.text_of(attachment_id)
+    if not text.strip():
+        return (f"{message}\n\n[the file {rec['name']} could not be read: "
+                f"{rec.get('how_read')}]"), None, rec
+    return (f"{message}\n\n--- contents of {rec['name']} "
+            f"({rec.get('how_read')}) ---\n{text}\n--- end of {rec['name']} ---"),  None, rec
 
 
 def remember_if_asked(message: str) -> dict | None:
@@ -1285,6 +1343,31 @@ def daily_digest():
     )
 
 
+@app.post("/upload")
+def upload(body: UploadIn):
+    """Take a file and work out how Thunder can read it."""
+    try:
+        rec = UPLOADS.store(body.filename, body.content_base64)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    log_event("upload", f"{rec['name']} ({rec['kind']}, {rec['bytes']} bytes)")
+    return {k: v for k, v in rec.items() if k not in ("path", "vision_path")}
+
+
+@app.get("/uploads")
+def upload_list():
+    return {"uploads": [{k: v for k, v in r.items()
+                         if k not in ("path", "vision_path")}
+                        for r in UPLOADS.listing()]}
+
+
+@app.delete("/uploads/{uid}")
+def upload_delete(uid: str):
+    if not UPLOADS.delete(uid):
+        raise HTTPException(404, "no such upload")
+    return {"deleted": uid}
+
+
 @app.get("/health")
 def health():
     """Liveness only. Unauthenticated by design, so it must stay this boring -
@@ -1417,17 +1500,35 @@ def chat(body: ChatIn):
     verdict = engine_check(msg)
     if not verdict.get("allow", True):
         return {"reply": verdict.get("reason") or "Blocked by Thunder-Engine."}
+    msg, image_b64, attached = with_attachment(msg, body.attachment)
+    if image_b64:
+        # Straight to the vision model. The chat model cannot see, and routing
+        # this through it would produce a confident answer about nothing.
+        try:
+            reply = ollama_vision(body.message or "", image_b64)
+            serverus_append(body.message or f"[image: {attached['name']}]", reply)
+            write_status(mode="code", message="vision ok")
+            log_event("vision", f"{attached['name']} -> {len(reply)} chars")
+            return {"reply": reply, "read_as": "image", "file": attached["name"]}
+        except Exception as e:
+            record_error("/chat vision", e)
+            return {"reply": f"Could not look at that image: {e}"}
+
     if ollama_up():
         try:
             reply = ollama_chat(
                 maybe_augment_with_system(msg) or maybe_augment_with_search(msg),
-                memory_message=msg,
+                memory_message=body.message or msg,
                 extra_history=body.messages,
                 persona=persona_for(body.voice),
             )
             write_status(mode="code", message="chat ok")
             log_event("chat", f"ok ({len(msg)} chars)")
-            return {"reply": reply}
+            out = {"reply": reply}
+            if attached:
+                out["read_as"] = attached.get("how_read")
+                out["file"] = attached["name"]
+            return out
         except urllib.error.URLError as e:
             record_error("/chat", e)
             return {"reply": f"Ollama dropped: {e}"}
@@ -1441,7 +1542,12 @@ def chat(body: ChatIn):
 def chat_stream(body: ChatIn):
     """Newline-delimited JSON, one {"delta": "..."} per chunk, then
     {"done": true}. Chosen over SSE because the Android client already parses
-    JSON lines and this needs no extra dependency on either end."""
+    JSON lines and this needs no extra dependency on either end.
+
+    An image arrives as one delta rather than a stream. The vision model is
+    asked for a complete answer, and faking a trickle of text would only make
+    a 40-second look feel like a stall.
+    """
     msg = (body.message or "").strip()
 
     def emit(text: str):
@@ -1464,6 +1570,18 @@ def chat_stream(body: ChatIn):
         )
     if not ollama_up():
         return StreamingResponse(emit("Ollama is not up."), media_type="application/x-ndjson")
+
+    msg, image_b64, attached = with_attachment(msg, body.attachment)
+    if image_b64:
+        try:
+            reply = ollama_vision(body.message or "", image_b64)
+            serverus_append(body.message or f"[image: {attached['name']}]", reply)
+            log_event("vision", f"{attached['name']} -> {len(reply)} chars")
+            return StreamingResponse(emit(reply), media_type="application/x-ndjson")
+        except Exception as e:
+            record_error("/chat/stream vision", e)
+            return StreamingResponse(emit(f"Could not look at that image: {e}"),
+                                     media_type="application/x-ndjson")
 
     def body_stream():
         try:

@@ -51,6 +51,15 @@ data class GpuState(
 
 data class ThunderVoice(val key: String, val label: String)
 
+/** A file Thunder has taken in and worked out how to read. */
+data class Attachment(
+    val id: String,
+    val name: String,
+    val kind: String,        // image | pdf | text | binary
+    val bytes: Long,
+    val howRead: String
+)
+
 /** A project in the code vault - just a directory on Main. */
 data class CodeProject(
     val name: String,
@@ -163,12 +172,15 @@ class ThunderApi(
         }
     }
 
-    suspend fun chat(server: String, message: String): String = withContext(Dispatchers.IO) {
+    suspend fun chat(server: String, message: String,
+                     attachment: String? = null): String = withContext(Dispatchers.IO) {
         if (server.isBlank()) {
             return@withContext "I'm here in shell mode — heard \"$message\". Point Settings at Main when that box is up and I'll really talk."
         }
         try {
-            val payload = JSONObject().put("message", message).toString()
+            val payload = JSONObject().put("message", message)
+                .apply { if (!attachment.isNullOrBlank()) put("attachment", attachment) }
+                .toString()
             val req = Request.Builder()
                 .url("${base(server)}/chat")
                 .post(payload.toRequestBody(jsonType))
@@ -192,12 +204,14 @@ class ThunderApi(
         server: String,
         message: String,
         voice: String = "",
+        attachment: String? = null,
         onDelta: (String) -> Unit
     ): String = withContext(Dispatchers.IO) {
-        if (server.isBlank()) return@withContext chat(server, message)
+        if (server.isBlank()) return@withContext chat(server, message, attachment)
         // History comes from Serverus server-side, same as the blocking path.
         // The voice selects a persona on the server, not just a sound.
         val payload = JSONObject().put("message", message).put("voice", voice)
+            .apply { if (!attachment.isNullOrBlank()) put("attachment", attachment) }
         val built = StringBuilder()
         try {
             val req = Request.Builder()
@@ -316,6 +330,36 @@ class ThunderApi(
             null
         }
     }
+
+    /** Send a file to Thunder. Base64 in JSON rather than multipart: the app
+     *  already speaks JSON and Main needs no extra dependency for it. */
+    suspend fun upload(server: String, filename: String, bytes: ByteArray): Attachment? =
+        withContext(Dispatchers.IO) {
+            if (server.isBlank() || bytes.isEmpty()) return@withContext null
+            try {
+                val payload = JSONObject()
+                    .put("filename", filename)
+                    .put("content_base64",
+                         android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP))
+                val req = Request.Builder().url("${base(server)}/upload")
+                    .post(payload.toString().toRequestBody(jsonType)).build()
+                // A phone photo plus OCR of a scanned PDF takes longer than an
+                // ordinary call, so this uses the patient client.
+                longClient.newCall(req).execute().use { res ->
+                    if (!res.isSuccessful) return@use null
+                    val o = JSONObject(res.body?.string().orEmpty())
+                    Attachment(
+                        id = o.optString("id"),
+                        name = o.optString("name"),
+                        kind = o.optString("kind"),
+                        bytes = o.optLong("bytes"),
+                        howRead = o.optString("how_read")
+                    )
+                }
+            } catch (_: Exception) {
+                null
+            }
+        }
 
     // ---- code vault -------------------------------------------------------
 

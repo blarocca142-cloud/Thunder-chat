@@ -42,6 +42,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.AttachFile
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.Code
@@ -106,6 +107,7 @@ import com.thunder.app.data.ChatMessage
 import com.thunder.app.data.ChatStore
 import com.thunder.app.data.CreationStore
 import com.thunder.app.data.AppRelease
+import com.thunder.app.data.Attachment
 import com.thunder.app.data.AppUpdater
 import com.thunder.app.data.ThunderApi
 import com.thunder.app.data.ThunderPrefs
@@ -148,6 +150,8 @@ fun ThunderRoot() {
     var showUpdate by remember { mutableStateOf(false) }
     var updating by remember { mutableStateOf(false) }
     var studioPrefill by remember { mutableStateOf<String?>(null) }
+    var attachment by remember { mutableStateOf<Attachment?>(null) }
+    var uploading by remember { mutableStateOf(false) }
     // Code saved from a conversation lands in a project named after it, so a
     // week of chats does not become one undifferentiated heap of snippets.
     val codeProject = remember(activeId, chats) {
@@ -212,9 +216,12 @@ fun ThunderRoot() {
 
     fun send() {
         val msg = draft.trim()
-        if (msg.isEmpty() || waiting || activeId == null) return
+        val sending = attachment
+        if ((msg.isEmpty() && sending == null) || waiting || activeId == null) return
         draft = ""
-        lines.add(Line("you", msg))
+        attachment = null
+        lines.add(Line("you", if (sending != null)
+            (if (msg.isEmpty()) "[${sending.name}]" else "$msg\n[${sending.name}]") else msg))
         persistActive()
         waiting = true
         scope.launch {
@@ -223,7 +230,7 @@ fun ThunderRoot() {
             val slot = lines.size
             lines.add(Line("thunder", ""))
             var first = true
-            val full = api.chatStream(server, msg, voice) { delta ->
+            val full = api.chatStream(server, msg, voice, sending?.id) { delta ->
                 if (first) {
                     waiting = false
                     first = false
@@ -436,7 +443,24 @@ fun ThunderRoot() {
                         draft = draft,
                         waiting = waiting,
                         onDraft = { draft = it },
-                        onSend = { send() }
+                        onSend = { send() },
+                        attachment = attachment,
+                        uploading = uploading,
+                        onClearAttachment = { attachment = null },
+                        onPick = { name, bytes ->
+                            scope.launch {
+                                uploading = true
+                                val a = api.upload(server, name, bytes)
+                                uploading = false
+                                attachment = a
+                                Toast.makeText(
+                                    context,
+                                    if (a != null) "${a.name}: ${a.howRead}"
+                                    else "Could not send that file",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        }
                     )
                 }
 
@@ -847,9 +871,30 @@ private fun ThunderComposer(
     draft: String,
     waiting: Boolean,
     onDraft: (String) -> Unit,
-    onSend: () -> Unit
+    onSend: () -> Unit,
+    attachment: Attachment? = null,
+    uploading: Boolean = false,
+    onClearAttachment: () -> Unit = {},
+    onPick: (String, ByteArray) -> Unit = { _, _ -> }
 ) {
     val context = LocalContext.current
+    // OpenDocument rather than GetContent: it gives a persistable read grant
+    // and the system picker covers photos, files and Drive in one place, so
+    // there is no separate image permission to ask for.
+    val picker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val name = queryFileName(context, uri)
+        val bytes = runCatching {
+            context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+        }.getOrNull()
+        if (bytes == null || bytes.isEmpty()) {
+            Toast.makeText(context, "Could not read that file", Toast.LENGTH_SHORT).show()
+        } else {
+            onPick(name, bytes)
+        }
+    }
     // Android's own recogniser, launched as an intent: the system handles the
     // microphone permission and the listening UI, so this needs neither a
     // permission request nor a speech model of our own.
@@ -862,12 +907,54 @@ private fun ThunderComposer(
             .orEmpty()
         if (said.isNotBlank()) onDraft(if (draft.isBlank()) said else "$draft $said")
     }
+    Column(Modifier.fillMaxWidth()) {
+    if (uploading || attachment != null) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(start = 18.dp, end = 18.dp, top = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (uploading) {
+                Text("sending file...", color = ThunderInk.Mute, fontSize = 12.5.sp)
+            } else attachment?.let { a ->
+                // Says how it will be read, not just that it attached - "looked
+                // at by the vision model" and "OCR of 4 pages" behave
+                // differently, and a wrong answer is easier to understand when
+                // you knew which one happened.
+                Text(
+                    "${a.name} — ${a.howRead}",
+                    color = ThunderInk.Gold,
+                    fontSize = 12.5.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                Icon(
+                    Icons.Outlined.Close,
+                    contentDescription = "Remove attachment",
+                    tint = ThunderInk.Mute,
+                    modifier = Modifier
+                        .size(18.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .clickable(onClick = onClearAttachment)
+                )
+            }
+        }
+    }
     Row(
         Modifier
             .fillMaxWidth()
             .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.Bottom
     ) {
+        IconButton(
+            onClick = { runCatching { picker.launch(arrayOf("*/*")) } },
+            modifier = Modifier.size(44.dp)
+        ) {
+            Icon(Icons.Outlined.AttachFile, contentDescription = "Attach a file",
+                 tint = ThunderInk.Mute)
+        }
         Row(
             Modifier
                 .weight(1f)
@@ -916,7 +1003,8 @@ private fun ThunderComposer(
             Icon(Icons.Outlined.Mic, contentDescription = stringResource(R.string.voice_cd), tint = ThunderInk.Mute)
         }
         Spacer(Modifier.size(4.dp))
-        val ready = draft.isNotBlank() && !waiting
+        // A photo with no words is a valid message - "what is this" is implied.
+        val ready = (draft.isNotBlank() || attachment != null) && !waiting
         IconButton(
             onClick = onSend,
             enabled = ready,
@@ -933,6 +1021,20 @@ private fun ThunderComposer(
             )
         }
     }
+    }
+}
+
+/** The display name the picker gives a file, falling back to the last path
+ *  segment. Used only for the label and for the extension, which is how Main
+ *  decides whether to look at it or read it. */
+private fun queryFileName(context: android.content.Context, uri: android.net.Uri): String {
+    runCatching {
+        context.contentResolver.query(uri, null, null, null, null)?.use { c ->
+            val i = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+            if (i >= 0 && c.moveToFirst()) return c.getString(i)
+        }
+    }
+    return uri.lastPathSegment?.substringAfterLast('/') ?: "upload"
 }
 
 private fun installedName(context: android.content.Context): String =
