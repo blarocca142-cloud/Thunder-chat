@@ -203,7 +203,20 @@ def memory() -> dict:
 
 def storage() -> dict:
     disks = []
-    smart_available = bool(run(["which", "smartctl"]))
+    # Works out for itself how smartctl can be run, so that the moment
+    # smartmontools is installed on a node this starts reporting with no code
+    # change and nobody needing to remember to say so.
+    smart_cmd = None
+    if run(["which", "smartctl"]):
+        if run(["sudo", "-n", "smartctl", "--version"], timeout=6):
+            smart_cmd = ["sudo", "-n", "smartctl"]   # the sudoers rule is in place
+        elif os.geteuid() == 0:
+            smart_cmd = ["smartctl"]
+        else:
+            # Installed but not permitted: reading devices needs root, so this
+            # is reported as unavailable rather than silently returning nothing.
+            smart_cmd = None
+    smart_available = smart_cmd is not None
     for d in sorted(BLOCK.iterdir()) if BLOCK.is_dir() else []:
         name = d.name
         if name.startswith(("loop", "ram", "zram", "sr", "dm-")):
@@ -218,8 +231,8 @@ def storage() -> dict:
         }
         # ios and ioerr counters the kernel keeps regardless of SMART access.
         disk["io_errors"] = read(d / "device/ioerr_cnt")
-        if smart_available:
-            raw = run(["smartctl", "-j", "-H", "-A", f"/dev/{name}"], timeout=15)
+        if smart_cmd:
+            raw = run(smart_cmd + ["-j", "-H", "-A", f"/dev/{name}"], timeout=15)
             if raw:
                 try:
                     s = json.loads(raw)
@@ -242,11 +255,16 @@ def storage() -> dict:
                     pass
         disks.append(disk)
 
+    # Only filesystems that actually store things. efivarfs is a ~130KB
+    # variable store that sits permanently near full, and reporting it as "97%
+    # full, take action" is a false alarm on every machine that has one. The
+    # same goes for every other kernel pseudo-filesystem.
+    REAL_FS = {"ext2", "ext3", "ext4", "xfs", "btrfs", "f2fs", "jfs", "reiserfs",
+               "vfat", "ntfs", "ntfs3", "exfat", "zfs", "overlay"}
     mounts = []
-    for line in (run(["df", "-PT", "-x", "tmpfs", "-x", "devtmpfs",
-                      "-x", "squashfs"]) or "").splitlines()[1:]:
+    for line in (run(["df", "-PT"]) or "").splitlines()[1:]:
         parts = line.split()
-        if len(parts) < 7:
+        if len(parts) < 7 or parts[1] not in REAL_FS:
             continue
         try:
             mounts.append({
@@ -258,20 +276,28 @@ def storage() -> dict:
         except ValueError:
             continue
 
-    # A filesystem that has gone read-only is a failure in progress, and it is
-    # visible in /proc/mounts without any privilege at all.
+    # A writable filesystem that has gone read-only is a failure in progress.
+    # Only these types are worth checking: squashfs (every snap), iso9660 and
+    # erofs are read-only by design, and flagging them reported 22 emergencies
+    # on a perfectly healthy machine. A health check that cries wolf is one
+    # that gets ignored, which is worse than not having it.
+    WRITABLE_FS = {"ext2", "ext3", "ext4", "xfs", "btrfs", "f2fs", "jfs", "reiserfs"}
     readonly = []
     try:
         for line in Path("/proc/mounts").read_text().splitlines():
             f = line.split()
-            if len(f) > 3 and f[1] not in ("/proc", "/sys") and "ro," in f[3] + ",":
-                if f[0].startswith("/dev/"):
-                    readonly.append(f[1])
+            if len(f) < 4 or not f[0].startswith("/dev/"):
+                continue
+            if f[2] not in WRITABLE_FS:
+                continue
+            if "ro" in f[3].split(","):
+                readonly.append(f[1])
     except Exception:
         pass
 
     return {"disks": disks, "mounts": mounts, "readonly_mounts": readonly,
-            "smart_available": smart_available}
+            "smart_available": smart_available,
+            "smart_installed": bool(run(["which", "smartctl"]))}
 
 
 # ---------------------------------------------------------------- network

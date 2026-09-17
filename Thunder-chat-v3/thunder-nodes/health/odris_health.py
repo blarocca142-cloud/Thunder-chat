@@ -418,6 +418,19 @@ def score_drives(node: str, d: dict) -> dict:
                 "Swap the SATA cable, and move the drive to a different port to tell cable "
                 "from port.", "watch"))
 
+    if not assessable and st.get("smart_installed"):
+        findings.append(finding(
+            "smartmontools is installed but cannot read the drives",
+            "Reading a drive's health counters needs root, and this account does not have "
+            "permission. The package is there - only the permission is missing.",
+            "One line, with the root password: echo \"$USER ALL=(root) NOPASSWD: "
+            "/usr/sbin/smartctl\" | sudo tee /etc/sudoers.d/smartctl && sudo chmod 440 "
+            "/etc/sudoers.d/smartctl",
+            "info"))
+        return item("Drives", "watch", None,
+                    f"{len(disks)} drives, SMART installed but not permitted",
+                    findings, readings)
+
     if not assessable:
         findings.append(finding(
             "SMART data is not available - the best failure warning is switched off",
