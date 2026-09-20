@@ -382,7 +382,8 @@ def gpu() -> list[dict]:
                 "power": chip["power"],
             })
     out = run(["nvidia-smi", "--query-gpu=name,temperature.gpu,fan.speed,"
-               "power.draw,memory.total,memory.used,ecc.errors.uncorrected.volatile.total",
+               "power.draw,memory.total,memory.used,"
+               "ecc.errors.uncorrected.volatile.total,utilization.gpu",
                "--format=csv,noheader,nounits"])
     if out:
         for line in out.strip().splitlines():
@@ -397,6 +398,7 @@ def gpu() -> list[dict]:
                     "vram_total_mb": p[4],
                     "vram_used_mb": p[5],
                     "ecc_uncorrected": p[6] if len(p) > 6 else None,
+                    "utilization": p[7] if len(p) > 7 else None,
                 })
     return cards
 

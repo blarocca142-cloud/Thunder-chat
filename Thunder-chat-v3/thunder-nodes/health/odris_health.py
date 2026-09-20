@@ -175,6 +175,81 @@ def trend(node: str, key: str, current: float | None,
     return delta, None
 
 
+# ---------------------------------------------------------------- gpu hours
+
+RUNTIME = HOME / "gpu_runtime.json"
+
+
+def accrue_gpu_runtime(raw: dict) -> dict:
+    """Keep a running total of GPU hours, because the card will not.
+
+    A drive records its own power-on hours in SMART. A GPU records nothing -
+    there is no odometer to read, and nvidia-smi has no lifetime counter. The
+    only way to know how long a card has worked is to have been watching, so
+    this counts from the first time it was asked and says so.
+
+    Each poll adds the real elapsed time since the previous one, not the poll
+    interval: a missed poll or a machine that was off must not silently count
+    as hours of service.
+    """
+    now = time.time()
+    state = {}
+    if RUNTIME.is_file():
+        try:
+            state = json.loads(RUNTIME.read_text())
+        except json.JSONDecodeError:
+            state = {}
+
+    for node, d in raw.items():
+        for card in d.get("gpu", []):
+            name = card.get("name") or card.get("chip") or "gpu"
+            key = f"{node}/{name}"
+            entry = state.get(key) or {
+                "node": node, "card": name, "watching_since": utc(),
+                "powered_hours": 0.0, "busy_hours": 0.0, "energy_wh": 0.0,
+                "samples": 0,
+            }
+            last = entry.get("last_seen_at")
+            gap = (now - last) / 3600 if last else 0.0
+            # A gap longer than three polls means the box was off or
+            # unreachable; counting it would invent hours that never happened.
+            if 0 < gap <= (POLL_SECONDS * 3) / 3600:
+                entry["powered_hours"] += gap
+                watts = None
+                try:
+                    watts = float(card.get("watts"))
+                except (TypeError, ValueError):
+                    pass
+                util = None
+                try:
+                    util = float(card.get("utilization"))
+                except (TypeError, ValueError):
+                    pass
+                if watts:
+                    entry["energy_wh"] += watts * gap
+                # Busy means actually working. An idle card still draws power
+                # and still counts as powered, which are different questions.
+                if (util is not None and util >= 10) or (watts and watts > 80):
+                    entry["busy_hours"] += gap
+            entry["last_seen_at"] = now
+            entry["last_seen"] = utc()
+            entry["samples"] = entry.get("samples", 0) + 1
+            state[key] = entry
+
+    RUNTIME.write_text(json.dumps(state, indent=2))
+    return state
+
+
+def runtime_for(node: str, card: str) -> dict | None:
+    if not RUNTIME.is_file():
+        return None
+    try:
+        state = json.loads(RUNTIME.read_text())
+    except json.JSONDecodeError:
+        return None
+    return state.get(f"{node}/{card}")
+
+
 # ---------------------------------------------------------------- scoring
 
 def item(name: str, status: str, score: int | None, detail: str,
@@ -531,6 +606,18 @@ def score_gpu(node: str, d: dict) -> dict:
         if c.get("vram_total_mb"):
             readings.append({"label": "VRAM",
                              "value": f"{c.get('vram_used_mb')} / {c['vram_total_mb']} MB"})
+        if c.get("utilization") is not None:
+            readings.append({"label": "utilisation", "value": f"{c['utilization']}%"})
+        rt = runtime_for(node, name)
+        if rt:
+            since = (rt.get("watching_since") or "")[:10]
+            readings.append({"label": "hours powered (counted here)",
+                             "value": f"{rt['powered_hours']:.1f} h since {since}"})
+            readings.append({"label": "hours actually working",
+                             "value": f"{rt['busy_hours']:.1f} h"})
+            if rt.get("energy_wh"):
+                readings.append({"label": "energy used",
+                                 "value": f"{rt['energy_wh'] / 1000:.2f} kWh"})
         ecc = c.get("ecc_uncorrected")
         if ecc not in (None, "N/A", "[N/A]", "0"):
             score -= 40
@@ -713,6 +800,7 @@ def build(raw: dict) -> dict:
 def refresh() -> dict:
     raw = collect()
     remember(raw)
+    accrue_gpu_runtime(raw)
     report = build(raw)
     LATEST.write_text(json.dumps(report, indent=2))
     return report
@@ -738,6 +826,19 @@ class Handler(BaseHTTPRequestHandler):
             if LATEST.is_file():
                 return self._send(200, json.loads(LATEST.read_text()))
             return self._send(200, refresh())
+        if self.path == "/gpu/runtime":
+            state = {}
+            if RUNTIME.is_file():
+                try:
+                    state = json.loads(RUNTIME.read_text())
+                except json.JSONDecodeError:
+                    pass
+            return self._send(200, {
+                "note": ("A GPU keeps no lifetime counter of its own, so these "
+                         "are hours observed since Odris started watching - not "
+                         "the card's total life."),
+                "cards": list(state.values())})
+
         if self.path == "/fleet/health/refresh":
             return self._send(200, refresh())
         return self._send(404, {"error": "not found"})
