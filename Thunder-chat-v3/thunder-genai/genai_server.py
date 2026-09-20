@@ -51,7 +51,30 @@ VIDEO_MODELS = {
             (f"{LORA_DIR}/wan2.2_t2v_A14b_low_noise_lora_rank64_lightx2v_4step_1217.safetensors", "low", True),
         ],
     },
+    # NOT USABLE ON A 30GB MACHINE. Stripping the distillation LoRAs from an
+    # NF4 model makes diffusers dequantise to bf16 to remove the adapter, which
+    # takes the weights from ~14GB to ~28GB of system RAM and gets the process
+    # killed. Kept for a future box with more RAM; quality mode uses 5B instead.
+    "a14b_hq": {
+        "dir": WAN_A14B_NF4_DIR,
+        "steps": 24,
+        "guidance": 3.5,
+        "guidance_2": 3.5,
+        "fps": 16,
+    },
 }
+
+# One pipeline, both modes. The first attempt loaded a separate "video_hq"
+# pipeline and the machine went into swap and was killed: with model offload
+# the weights sit in system RAM, and two copies of a 14GB model does not fit
+# in 30GB. The LoRAs are adapters - they can be switched off on the pipeline
+# that is already loaded, which costs nothing and reloads nothing.
+
+
+def video_cfg_for(mode: str) -> dict:
+    if mode == "quality":
+        return VIDEO_MODELS["5b"]
+    return video_model_cfg()
 
 
 def uses_safetensors(model_dir: str) -> bool:
@@ -224,9 +247,9 @@ def _load_image_pipe():
     return pipe
 
 
-def _load_video_pipe():
+def _load_video_pipe(override: dict | None = None):
     mode = offload_mode("video", "model")
-    cfg = video_model_cfg()
+    cfg = override or video_model_cfg()
     print(f"Loading video model from {cfg['dir']} (offload={mode})...")
     # VAE must be float32 - bf16 produces garbage/noise output, confirmed
     # by direct testing before this was in place.
@@ -262,8 +285,62 @@ def get_pipe():
     return get_pipeline("image", _load_image_pipe)
 
 
-def get_video_pipe():
-    return get_pipeline("video", _load_video_pipe)
+def get_video_pipe(quality: bool = False):
+    """Fast or quality, as two different models rather than one model tuned.
+
+    The obvious approach - keep A14B and switch off its step-distillation
+    LoRAs - does not work here, and the reason is worth recording. The A14B
+    build is NF4 quantised, and removing a LoRA adapter makes diffusers
+    dequantise the weights back to bf16 in order to strip it. That turns a
+    14GB model into roughly 28GB of system RAM, and this machine has 30GB. It
+    filled memory and the kernel killed the render, twice.
+
+    So quality mode uses TI2V-5B instead: a smaller model that was never
+    distilled, so it runs its full 20 steps with real guidance and at 24fps
+    rather than 16. Fewer parameters, but every step is honest and the motion
+    is smoother. On this hardware that is the better trade, and it was sitting
+    in the config unused.
+    """
+    return get_pipeline("video_hq" if quality else "video",
+                        _load_hq_video_pipe if quality else _load_video_pipe)
+
+
+def model_fits_in_ram(model_dir: str) -> tuple[bool, float, float]:
+    """(fits, weights GB, available GB).
+
+    Checked before loading, because the failure mode otherwise is the kernel
+    killing the process and taking the whole box into swap on the way. Weights
+    on disk are a good proxy for what model-offload holds in RAM, and a third
+    is left as headroom for activations and the runtime.
+    """
+    total = 0
+    for f in Path(model_dir).rglob("*"):
+        if f.is_file() and f.suffix in (".safetensors", ".bin", ".pth", ".ckpt"):
+            total += f.stat().st_size
+    weights = total / 1e9
+    available = 0.0
+    try:
+        for line in Path("/proc/meminfo").read_text().splitlines():
+            if line.startswith("MemAvailable:"):
+                available = int(line.split()[1]) / 1e6
+                break
+    except Exception:
+        return True, weights, 0.0      # cannot tell - do not block
+    return weights * 1.3 <= available, weights, available
+
+
+def _load_hq_video_pipe():
+    cfg = VIDEO_MODELS["5b"]
+    fits, weights, available = model_fits_in_ram(cfg["dir"])
+    if not fits:
+        raise RuntimeError(
+            f"Quality mode needs about {weights * 1.3:.0f}GB of system RAM for "
+            f"{weights:.0f}GB of weights, and only {available:.0f}GB is free. "
+            f"This machine has 30GB and the board is full, so quality mode "
+            f"cannot run here - it is a RAM limit, not a GPU one. Fast mode "
+            f"(A14B NF4, 4 steps) is the only video config that fits."
+        )
+    return _load_video_pipe(cfg)
 
 
 def _idle_reaper():
@@ -320,9 +397,9 @@ def save_frame(frame, path) -> None:
     Image.fromarray(arr).save(path)
 
 
-def generate_video_bytes(prompt: str, style: str = "Cinematic", duration: int = 5, quality: str = "480p", steps: int | None = None) -> bytes:
-    cfg = video_model_cfg()
-    pipe = get_video_pipe()
+def generate_video_bytes(prompt: str, style: str = "Cinematic", duration: int = 5, quality: str = "480p", steps: int | None = None, mode: str = "fast") -> bytes:
+    cfg = video_cfg_for(mode)
+    pipe = get_video_pipe(mode == "quality")
     full_prompt = build_prompt(prompt, style)
     height, width = VIDEO_RESOLUTIONS.get(quality, VIDEO_RESOLUTIONS["480p"])
     fps = int(cfg.get("fps", VIDEO_FPS))
@@ -502,6 +579,7 @@ class Handler(BaseHTTPRequestHandler):
                     duration=body.get("duration", 5),
                     quality=body.get("quality", "480p"),
                     steps=body.get("steps"),
+                    mode=body.get("mode", "fast"),
                 )
                 return self._send(
                     200, mp4_bytes, content_type="video/mp4",
