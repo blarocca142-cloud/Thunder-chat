@@ -40,12 +40,25 @@ CACHE = Path(os.path.expanduser("~")) / ".thunder_workpool.json"
 CACHE_SECONDS = 1800
 
 
+# No connection multiplexing. It was tried and measured: ControlMaster made
+# eight concurrent jobs slower, not faster, because they contend for the one
+# shared channel. Plain connections, and a modest number of them.
+SSH_BASE = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8",
+            "-o", "ControlPath=none"]
+
+
 def _ssh(node: str, command: str, stdin: bytes | None = None,
          timeout: int = 300) -> tuple[bool, bytes, str]:
+    # The remote command is wrapped in its own timeout. Without this, a local
+    # timeout kills the ssh client and leaves the remote process running - and
+    # repeated timeouts pile them up. That is not theoretical: it left 26
+    # orphaned tesseract processes on serverus and took its load average to 94
+    # on an 8-core box, from my own testing. The remote side must be able to
+    # give up on its own.
+    remote = f"timeout -s KILL {max(5, timeout - 5)} {command}"
     try:
         r = subprocess.run(
-            ["ssh", "-n" if stdin is None else "-T",
-             "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", node, command],
+            SSH_BASE + ["-n" if stdin is None else "-T", node, remote],
             input=stdin, capture_output=True, timeout=timeout)
         return r.returncode == 0, r.stdout, r.stderr.decode(errors="replace")[-300:]
     except Exception as e:
@@ -96,16 +109,16 @@ def capabilities(refresh: bool = False) -> dict:
 def workers_for(tool: str, caps: dict | None = None) -> list[tuple[str, int]]:
     """(node, slots) for every machine that can run this tool, best first.
 
-    One slot per two cores rather than one per core: these jobs are disk and
-    memory heavy as well as CPU heavy, and saturating every core on a box that
-    is also serving something else is how "use the idle machines" turns into
-    "make everything slow".
+    Two slots per remote machine regardless of core count, and four locally.
+    Eight was fantasy: eight concurrent ssh sessions doing 0.8s of work each
+    collapsed, and the cost of reaching a machine dwarfs the work when the job
+    is short. Local work has no connection to pay for, so it gets more.
     """
     caps = caps or capabilities()
     out = []
     for node, info in caps.items():
         if info.get("reachable") and tool in info.get("tools", []):
-            out.append((node, max(1, info.get("cores", 2) // 2)))
+            out.append((node, 4 if node == "local" else 2))
     # Local last: prefer to keep Main free for the GPU work it alone can do.
     out.sort(key=lambda p: (p[0] == "local", -p[1]))
     return out
@@ -172,6 +185,13 @@ def map_work(tool: str, items: list, command_for, payload_for,
         "seconds": round(time.time() - started, 1),
         "workers": [f"{n} x{c}" for n, c in workers],
     }
+
+
+# Below this, a job is not worth sending anywhere. Measured: one page of OCR
+# takes 0.8s and moving it costs more than that, so eight pages spread across
+# the fleet took 20s against 6s run serially on one machine. Distribution earns
+# its keep on long jobs, not many short ones.
+WORTH_DISTRIBUTING_SECONDS = 5
 
 
 def ocr_batch(images: list[Path], timeout: int = 180) -> dict[Path, str]:
