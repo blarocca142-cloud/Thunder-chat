@@ -25,12 +25,26 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
 import urllib.request
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
+# Embeddings run on serverus, which is what the handbook always said serverus
+# was for: Thunder's memory. It is a CPU-only ollama on eight idle Xeon cores,
+# and measured against Main it is 0.02s versus 0.01s warm - the model is small
+# enough that the difference does not matter, and it means Main's GPU is never
+# interrupted to work out what a sentence means.
+#
+# Main stays as the fallback. If serverus is off, recall gets quietly slower
+# rather than failing, which is the right trade for something that runs on
+# every message.
+EMBED_HOSTS = [
+    os.environ.get("THUNDER_EMBED_HOST", "http://10.168.168.13:11434"),
+    "http://127.0.0.1:11434",
+]
 OLLAMA = "http://127.0.0.1:11434"
 EMBED_MODEL = "nomic-embed-text"
 
@@ -87,17 +101,21 @@ class Memory:
         Every caller treats None as "no recall this time" rather than an error:
         memory going quiet should degrade the reply, never break the chat.
         """
-        try:
-            req = urllib.request.Request(
-                f"{OLLAMA}/api/embeddings",
-                data=json.dumps({"model": EMBED_MODEL, "prompt": text[:2000]}).encode(),
-                headers={"Content-Type": "application/json"},
-                method="POST",
-            )
-            with urllib.request.urlopen(req, timeout=20) as r:
-                return json.loads(r.read().decode()).get("embedding")
-        except Exception:
-            return None
+        payload = json.dumps({"model": EMBED_MODEL, "prompt": text[:2000]}).encode()
+        for host in EMBED_HOSTS:
+            try:
+                req = urllib.request.Request(
+                    f"{host}/api/embeddings", data=payload,
+                    headers={"Content-Type": "application/json"}, method="POST")
+                # Short timeout on the first host: falling back to Main costs
+                # milliseconds, waiting on a dead serverus costs the whole reply.
+                with urllib.request.urlopen(req, timeout=8) as r:
+                    vec = json.loads(r.read().decode()).get("embedding")
+                if vec:
+                    return vec
+            except Exception:
+                continue
+        return None
 
     def remember(self, text: str, source: str = "chat") -> dict | None:
         text = " ".join((text or "").split())
