@@ -69,6 +69,36 @@ unit with lingering enabled, so `systemctl --user restart thunder-tts` works.
 - **The other towers cannot be beefed up.** thunder-cache/engine are Ivy
   Bridge, and the six spare M81p are Sandy Bridge LGA1155 — four slots, 32GB
   max, same wall. Six of them is six separate 32GB ceilings, not 192GB.
+- **Distributing a model across the fleet works, and costs 30x.** llama.cpp's
+  RPC backend does pool memory across machines (unlike diffusion, which cannot
+  shard at all), so this was worth testing properly. Measured on the 24B, same
+  model, same prompt:
+
+  | backend | tok/s |
+  |---|---|
+  | 3090 alone | **55.5** |
+  | 3090 + serverus | 2.97 |
+  | 3090 + serverus + engine + cache | **1.80** |
+
+  **Adding the two weak nodes made it 40% slower than one node.** Every token
+  walks the whole pipeline, so each extra hop adds latency and lands more
+  layers on older silicon — the fleet runs at the speed of its slowest member
+  and gets worse as it grows. This is the measured answer to "would more old
+  towers help": no, they would actively hurt.
+
+  It is still the only way to run a model too big for any one box, and 1.8
+  tok/s is ~50k tokens over an eight-hour night, which suits the overnight
+  batch worker. It is not a path to a fast large model.
+
+  The real conclusion is the reframe: **one machine with a lot of RAM beats
+  five machines with distributed RAM by more than an order of magnitude**,
+  because local DDR3 is ~12 GB/s and gigabit is 0.125 GB/s.
+
+  Binaries are at `~/llamacpp` on Main and the three idle nodes (release
+  b11140, which ships per-microarch CPU backends including ivybridge and
+  sandybridge). `ggml-rpc-server` has **no authentication at all** — upstream
+  says trusted networks only. It was left shut down after the test; do not
+  leave it listening on 0.0.0.0.
 - **Python is 3.14 everywhere**, so many ML wheels don't exist (spacy fails,
   misaki fails). onnxruntime works.
 - **`genai` and `ollama` (UIDs 994/997) are under iptables egress lockdown** —
