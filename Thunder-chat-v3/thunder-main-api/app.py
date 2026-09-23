@@ -38,6 +38,11 @@ ODRIS = os.environ.get("ODRIS_URL", "http://10.168.168.15:9003")
 WEBSEARCH = os.environ.get("WEBSEARCH_URL", "http://10.168.168.15:9004")
 GENAI = os.environ.get("GENAI_URL", "http://127.0.0.1:9010")
 TTS = os.environ.get("TTS_URL", "http://10.168.168.15:9006")
+# Kokoro on Main is tried first and Piper on Odris catches the failure. Order
+# matters and nothing else does: if Main's GPU is mid-render and the TTS
+# service is slow to answer, the fallback still speaks.
+KOKORO = os.environ.get("KOKORO_URL", "http://127.0.0.1:9012")
+VOICE_BACKENDS = [KOKORO, TTS]
 
 # The model itself never gets internet access (see net-lockdown/) - only Odris
 # does, and only for this one job. An explicit prefix always triggers a
@@ -1471,32 +1476,52 @@ def status():
 
 @app.get("/voices")
 def list_voices():
-    """Proxied from Odris so the phone only ever talks to Main."""
-    try:
-        with urllib.request.urlopen(f"{TTS}/voices", timeout=5) as r:
-            return json.loads(r.read().decode())
-    except Exception as e:
-        return {"voices": {}, "error": str(e)}
+    """Kokoro on Main first, Piper on Odris if it is not up.
+
+    Both speak the same shape, and Kokoro advertises the old Piper keys as
+    aliases, so a phone that has had `us_female` saved since June keeps working
+    and simply starts sounding better.
+    """
+    for url in VOICE_BACKENDS:
+        try:
+            with urllib.request.urlopen(f"{url}/voices", timeout=5) as r:
+                data = json.loads(r.read().decode())
+            if data.get("voices"):
+                return data
+        except Exception:
+            continue
+    return {"voices": {}, "error": "no voice service reachable"}
 
 
 @app.post("/speak")
 def speak(body: SpeakIn):
-    """Neural speech from Odris's CPU. Returns wav bytes, or 503 if that node
-    is down - the client falls back to the phone's own TTS rather than going
-    silent."""
+    """Speech for a reply. Kokoro on Main's GPU, Piper on Odris as the fallback.
+
+    Kokoro is the better voice and, measured on the same sentence, no slower:
+    6.5x real time on the 3090 against Piper's 7x on Odris's CPU, but without
+    Piper's fixed ~640ms model reload at the front of every request.
+
+    A 503 here is deliberate rather than a silent failure - the app falls back
+    to the phone's own TTS, which is worse but is not silence.
+    """
     payload = json.dumps({
         "text": body.text, "voice": body.voice, "rate": body.rate,
     }).encode()
-    req = urllib.request.Request(
-        f"{TTS}/speak", data=payload,
-        headers={"Content-Type": "application/json"}, method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=120) as r:
-            audio = r.read()
-    except Exception as e:
-        raise HTTPException(503, f"voice service unavailable: {e}")
-    return Response(content=audio, media_type="audio/wav")
+    last = "no voice service configured"
+    for url in VOICE_BACKENDS:
+        req = urllib.request.Request(
+            f"{url}/speak", data=payload,
+            headers={"Content-Type": "application/json"}, method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=120) as r:
+                audio = r.read()
+            if audio:
+                return Response(content=audio, media_type="audio/wav")
+        except Exception as e:
+            last = f"{url}: {e}"
+            continue
+    raise HTTPException(503, f"voice service unavailable: {last}")
 
 
 @app.post("/auth/token")
