@@ -51,6 +51,24 @@ unit with lingering enabled, so `systemctl --user restart thunder-tts` works.
   Exporting at the wrong rate plays the clip at the wrong speed.
 - **Video cannot be split across GPUs.** Diffusion does not shard. More cards
   help chat, never video.
+- **Main is a Haswell i7-4790 on a Lenovo Q87 SHARKBAY board (ThinkCentre
+  M93p)** — not Ivy Bridge, which an earlier note got wrong. Four DIMM slots,
+  all full of 8GB DDR3, `Maximum Capacity: 32 GB`. That ceiling is real and
+  there is no upgrade path on this board.
+- **RAM cannot be borrowed from another machine, but it can be borrowed from
+  the SSDs.** Swap on Main is 32GB on each of the three data drives, all at
+  `pri=10`, so the kernel stripes across them: measured **1.55 GB/s**, against
+  0.125 GB/s for gigabit ethernet. Overflow memory from Main's own disks is
+  twelve times faster than anything another tower could offer over the wire,
+  which is why pooling memory across the fleet is not worth attempting.
+  `vm.page-cluster=0` (`/etc/sysctl.d/60-thunder-swap.conf`) because the
+  default of 8 pages per fault is a spinning-disk optimisation.
+  `model_fits_in_ram()` counts this swap, but only up to 35% of a model's
+  weights — past roughly a third the kernel thrashes instead of streaming and
+  the timing stops being predictable.
+- **The other towers cannot be beefed up.** thunder-cache/engine are Ivy
+  Bridge, and the six spare M81p are Sandy Bridge LGA1155 — four slots, 32GB
+  max, same wall. Six of them is six separate 32GB ceilings, not 192GB.
 - **Python is 3.14 everywhere**, so many ML wheels don't exist (spacy fails,
   misaki fails). onnxruntime works.
 - **`genai` and `ollama` (UIDs 994/997) are under iptables egress lockdown** —

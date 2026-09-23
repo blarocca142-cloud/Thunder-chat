@@ -305,13 +305,70 @@ def get_video_pipe(quality: bool = False):
                         _load_hq_video_pipe if quality else _load_video_pipe)
 
 
+def _backing_disk_is_ssd(path: str) -> bool:
+    """Is this swap area on something that can be read at random quickly?
+
+    A swap file inherits the rotational flag of the disk under its filesystem,
+    so the question is which block device holds it. Partitions carry the flag
+    of their parent, hence the walk up.
+    """
+    try:
+        st = os.stat(path)
+        dev = Path(f"/sys/dev/block/{os.major(st.st_dev)}:{os.minor(st.st_dev)}")
+        node = dev.resolve()
+        for _ in range(3):
+            flag = node / "queue" / "rotational"
+            if flag.is_file():
+                return flag.read_text().strip() == "0"
+            node = node.parent
+    except Exception:
+        pass
+    return False
+
+
+def fast_swap_gb() -> float:
+    """Free swap that lives on solid state, in GB.
+
+    Swap on a spinning disk is not memory by any useful definition, so it is
+    not counted. Swap striped across several SSDs very nearly is: Main's three
+    data drives run at equal priority, which the kernel round-robins, and they
+    measure about 1.3 GB/s together.
+    """
+    total = 0.0
+    try:
+        for line in Path("/proc/swaps").read_text().splitlines()[1:]:
+            parts = line.split()
+            if len(parts) < 4:
+                continue
+            name, size_kb, used_kb = parts[0], int(parts[2]), int(parts[3])
+            if _backing_disk_is_ssd(name):
+                total += (size_kb - used_kb) / 1e6
+    except Exception:
+        return 0.0
+    return total
+
+
+# How much of a model may live in swap rather than RAM. Every denoising step
+# streams the whole model to the GPU, so the swapped fraction is re-read each
+# step: at 1.3 GB/s, a third of a 34GB model costs roughly ten seconds a step,
+# which on a four-step render is a rounding error against four minutes. Much
+# past a third and the kernel stops streaming and starts thrashing, so the
+# relationship is no longer linear and the guess would be worthless.
+MAX_SWAP_FRACTION = 0.35
+
+
 def model_fits_in_ram(model_dir: str) -> tuple[bool, float, float]:
-    """(fits, weights GB, available GB).
+    """(fits, weights GB, usable GB).
 
     Checked before loading, because the failure mode otherwise is the kernel
-    killing the process and taking the whole box into swap on the way. Weights
-    on disk are a good proxy for what model-offload holds in RAM, and a third
-    is left as headroom for activations and the runtime.
+    killing the process and taking the whole box down with it. Weights on disk
+    are a good proxy for what model-offload holds in RAM, and a third is left
+    as headroom for activations and the runtime.
+
+    Fast swap counts toward usable memory, but only up to MAX_SWAP_FRACTION of
+    the weights. That is the difference between "this machine cannot do it" and
+    "this machine does it slower", and on a box whose motherboard is full at
+    32GB it is the only lever left.
     """
     total = 0
     for f in Path(model_dir).rglob("*"):
@@ -326,19 +383,21 @@ def model_fits_in_ram(model_dir: str) -> tuple[bool, float, float]:
                 break
     except Exception:
         return True, weights, 0.0      # cannot tell - do not block
-    return weights * 1.3 <= available, weights, available
+    needed = weights * 1.3
+    usable = available + min(fast_swap_gb(), weights * MAX_SWAP_FRACTION)
+    return needed <= usable, weights, usable
 
 
 def _load_hq_video_pipe():
     cfg = VIDEO_MODELS["5b"]
-    fits, weights, available = model_fits_in_ram(cfg["dir"])
+    fits, weights, usable = model_fits_in_ram(cfg["dir"])
     if not fits:
         raise RuntimeError(
-            f"Quality mode needs about {weights * 1.3:.0f}GB of system RAM for "
-            f"{weights:.0f}GB of weights, and only {available:.0f}GB is free. "
-            f"This machine has 30GB and the board is full, so quality mode "
-            f"cannot run here - it is a RAM limit, not a GPU one. Fast mode "
-            f"(A14B NF4, 4 steps) is the only video config that fits."
+            f"Quality mode needs about {weights * 1.3:.0f}GB for {weights:.0f}GB "
+            f"of weights. Counting free RAM plus what can sensibly be borrowed "
+            f"from SSD swap, there is {usable:.0f}GB. This machine has 30GB and "
+            f"the board is full at 32GB, so this is a RAM limit, not a GPU one. "
+            f"Fast mode (A14B NF4, 4 steps) fits and is the one to use."
         )
     return _load_video_pipe(cfg)
 
