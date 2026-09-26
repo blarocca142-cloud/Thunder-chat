@@ -343,17 +343,25 @@ class ThunderApi(
         }
     }
 
-    /** What Thunder would say if asked "anything I should know?" */
-    suspend fun digest(server: String): Digest? = withContext(Dispatchers.IO) {
-        if (server.isBlank()) return@withContext null
+    /**
+     * Ask Main to rebuild the digest, which is what folds any new finding into
+     * the persistent alert history. The body is deliberately discarded.
+     *
+     * Nothing reads the digest's own shape any more. It used to be parsed into a
+     * Digest object and notified from directly, and that was the bug behind "it
+     * still buzzes after I marked it read" - the digest is recomputed from live
+     * readings every time and has no idea what has already been seen. Refresh
+     * here, then decide from `alerts()`, which does.
+     *
+     * Walks Odris's health service over SSH, so it gets the patient client.
+     */
+    suspend fun refreshFindings(server: String): Boolean = withContext(Dispatchers.IO) {
+        if (server.isBlank()) return@withContext false
         try {
             val req = Request.Builder().url("${base(server)}/digest").get().build()
-            client.newCall(req).execute().use { res ->
-                if (!res.isSuccessful) return@use null
-                parseDigest(JSONObject(res.body?.string().orEmpty()))
-            }
+            longClient.newCall(req).execute().use { it.isSuccessful }
         } catch (_: Exception) {
-            null
+            false
         }
     }
 

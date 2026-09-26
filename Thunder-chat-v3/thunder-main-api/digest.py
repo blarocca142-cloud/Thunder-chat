@@ -149,18 +149,21 @@ def security(data_dir: Path) -> list[dict]:
     return out
 
 
-def build(data_dir: Path, vault_dir: Path, app_version: str | None = None,
-          latest_version: str | None = None) -> dict:
+def build(data_dir: Path, vault_dir: Path) -> dict:
+    """Assemble the findings. Callers record the result into the alert history.
+
+    There used to be an "App update available" item here, comparing app_version
+    to latest_version. Both were passed the same value by the only caller, so the
+    comparison could never be true and the item could never appear. It was also
+    the wrong place for it: only the phone knows which version is installed, and
+    AppUpdater already checks that client-side. Dead code that looked like a
+    feature, so it is gone rather than fixed.
+    """
     items: list[dict] = []
     items += security(data_dir)          # first: it is the only one that means intrusion
     items += hardware()
     items += claims(vault_dir)
     items += memory_waiting(data_dir / "memory")
-
-    if app_version and latest_version and app_version != latest_version:
-        items.append(item("app", f"App update available ({latest_version})",
-                          f"The phone is on {app_version}.",
-                          "Open Settings in the app to install it.", "info"))
 
     order = {"critical": 0, "warning": 1, "info": 2}
     items.sort(key=lambda i: order.get(i["severity"], 3))

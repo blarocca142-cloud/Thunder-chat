@@ -1420,12 +1420,9 @@ def daily_digest():
     Stays quiet when nothing needs a person - a digest that speaks every day
     is one that stops being read.
     """
-    release = app_release()
     built = digest.build(
         data_dir=DATA,
         vault_dir=Path(__file__).parent.parent / "thunder-claims" / "vault",
-        app_version=release.get("apk_version") if isinstance(release, dict) else None,
-        latest_version=release.get("apk_version") if isinstance(release, dict) else None,
     )
     # Leave a trail. The digest was computed and discarded, so a notification
     # sent at 3pm had nothing behind it by 9pm - see alerts.py. Recording here

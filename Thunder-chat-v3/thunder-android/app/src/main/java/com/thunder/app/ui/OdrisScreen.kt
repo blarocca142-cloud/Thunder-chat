@@ -39,10 +39,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.thunder.app.data.DigestWorker
 import com.thunder.app.data.FleetAlert
 import com.thunder.app.data.ThunderApi
 import kotlinx.coroutines.launch
@@ -83,7 +85,10 @@ fun OdrisScreen(
     /** True when a notification brought us here, in which case the finding that
      *  buzzed matters more than the dashboard. */
     startOnAlerts: Boolean = false,
-    onOpenSettings: () -> Unit = {}
+    onOpenSettings: () -> Unit = {},
+    /** Fired when an alert is acknowledged, so the tab badge updates now rather
+     *  than whenever its five-minute poll next comes round. */
+    onAlertsChanged: () -> Unit = {}
 ) {
     var pane by remember {
         mutableStateOf(if (startOnAlerts) FleetPane.Alerts else FleetPane.Dashboard)
@@ -108,7 +113,8 @@ fun OdrisScreen(
                 modifier = Modifier.weight(1f),
                 onOpenSettings = onOpenSettings
             )
-            FleetPane.Alerts -> AlertsPane(server, api, Modifier.weight(1f))
+            FleetPane.Alerts -> AlertsPane(
+                server, api, Modifier.weight(1f), onAlertsChanged)
             FleetPane.Chat -> OdrisPane(server, api, Modifier.weight(1f))
         }
     }
@@ -133,7 +139,13 @@ private fun PanePill(label: String, selected: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun AlertsPane(server: String, api: ThunderApi, modifier: Modifier = Modifier) {
+private fun AlertsPane(
+    server: String,
+    api: ThunderApi,
+    modifier: Modifier = Modifier,
+    onAlertsChanged: () -> Unit = {}
+) {
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var alerts by remember { mutableStateOf<List<FleetAlert>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
@@ -148,7 +160,13 @@ private fun AlertsPane(server: String, api: ThunderApi, modifier: Modifier = Mod
         loadedOnce = true
     }
 
-    LaunchedEffect(server) { load() }
+    LaunchedEffect(server) {
+        // Looking at the list is reading it, so take the notification out of the
+        // shade. Leaving it there while the app shows the same finding marked as
+        // read is the phone contradicting itself.
+        DigestWorker.clear(context)
+        load()
+    }
 
     val active = alerts.filter { it.active }
     val resolved = alerts.filter { !it.active }
@@ -210,7 +228,14 @@ private fun AlertsPane(server: String, api: ThunderApi, modifier: Modifier = Mod
                     onToggle = { expanded = if (expanded == alert.id) null else alert.id },
                     onAck = {
                         scope.launch {
-                            if (api.ackAlert(server, alert.id)) load()
+                            if (api.ackAlert(server, alert.id)) {
+                                load()
+                                // Both of these, immediately. The badge otherwise
+                                // sat on its old number for up to five minutes,
+                                // which reads as the app ignoring the tap.
+                                DigestWorker.clear(context)
+                                onAlertsChanged()
+                            }
                         }
                     }
                 )

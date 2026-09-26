@@ -152,6 +152,9 @@ fun ThunderRoot(
         mutableStateOf(if (startOnFleet) ThunderTab.Odris else ThunderTab.Chat)
     }
     var unackedAlerts by remember { mutableStateOf(0) }
+    // Flipped to re-key the badge poll, so acknowledging a finding updates the
+    // number immediately instead of on the next five-minute tick.
+    var refreshAlertBadge by remember { mutableStateOf(false) }
     var odrisUrl by remember { mutableStateOf(prefs.odrisUrl) }
     var odrisPassword by remember { mutableStateOf(prefs.odrisPassword) }
     val lines = remember { mutableStateListOf<Line>() }
@@ -315,10 +318,11 @@ fun ThunderRoot(
             delay(60 * 60 * 1000L)
         }
     }
-    // The badge on the Fleet tab. Five minutes, not fifteen seconds: findings
-    // are drives ageing and claims queueing, none of which move that fast, and
-    // this is a background poll on a phone.
-    LaunchedEffect(server) {
+    // The badge on the Odris tab. Five minutes, not fifteen seconds: findings are
+    // drives ageing and claims queueing, none of which move that fast, and this
+    // is a background poll on a phone. Keyed on refreshAlertBadge as well, so
+    // acknowledging something restarts it and the number changes on the spot.
+    LaunchedEffect(server, refreshAlertBadge) {
         while (true) {
             if (server.isNotBlank()) {
                 unackedAlerts = api.alerts(server, includeResolved = false)
@@ -424,7 +428,8 @@ fun ThunderRoot(
                         // A notification means a specific finding is waiting, so
                         // land on it rather than on the dashboard.
                         startOnAlerts = startOnFleet,
-                        onOpenSettings = { showSettings = true }
+                        onOpenSettings = { showSettings = true },
+                        onAlertsChanged = { refreshAlertBadge = !refreshAlertBadge }
                     )
                 } else if (tab == ThunderTab.Code) {
                     CodeVault(
