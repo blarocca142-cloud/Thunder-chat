@@ -23,11 +23,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
+import alerts
 import codestore
 import consolidate
 import creative
 import digest
 import memory
+import odris_persona
 import uploads
 
 OLLAMA = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
@@ -832,6 +834,13 @@ def ollama_chat(message: str, memory_message: str | None = None,
     past = MEM.exchange_block(recall_text)
     if past:
         messages.append({"role": "system", "content": past})
+    # Last, immediately before the question, for the same reason the recalled
+    # notes are: retrieval that is merely present loses to the training prior.
+    # Without this, Thunder sends a notification about a drive and then has no
+    # idea what the notification was when asked about it thirty seconds later.
+    live = alerts.context_block(DATA)
+    if live:
+        messages.append({"role": "system", "content": live})
     messages.append({"role": "user", "content": message})
     payload = json.dumps({
         "model": MODEL, "stream": False, "messages": messages, "options": CHAT_OPTIONS,
@@ -1123,6 +1132,9 @@ def ollama_chat_stream(message: str, memory_message: str | None = None,
     past = MEM.exchange_block(recall_text)
     if past:
         messages.append({"role": "system", "content": past})
+    live = alerts.context_block(DATA)   # see the note in ollama_chat
+    if live:
+        messages.append({"role": "system", "content": live})
     messages.append({"role": "user", "content": message})
 
     payload = json.dumps({
@@ -1408,12 +1420,126 @@ def daily_digest():
     is one that stops being read.
     """
     release = app_release()
-    return digest.build(
+    built = digest.build(
         data_dir=DATA,
         vault_dir=Path(__file__).parent.parent / "thunder-claims" / "vault",
         app_version=release.get("apk_version") if isinstance(release, dict) else None,
         latest_version=release.get("apk_version") if isinstance(release, dict) else None,
     )
+    # Leave a trail. The digest was computed and discarded, so a notification
+    # sent at 3pm had nothing behind it by 9pm - see alerts.py. Recording here
+    # means the phone's existing poll is what maintains the history.
+    try:
+        built["active"] = len(alerts.record(DATA, built.get("items", [])))
+    except Exception as e:
+        log_event("alerts", f"could not record digest: {e}")
+    return built
+
+
+@app.get("/alerts")
+def alert_history(limit: int = 50, include_resolved: bool = True):
+    """Everything the phone has ever been notified about, and what became of it.
+
+    This is what a notification opens onto. `/digest` answers "what is wrong
+    right now"; this answers "what was that buzz six hours ago", which is the
+    question that actually gets asked.
+    """
+    return {
+        "alerts": alerts.history(DATA, limit=limit,
+                                 include_resolved=include_resolved),
+        "counts": alerts.counts(DATA),
+    }
+
+
+class AlertAckIn(BaseModel):
+    alert_id: str
+
+
+@app.post("/alerts/ack")
+def alert_ack(body: AlertAckIn):
+    """Mark a finding as read. It stays active if it is still true - a 6-year-old
+    drive does not get younger for being acknowledged - but the app can stop
+    leading with it."""
+    row = alerts.ack(DATA, body.alert_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="no such alert")
+    return {"ok": True, "alert": row}
+
+
+class OdrisChatIn(BaseModel):
+    message: str = ""
+
+
+@app.post("/chat/odris")
+def chat_odris(body: OdrisChatIn):
+    """Talk to Odris, the ops assistant, from the phone.
+
+    Odris already existed as a distinct assistant, but only inside the dashboard
+    on odris:9005 behind a browser password - so the one thing that could explain
+    a notification was the one thing the phone could not reach. See
+    odris_persona.py for why this is read-only and why it keeps its own history
+    instead of writing to Thunder's memory.
+
+    Everything in the snapshot is gathered in-process. Calling our own HTTP port
+    from inside a handler is how you deadlock a single-worker server.
+    """
+    question = (body.message or "").strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="message is required")
+
+    # Each of these is allowed to fail on its own. A snapshot missing the job
+    # list is still worth answering from; a 500 because Odris's health service
+    # is asleep is not.
+    def _safe(fn, default):
+        try:
+            return fn()
+        except Exception:
+            return default
+
+    context = odris_persona.build_context(
+        question=question,
+        status=_safe(read_status, {}),
+        health=_safe(lambda: fleet_health(refresh=False), {}),
+        alert_block=_safe(lambda: alerts.context_block(DATA), ""),
+        jobs=_safe(lambda: list_jobs(limit=5).get("jobs", []), []),
+        errors=_safe(lambda: list_errors(limit=5).get("errors", []), []),
+    )
+
+    messages = [{"role": "system", "content": odris_persona.SYSTEM_PROMPT}]
+    for turn in odris_persona.load_history(DATA):
+        if turn.get("role") in ("user", "assistant") and turn.get("content"):
+            messages.append({"role": turn["role"], "content": turn["content"]})
+    messages.append({"role": "user", "content": context})
+
+    payload = json.dumps({"model": MODEL, "stream": False,
+                          "messages": messages, "options": CHAT_OPTIONS}).encode()
+    req = urllib.request.Request(
+        f"{OLLAMA}/api/chat", data=payload,
+        headers={"Content-Type": "application/json"}, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=300) as r:
+            out = json.loads(r.read().decode())
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Odris could not reach the model: {e}")
+
+    reply = (out.get("message", {}) or {}).get("content") or ""
+    if reply:
+        odris_persona.append_history(DATA, question, reply)
+    return {"reply": reply, "who": "odris"}
+
+
+@app.get("/chat/odris/history")
+def chat_odris_history():
+    """Odris's own scrollback, so the app can reopen the conversation."""
+    return {"turns": odris_persona.load_history(DATA)}
+
+
+@app.post("/chat/odris/clear")
+def chat_odris_clear():
+    path = DATA / "odris_chat.json"
+    if path.is_file():
+        path.unlink()
+    return {"ok": True}
 
 
 class YouTubeIn(BaseModel):

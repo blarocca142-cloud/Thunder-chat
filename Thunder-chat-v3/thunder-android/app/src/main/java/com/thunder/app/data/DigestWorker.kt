@@ -70,7 +70,7 @@ class DigestWorker(
             ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS)
             != PackageManager.PERMISSION_GRANTED
         ) {
-            return  // not granted; the app shows the same thing in Settings
+            return  // not granted; the Fleet tab shows the same findings anyway
         }
 
         val manager = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -85,8 +85,16 @@ class DigestWorker(
             )
         }
 
+        // The extra is the whole fix for "I open it and it has no clue". This
+        // notification used to open a bare MainActivity, which lands on chat -
+        // and chat had never been told the digest existed. Now it opens the
+        // Fleet tab, where the finding is on screen with when it started and
+        // what to do, and Odris is one tap away to explain it.
         val open = PendingIntent.getActivity(
-            ctx, 0, Intent(ctx, MainActivity::class.java),
+            ctx, 0,
+            Intent(ctx, MainActivity::class.java)
+                .putExtra(EXTRA_OPEN_FLEET, true)
+                .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
@@ -111,6 +119,9 @@ class DigestWorker(
     }
 
     companion object {
+        /** Tells MainActivity to open the Fleet tab. */
+        const val EXTRA_OPEN_FLEET = "com.thunder.app.OPEN_FLEET"
+
         private const val CHANNEL = "thunder_digest"
         private const val NOTIFICATION_ID = 4101
         private const val WORK = "thunder_digest_check"

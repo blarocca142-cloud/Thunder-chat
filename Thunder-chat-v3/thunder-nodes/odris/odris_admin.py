@@ -407,6 +407,19 @@ def build_overview() -> dict:
         overview["serverus"] = get_json(f"{SERVERUS}/recent?limit=10").get("turns", [])
     except Exception:
         pass
+    # Hardware findings and the alert history were the two things missing, and
+    # their absence was visible: the digest warned about serverus's boot drive
+    # while Odris - the assistant whose whole job is the machines - could only
+    # see "serverus: up" and said so. Both answers were true and neither helped.
+    try:
+        overview["alerts"] = get_json(f"{MAIN}/alerts?include_resolved=false").get("alerts", [])
+    except Exception:
+        pass
+    try:
+        # Local, not via Main: 9007 runs on this box and has no auth of its own.
+        overview["health"] = get_json("http://127.0.0.1:9007/fleet/health", timeout=20)
+    except Exception:
+        pass
     return overview
 
 
@@ -468,14 +481,36 @@ def parse_and_execute_command(msg: str) -> str | None:
     return None
 
 
+def hardware_lines(health: dict) -> list[str]:
+    """Only findings above `info`. The info tier is mostly "this board cannot
+    report that", which is honest of the health service and noise in a chat."""
+    out = []
+    for node in (health or {}).get("nodes", []):
+        for comp in node.get("components", []):
+            for f in comp.get("findings", []):
+                if f.get("severity") in ("attention", "watch"):
+                    out.append(f"- {node.get('host','?')}: {f.get('finding','')} "
+                               f"[{f.get('severity')}] {f.get('why','')}")
+    return out
+
+
 def odris_chat(message: str) -> str:
     overview = build_overview()
+    hardware = hardware_lines(overview.get("health", {}))
+    active = overview.get("alerts", [])
     context = (
         f"Live system snapshot:\n"
         f"Thunder-Main status: {json.dumps(overview['status'])}\n"
         f"Node heartbeat: {json.dumps(overview['heartbeat'])}\n"
         f"Recent jobs: {json.dumps([{k: j.get(k) for k in ('id','title','status','review_status')} for j in overview['jobs']])}\n"
-        f"Recent errors: {json.dumps([{k: e.get(k) for k in ('id','endpoint','error','review_status')} for e in overview['errors']])}\n\n"
+        f"Recent errors: {json.dumps([{k: e.get(k) for k in ('id','endpoint','error','review_status')} for e in overview['errors']])}\n"
+        f"Hardware findings:\n" + ("\n".join(hardware) or "- nothing above info level") + "\n"
+        # Last before the question on purpose: this is the section he is usually
+        # asking about, and for a 24B position beats labelling.
+        f"Active alerts (what the phone was notified about):\n"
+        + ("\n".join(f"- [{a.get('severity','').upper()}] {a.get('headline','')} "
+                     f"-> {a.get('action','')}" for a in active)
+           or "- none active") + "\n\n"
         f"Blayne's question: {message}"
     )
     payload = {

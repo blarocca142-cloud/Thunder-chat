@@ -51,6 +51,32 @@ data class GpuState(
 
 data class ThunderVoice(val key: String, val label: String)
 
+/**
+ * One finding from the fleet, with its whole life attached.
+ *
+ * The timestamps are what make this worth storing. A notification is a moment;
+ * what you want at 9pm is "started at 6:08pm, still true, here is what to do" -
+ * and if it cleared on its own at 4am, you want to be able to read that too.
+ */
+data class FleetAlert(
+    val id: String,
+    val kind: String,          // hardware | claims | security | memory | app
+    val headline: String,
+    val detail: String,
+    val action: String,
+    val severity: String,      // critical | warning | info
+    val firstSeen: String,
+    val lastSeen: String,
+    val resolvedAt: String?,
+    val ackedAt: String?
+) {
+    val active: Boolean get() = resolvedAt == null
+    val acknowledged: Boolean get() = ackedAt != null
+}
+
+/** A turn in Odris's own scrollback, kept apart from Thunder's chats. */
+data class OdrisTurn(val role: String, val content: String)
+
 /** A file Thunder has taken in and worked out how to read. */
 data class Attachment(
     val id: String,
@@ -328,6 +354,95 @@ class ThunderApi(
             }
         } catch (_: Exception) {
             null
+        }
+    }
+
+    /** The history behind the notifications - what buzzed, when, and whether it
+     *  is still true. `/digest` only ever said what was wrong *now*, which is
+     *  why a notification from six hours ago opened onto nothing. */
+    suspend fun alerts(server: String, includeResolved: Boolean = true): List<FleetAlert> =
+        withContext(Dispatchers.IO) {
+            if (server.isBlank()) return@withContext emptyList()
+            try {
+                val req = Request.Builder()
+                    .url("${base(server)}/alerts?include_resolved=$includeResolved")
+                    .get().build()
+                client.newCall(req).execute().use { res ->
+                    if (!res.isSuccessful) return@use emptyList()
+                    val arr = JSONObject(res.body?.string().orEmpty()).optJSONArray("alerts")
+                        ?: return@use emptyList<FleetAlert>()
+                    (0 until arr.length()).map { i ->
+                        val o = arr.getJSONObject(i)
+                        FleetAlert(
+                            id = o.optString("id"),
+                            kind = o.optString("kind"),
+                            headline = o.optString("headline"),
+                            detail = o.optString("detail"),
+                            action = o.optString("action"),
+                            severity = o.optString("severity", "info"),
+                            firstSeen = o.optString("first_seen"),
+                            lastSeen = o.optString("last_seen"),
+                            resolvedAt = o.optionalString("resolved_at"),
+                            ackedAt = o.optionalString("acked_at")
+                        )
+                    }
+                }
+            } catch (_: Exception) {
+                emptyList()
+            }
+        }
+
+    /** Mark a finding as read. It stays in the list while it is still true. */
+    suspend fun ackAlert(server: String, alertId: String): Boolean = withContext(Dispatchers.IO) {
+        if (server.isBlank()) return@withContext false
+        try {
+            val payload = JSONObject().put("alert_id", alertId)
+            val req = Request.Builder().url("${base(server)}/alerts/ack")
+                .post(payload.toString().toRequestBody(jsonType)).build()
+            client.newCall(req).execute().use { it.isSuccessful }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /** Odris, the ops assistant - a different assistant from Thunder, with the
+     *  fleet's live readings as its context instead of chat history. It used to
+     *  be reachable only from the dashboard in a browser on port 9005, which is
+     *  the one place you are not when the phone buzzes. */
+    suspend fun odrisChat(server: String, message: String): String = withContext(Dispatchers.IO) {
+        if (server.isBlank()) return@withContext "Point Settings at Main and Odris can answer."
+        try {
+            val payload = JSONObject().put("message", message)
+            val req = Request.Builder().url("${base(server)}/chat/odris")
+                .post(payload.toString().toRequestBody(jsonType)).build()
+            // Odris assembles a fleet snapshot before the model even starts, so
+            // it gets the patient client rather than the 120s one.
+            longClient.newCall(req).execute().use { res ->
+                val body = res.body?.string().orEmpty()
+                if (!res.isSuccessful) return@use "Odris couldn't answer (Main said ${res.code})."
+                JSONObject(body).optString("reply").ifBlank { "Odris had nothing to say." }
+            }
+        } catch (e: Exception) {
+            "Couldn't reach Odris. ${e.message ?: ""}"
+        }
+    }
+
+    /** Odris keeps its own scrollback, separate from Thunder's chats. */
+    suspend fun odrisHistory(server: String): List<OdrisTurn> = withContext(Dispatchers.IO) {
+        if (server.isBlank()) return@withContext emptyList()
+        try {
+            val req = Request.Builder().url("${base(server)}/chat/odris/history").get().build()
+            client.newCall(req).execute().use { res ->
+                if (!res.isSuccessful) return@use emptyList()
+                val arr = JSONObject(res.body?.string().orEmpty()).optJSONArray("turns")
+                    ?: return@use emptyList<OdrisTurn>()
+                (0 until arr.length()).map { i ->
+                    val o = arr.getJSONObject(i)
+                    OdrisTurn(o.optString("role"), o.optString("content"))
+                }
+            }
+        } catch (_: Exception) {
+            emptyList()
         }
     }
 

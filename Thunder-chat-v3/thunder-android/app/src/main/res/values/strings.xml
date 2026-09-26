@@ -15,6 +15,7 @@
     <string name="menu_cd">Open chats</string>
     <string name="close_menu_cd">Close chats</string>
     <string name="tab_chat">Chat</string>
+    <string name="tab_fleet">Fleet</string>
     <string name="tab_studio">Studio</string>
     <string name="tab_code">Code</string>
     <string name="studio_photo">Photo</string>

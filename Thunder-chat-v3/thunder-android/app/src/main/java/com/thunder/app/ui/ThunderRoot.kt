@@ -44,6 +44,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.AttachFile
 import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.MonitorHeart
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.ContentCopy
@@ -61,6 +62,8 @@ import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
@@ -117,10 +120,13 @@ import kotlinx.coroutines.launch
 
 data class Line(val who: String, val text: String)
 
-private enum class ThunderTab { Chat, Studio, Code }
+private enum class ThunderTab { Chat, Fleet, Studio, Code }
 
 @Composable
-fun ThunderRoot() {
+fun ThunderRoot(
+    /** True when the app was opened by tapping a digest notification. */
+    startOnFleet: Boolean = false
+) {
     val context = LocalContext.current
     val prefs = remember { ThunderPrefs(context) }
     val api = remember { ThunderApi(token = prefs.apiToken) }
@@ -140,7 +146,10 @@ fun ThunderRoot() {
     var renameChat by remember { mutableStateOf<Chat?>(null) }
     var renameDraft by remember { mutableStateOf("") }
     var deleteChat by remember { mutableStateOf<Chat?>(null) }
-    var tab by remember { mutableStateOf(ThunderTab.Chat) }
+    var tab by remember {
+        mutableStateOf(if (startOnFleet) ThunderTab.Fleet else ThunderTab.Chat)
+    }
+    var unackedAlerts by remember { mutableStateOf(0) }
     val lines = remember { mutableStateListOf<Line>() }
     var maintenanceActive by remember { mutableStateOf(false) }
     var maintenanceMessage by remember { mutableStateOf("") }
@@ -302,6 +311,18 @@ fun ThunderRoot() {
             delay(60 * 60 * 1000L)
         }
     }
+    // The badge on the Fleet tab. Five minutes, not fifteen seconds: findings
+    // are drives ageing and claims queueing, none of which move that fast, and
+    // this is a background poll on a phone.
+    LaunchedEffect(server) {
+        while (true) {
+            if (server.isNotBlank()) {
+                unackedAlerts = api.alerts(server, includeResolved = false)
+                    .count { !it.acknowledged }
+            }
+            delay(5 * 60 * 1000L)
+        }
+    }
 
     // Also check whenever the app comes back to the foreground. A periodic
     // timer alone means a resumed app - which Android does not recompose -
@@ -389,7 +410,13 @@ fun ThunderRoot() {
                     }
                 }
 
-                if (tab == ThunderTab.Code) {
+                if (tab == ThunderTab.Fleet) {
+                    FleetScreen(
+                        server = server,
+                        api = api,
+                        modifier = Modifier.weight(1f)
+                    )
+                } else if (tab == ThunderTab.Code) {
                     CodeVault(
                         server = server,
                         api = api,
@@ -481,6 +508,29 @@ fun ThunderRoot() {
                         onClick = { tab = ThunderTab.Chat },
                         icon = { Icon(Icons.Outlined.ChatBubbleOutline, contentDescription = null) },
                         label = { Text(stringResource(R.string.tab_chat)) },
+                        colors = colors
+                    )
+                    NavigationBarItem(
+                        selected = tab == ThunderTab.Fleet,
+                        onClick = { tab = ThunderTab.Fleet },
+                        icon = {
+                            // The badge is the point: a notification that has
+                            // been read still leaves the finding standing, and
+                            // the tab should say so without being opened.
+                            if (unackedAlerts > 0) {
+                                BadgedBox(badge = {
+                                    Badge(containerColor = ThunderInk.Gold,
+                                          contentColor = ThunderInk.OnGold) {
+                                        Text("$unackedAlerts", fontSize = 10.sp)
+                                    }
+                                }) {
+                                    Icon(Icons.Outlined.MonitorHeart, contentDescription = null)
+                                }
+                            } else {
+                                Icon(Icons.Outlined.MonitorHeart, contentDescription = null)
+                            }
+                        },
+                        label = { Text(stringResource(R.string.tab_fleet)) },
                         colors = colors
                     )
                     NavigationBarItem(
