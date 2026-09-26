@@ -51,30 +51,43 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 /**
- * The screen a notification finally has somewhere to land.
+ * Odris, as its own place in the app rather than a corner of Thunder's.
  *
- * The bug this exists to kill: the phone buzzed about serverus, and opening the
- * app showed nothing, because `/digest` was computed fresh on every call and
- * nothing in the UI had ever displayed it. Two things were true at once - the
- * warning was real, and there was no screen in the entire app that referenced a
- * digest. So it looked like Thunder was making things up.
+ * Blayne's objection was the right one: Odris mixed into Thunder is a bad idea.
+ * They are genuinely separate assistants - separate machine, separate prompt,
+ * live machine readings instead of chat history - and blurring them in the UI
+ * would teach you to distrust both, because you would never be sure which one
+ * answered.
  *
- * Alerts now have a history with a first-seen, a still-true-or-not, and what to
- * do about it. Odris sits on the other tab because the question that follows
- * "what is this?" is always "should I care?", and Odris is the assistant that
- * reads hardware for a living. Thunder is for everything else.
+ * Three panes, all Odris's own work:
+ *
+ * **Dashboard** - the real ops dashboard from Odris, embedded rather than
+ * reimplemented. See OdrisDashboard.kt.
+ *
+ * **Alerts** - the history a notification can land on. This is the screen whose
+ * absence caused the original bug: the phone buzzed about serverus, and nothing
+ * in the entire app had ever displayed a digest, so it looked like Thunder was
+ * inventing things. It was not - the warning was real and had nowhere to go.
+ *
+ * **Chat** - Odris answering in its own voice, read-only from here.
  */
-private enum class FleetPane { Alerts, Odris }
+private enum class FleetPane { Dashboard, Alerts, Chat }
 
 @Composable
-fun FleetScreen(
+fun OdrisScreen(
     server: String,
     api: ThunderApi,
-    modifier: Modifier = Modifier
+    odrisUrl: String,
+    odrisPassword: String,
+    modifier: Modifier = Modifier,
+    /** True when a notification brought us here, in which case the finding that
+     *  buzzed matters more than the dashboard. */
+    startOnAlerts: Boolean = false,
+    onOpenSettings: () -> Unit = {}
 ) {
-    // Alerts first, always. Arriving here means either a notification was tapped
-    // or the tab was pressed, and both of those are the same question.
-    var pane by remember { mutableStateOf(FleetPane.Alerts) }
+    var pane by remember {
+        mutableStateOf(if (startOnAlerts) FleetPane.Alerts else FleetPane.Dashboard)
+    }
 
     Column(modifier) {
         Row(
@@ -83,13 +96,20 @@ fun FleetScreen(
                 .padding(horizontal = 14.dp, vertical = 10.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            PanePill("Dashboard", pane == FleetPane.Dashboard) { pane = FleetPane.Dashboard }
             PanePill("Alerts", pane == FleetPane.Alerts) { pane = FleetPane.Alerts }
-            PanePill("Ask Odris", pane == FleetPane.Odris) { pane = FleetPane.Odris }
+            PanePill("Chat", pane == FleetPane.Chat) { pane = FleetPane.Chat }
         }
         Hairline(dim = true)
         when (pane) {
+            FleetPane.Dashboard -> OdrisDashboard(
+                url = odrisUrl,
+                password = odrisPassword,
+                modifier = Modifier.weight(1f),
+                onOpenSettings = onOpenSettings
+            )
             FleetPane.Alerts -> AlertsPane(server, api, Modifier.weight(1f))
-            FleetPane.Odris -> OdrisPane(server, api, Modifier.weight(1f))
+            FleetPane.Chat -> OdrisPane(server, api, Modifier.weight(1f))
         }
     }
 }

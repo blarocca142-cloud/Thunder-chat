@@ -83,6 +83,12 @@ ODRIS_SYSTEM_PROMPT = (
 # backslash. Check with:  node --check  on the served page, not the source.
 PAGE = """<!doctype html>
 <html><head><meta charset="utf-8"><title>Odris Admin</title>
+<!-- Without this a phone renders the page at desktop width and shows it zoomed
+     out to unreadable. It was missing entirely, which made the dashboard
+     technically reachable from the phone and practically useless on it - and
+     this page is now embedded in the Android app, where there is no pinch-zoom
+     to rescue it. -->
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
 :root{color-scheme:dark light}
 body{margin:0;background:#0b0d10;color:#e8edf2;font:15px/1.4 system-ui,sans-serif}
