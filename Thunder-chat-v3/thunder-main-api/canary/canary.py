@@ -6,9 +6,22 @@ should be mistaken for a lock on the door - by the time an attacker reads these
 they are already inside. What it does is tell you *immediately*, which is the
 difference between finding out now and finding out in six months.
 
-The signal is unusually clean because it has no false positives by
-construction: nothing legitimate ever opens these files. One access is one
-alert, and it means something.
+The signal is clean only as long as nothing sweeps these files up in bulk, and
+that is a placement problem, not a theory. On 2026-09-26 two honeyfiles living
+in thunder-data/ fired at 03:12 because a routine `grep -rli ... --include='*.json'
+--include='*.txt'` over /home/blayne read all 205 files in the source tree. No
+intruder, six CRITICAL alerts, and an hour spent proving it was nothing.
+
+So: keep honeyfiles OUT of any tree that gets searched, and give them
+extensions a code search will not ask for. The three that have never
+false-positived are .csv and an extension-less key, which every
+`--include='*.py' --include='*.json'` style grep skips for free. That is the
+whole trick, and it is worth more than the bait name.
+
+What this still cannot tell you is WHO read the file - inotify reports the
+path and the event, never the pid. Attributing an access needs auditd or
+fanotify. Until then, one access is one alert, and triage means going to the
+journal and the process tree to find out what was running.
 
 Names are chosen to be the first thing someone would reach for. Contents are
 whatever you like - they are never read by anything real.
@@ -25,14 +38,17 @@ DATA = Path(os.environ.get("THUNDER_DATA", "/home/blayne/Thunder-chat/Thunder-ch
 ALERTS = DATA / "canary_alerts.log"
 STATE = DATA / "canary_state.json"
 
-# Where a snooper would actually look, and what they would want. Anything
-# plausible and valuable-sounding works; these are never opened legitimately.
+# Where a snooper would actually look, and what they would want. Two rules,
+# both learned the hard way: never inside a source tree, and never an
+# extension a code search includes (.py .json .txt .md .kt .js .service ...).
+# A snooper opens a file because of its name; a grep opens it because of its
+# suffix. Pick names for the first and suffixes that dodge the second.
 HONEYFILES = {
     Path.home() / "patients_2026_backup.csv": "csv",
     Path.home() / "billing_export_Q3.csv": "csv",
     Path.home() / ".ssh" / "id_rsa_backup": "key",
-    DATA / "patient_records_export.json": "json",
-    DATA / "credentials_backup.txt": "creds",
+    Path.home() / "patient_records_export.csv": "csv",
+    Path.home() / "credentials_backup.bak": "creds",
 }
 
 FILLER = """If you are reading this file, you are somewhere you should not be.
