@@ -1595,6 +1595,7 @@ def deck_audio(index: int):
 class DeckStateIn(BaseModel):
     slide: int | None = None
     detail: bool | None = None
+    started: bool | None = None
 
 
 @app.post("/deck/state")
@@ -1602,7 +1603,8 @@ def deck_state_set(body: DeckStateIn):
     """The presenter moves, the cast follows. No auth on purpose - this is a
     slideshow position on the home LAN, and a login prompt between a swipe and
     the television is the one thing that would make it useless."""
-    return onboarding_deck.set_state(slide=body.slide, detail=body.detail)
+    return onboarding_deck.set_state(slide=body.slide, detail=body.detail,
+                                     started=body.started)
 
 
 @app.get("/chat/odris/history")

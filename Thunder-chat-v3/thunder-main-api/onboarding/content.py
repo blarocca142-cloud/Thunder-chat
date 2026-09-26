@@ -128,10 +128,37 @@ SECTIONS = [
     "Working here",
 ]
 
+# Each chapter gets its own accent and a one-line promise for the contents grid.
+# The colour is not decoration: on a deck this long the fastest way to know where
+# you are is that the room changed colour, and it means a glance at the progress
+# rail tells you how much of a chapter is left.
+SECTION_META = {
+    "Start here":         {"accent": "#C4A35A", "blurb": "What this is, in ninety seconds"},
+    "The machines":       {"accent": "#7FB3FF", "blurb": "Six towers, and which one matters"},
+    "Thunder":            {"accent": "#FFB347", "blurb": "The assistant, and how it remembers"},
+    "Odris":              {"accent": "#8FCB9B", "blurb": "The watchman that cannot be silenced"},
+    "The call organizer": {"accent": "#C89BFF", "blurb": "Phone logs to a usable sheet"},
+    "Claims":             {"accent": "#6FD8CE", "blurb": "The money, and how it is protected"},
+    "Security":           {"accent": "#FF8A7A", "blurb": "Honest grade, weak spots included"},
+    "Pictures and video": {"accent": "#FF9ED8", "blurb": "The part that demos itself"},
+    "Where this goes":    {"accent": "#FFD479", "blurb": "The business and the real roadmap"},
+    "Working here":       {"accent": "#A8B4C4", "blurb": "How we actually work"},
+}
+
+# Layouts. A deck where every slide is a bulleted list reads as a document
+# someone forgot to finish, and that was the honest complaint about the first
+# version of this. Numbers get to be numbers.
+#
+#   cover   the opening slide, oversized
+#   bullets the default
+#   stats   a `stats` list rendered as big figures, with `short`/`detail` beneath
+LAYOUTS = {"cover", "bullets", "stats"}
+
 SLIDES = [
     # ---------------------------------------------------------------- Start here
     {
         "section": "Start here",
+        "layout": "cover",
         "title": "You are looking at a private AI company",
         "short": [
             "Six computers in a house, running our own AI.",
@@ -224,7 +251,13 @@ SLIDES = [
     },
     {
         "section": "The machines",
+        "layout": "stats",
         "title": "We tried pooling them. It got 30x slower.",
+        "stats": [
+            {"value": "55.5", "unit": "tok/s", "label": "The 3090 on its own", "tone": "good"},
+            {"value": "2.97", "unit": "tok/s", "label": "Plus serverus", "tone": "bad"},
+            {"value": "1.80", "unit": "tok/s", "label": "Plus all three helpers", "tone": "bad"},
+        ],
         "short": [
             "One 3090 alone: 55.5 tok/s.",
             "3090 + serverus: 2.97.",
@@ -290,7 +323,13 @@ SLIDES = [
     # ------------------------------------------------------------------ Thunder
     {
         "section": "Thunder",
+        "layout": "stats",
         "title": "Thunder is ours, running on our card",
+        "stats": [
+            {"value": "23.6B", "unit": "params", "label": "On one graphics card", "tone": "good"},
+            {"value": "55", "unit": "tok/s", "label": "Faster than you read", "tone": "good"},
+            {"value": "$0", "unit": "/mo", "label": "No API key anywhere", "tone": "good"},
+        ],
         "short": [
             "24 billion parameters, on the 3090, at 55 tok/s.",
             "Talks like a person, not a corporate chatbot.",
@@ -517,7 +556,13 @@ SLIDES = [
     },
     {
         "section": "Claims",
+        "layout": "stats",
         "title": "Where the patient data actually sits",
+        "stats": [
+            {"value": "AES-256", "unit": "GCM", "label": "Per-record keys", "tone": "good"},
+            {"value": "34", "unit": "of 34", "label": "Attacks repelled", "tone": "good"},
+            {"value": "0", "unit": "", "label": "Real patient records, so far", "tone": "neutral"},
+        ],
         "short": [
             "Every record encrypted with its own key.",
             "Searchable without being decrypted.",
@@ -701,7 +746,13 @@ SLIDES = [
     # ------------------------------------------------- Pictures and video
     {
         "section": "Pictures and video",
+        "layout": "stats",
         "title": "It makes pictures and video too",
+        "stats": [
+            {"value": "4", "unit": "min", "label": "5 seconds at 480p", "tone": "good"},
+            {"value": "8", "unit": "min", "label": "5 seconds at 720p", "tone": "neutral"},
+            {"value": "22", "unit": "min", "label": "5 seconds at 1080p", "tone": "neutral"},
+        ],
         "short": [
             "Images in seconds. Editing by description.",
             "Video from a sentence - 5 seconds at 480p in about 4 minutes.",
@@ -899,13 +950,26 @@ SLIDES = [
 
 
 def sections_with_slides() -> list[dict]:
-    """Contents: each section with the slide numbers it covers."""
+    """Contents: each chapter with its accent, promise and slide range."""
     out: list[dict] = []
-    for name in SECTIONS:
+    for n, name in enumerate(SECTIONS, start=1):
         idx = [i for i, s in enumerate(SLIDES) if s["section"] == name]
-        if idx:
-            out.append({"name": name, "first": idx[0], "count": len(idx)})
+        if not idx:
+            continue
+        meta = SECTION_META.get(name, {})
+        out.append({
+            "name": name,
+            "number": n,
+            "first": idx[0],
+            "count": len(idx),
+            "accent": meta.get("accent", "#C4A35A"),
+            "blurb": meta.get("blurb", ""),
+        })
     return out
+
+
+def accent_for(section: str) -> str:
+    return SECTION_META.get(section, {}).get("accent", "#C4A35A")
 
 
 def validate() -> list[str]:
@@ -928,7 +992,24 @@ def validate() -> list[str]:
                 problems.append(f"{where}: term {t!r} has no glossary entry")
         if len(s.get("short", [])) > 6:
             problems.append(f"{where}: {len(s['short'])} short lines, max 6 on a TV")
+        layout = s.get("layout", "bullets")
+        if layout not in LAYOUTS:
+            problems.append(f"{where}: unknown layout {layout!r}")
+        if layout == "stats":
+            stats = s.get("stats") or []
+            if not 2 <= len(stats) <= 4:
+                problems.append(f"{where}: stats layout wants 2-4 figures, has {len(stats)}")
+            for st in stats:
+                if not st.get("value") or not st.get("label"):
+                    problems.append(f"{where}: a stat is missing value or label")
+        elif s.get("stats"):
+            problems.append(f"{where}: has stats but layout is {layout!r}")
     for name in SECTIONS:
         if not any(s["section"] == name for s in SLIDES):
             problems.append(f"section {name!r} has no slides")
+        if name not in SECTION_META:
+            problems.append(f"section {name!r} has no accent/blurb in SECTION_META")
+    for name in SECTION_META:
+        if name not in SECTIONS:
+            problems.append(f"SECTION_META has {name!r}, which is not a section")
     return problems

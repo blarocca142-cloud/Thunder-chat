@@ -15,6 +15,13 @@ from onboarding import content, deck
 PASS, FAIL = 0, 0
 
 
+def json_of(html: str) -> str:
+    """The embedded DATA payload, for asserting against what the page was given
+    rather than against whatever the CSS happens to be doing to it."""
+    m = re.search(r"const DATA = (\{.*)", html)
+    return m.group(1) if m else ""
+
+
 def check(name: str, cond: bool, extra: str = "") -> None:
     global PASS, FAIL
     if cond:
@@ -61,12 +68,48 @@ def main():
 
     print("\npresenter view has everything")
     pres = deck.presenter_html()
-    check("presenter has the notes element", 'id="notes"' in pres)
+    check("presenter has the notes element", 'class="notes"' in pres)
     check("presenter carries every note",
           all(n[:40] in pres for n in notes))
     check("presenter has the contents menu", 'id="tocBtn"' in pres)
     check("presenter has narration controls",
           'id="speakBtn"' in pres and 'id="autoBtn"' in pres)
+
+    print("\nthe opening choice")
+    check("presenter offers a quick version", "Quick tour" in pres)
+    check("presenter offers a detailed version", "Full detail" in pres)
+    check("presenter offers jumping to a chapter", "Jump to a chapter" in pres)
+    check("both choices call begin()",
+          pres.count("begin(false)") == 1 and pres.count("begin(true)") == 1)
+    check("cast view waits rather than showing slide one",
+          "Waiting for the presenter" in audience)
+    check("cast view has no buttons at all",
+          "<button" not in audience)
+
+    print("\ncontents is a chapter grid, not 23 slides")
+    check("every chapter name reaches the presenter",
+          all(s["name"] in pres for s in content.sections_with_slides()))
+    check("every chapter blurb reaches the presenter",
+          all(s["blurb"] in pres for s in content.sections_with_slides() if s["blurb"]))
+    check("chapters carry their accent colour",
+          all(s["accent"] in pres for s in content.sections_with_slides()))
+    check("contents jumps to a chapter's first slide", "jump(sec.first)" in pres)
+
+    print("\nlayouts")
+    stat_slides = [s for s in content.SLIDES if s.get("layout") == "stats"]
+    check("there are stat slides", len(stat_slides) >= 3, str(len(stat_slides)))
+    check("stat figures reach the audience view",
+          all(st["value"] in audience for s in stat_slides for st in s["stats"]))
+    check("the 30x-slower numbers are figures, not bullets",
+          '"55.5"' in json_of(audience) and '"1.80"' in json_of(audience))
+    check("both views can render stats", "statsBlock" in audience and "statsBlock" in pres)
+    check("cover layout exists", any(s.get("layout") == "cover" for s in content.SLIDES))
+
+    print("\nno external resources")
+    for name, html in (("audience", audience), ("presenter", pres)):
+        check(f"{name}: no remote fetch", "//fonts." not in html and "cdn." not in html)
+        check(f"{name}: no http(s) asset urls",
+              'src="http' not in html and 'href="http' not in html)
 
     print("\ntemplates rendered")
     for name, html in (("audience", audience), ("presenter", pres)):
@@ -84,7 +127,13 @@ def main():
               "\n" not in re.search(r"const DATA = (.*)", html).group(1))
 
     print("\nstate machine")
-    deck.set_state(slide=0, detail=False)
+    deck.set_state(slide=0, detail=False, started=False)
+    check("starts un-started, so the TV shows the cover",
+          deck.get_state()["started"] is False)
+    check("beginning the deck is shared state",
+          deck.set_state(started=True)["started"] is True)
+    check("started survives a move", deck.set_state(slide=3)["started"] is True)
+    deck.set_state(slide=0, detail=False, started=False)
     start = deck.get_state()
     check("starts where it was set", start["slide"] == 0)
     r1 = deck.set_state(slide=5)
@@ -100,7 +149,7 @@ def main():
     deck.set_state()
     check("a no-op still bumps rev so a poll cannot miss it",
           deck.get_state()["rev"] > before)
-    deck.set_state(slide=0, detail=False)
+    deck.set_state(slide=0, detail=False, started=False)
 
     print("\nnarration text")
     from onboarding import narrate
