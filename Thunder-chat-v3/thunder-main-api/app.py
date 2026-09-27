@@ -1165,7 +1165,8 @@ def release_chat_model() -> None:
 def warm_model() -> None:
     """Ask Ollama to load the chat model without generating anything, so it is
     resident by the time the user finishes reading the greeting."""
-    payload = json.dumps({"model": MODEL, "prompt": "", "keep_alive": "5m"}).encode()
+    payload = json.dumps({"model": MODEL, "prompt": "",
+                          "keep_alive": os.environ.get("THUNDER_KEEP_ALIVE", "24h")}).encode()
     req = urllib.request.Request(
         f"{OLLAMA}/api/generate", data=payload, headers={"Content-Type": "application/json"}
     )

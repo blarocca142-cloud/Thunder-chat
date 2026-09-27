@@ -61,6 +61,8 @@ ALLOWED_CALLERS = {
 TOOLS: dict[str, dict] = {
     "web_search":   {"runs": "odris", "per_min": 20, "args": {"query": (str, 1, 300)}},
     "fetch_url":    {"runs": "odris", "per_min": 20, "args": {"url": (str, 8, 2000)}},
+    "github":       {"runs": "odris", "per_min": 30, "args": {"op": (str, 1, 20), "repo": (str, 0, 100),
+                                                               "path": (str, 0, 400), "query": (str, 0, 300)}},
     "run_python":   {"runs": "main",  "per_min": 30, "args": {"code": (str, 1, 40_000)}},
     "forge_code":   {"runs": "main",  "per_min": 6,   "args": {"task": (str, 1, 20_000)}},
     "read_file":    {"runs": "main",  "per_min": 60, "args": {"path": (str, 1, 300)}},
@@ -69,7 +71,13 @@ TOOLS: dict[str, dict] = {
     "memory_search": {"runs": "main", "per_min": 60, "args": {"query": (str, 1, 500)}},
     "system_status": {"runs": "main", "per_min": 20, "args": {}},
 }
-OUTBOUND = {"web_search", "fetch_url"}
+OUTBOUND = {"web_search", "fetch_url", "github"}
+
+# GitHub: read-only, and only Blayne's own account. The token lives here on
+# Odris (chmod 600) and nowhere else - Main never sees it.
+GITHUB_OWNERS = {o.strip().lower() for o in os.environ.get("GITHUB_OWNERS", "blarocca142-cloud").split(",") if o.strip()}
+GITHUB_TOKEN_FILE = Path(os.environ.get("GITHUB_TOKEN_FILE", str(Path.home() / "thunder-gate" / "github_token")))
+GITHUB_OPS = {"list_repos", "tree", "read", "commits", "search"}
 
 # Patterns that look like patient data. Deliberately broad.
 PHI_PATTERNS = [
@@ -171,6 +179,17 @@ def decide(tool: str, args: dict, caller: str) -> tuple[bool, str]:
         problem = public_http_url(args["url"])
         if problem:
             return False, f"refused: {problem}"
+    if tool == "github":
+        if args["op"] not in GITHUB_OPS:
+            return False, f"github op must be one of {sorted(GITHUB_OPS)} (read-only)"
+        repo = args.get("repo", "")
+        if args["op"] not in ("list_repos", "search"):
+            if not re.fullmatch(r"[A-Za-z0-9-]+/[A-Za-z0-9._-]+", repo or ""):
+                return False, "repo must be owner/name"
+        if repo and repo.split("/")[0].lower() not in GITHUB_OWNERS:
+            return False, f"github access is limited to {sorted(GITHUB_OWNERS)}"
+        if ".." in args.get("path", ""):
+            return False, "bad path"
     if not rate_ok(tool):
         return False, f"rate limit: {tool} is capped at {TOOLS[tool]['per_min']} calls a minute"
     return True, "ok"
@@ -244,11 +263,51 @@ def fetch_url(url: str) -> dict:
     return {"url": final, "title": title, "text": text[:FETCH_MAX_CHARS], "truncated": truncated}
 
 
+def _gh(path: str, accept: str = "application/vnd.github+json"):
+    headers = {"User-Agent": UA, "Accept": accept, "X-GitHub-Api-Version": "2022-11-28"}
+    if GITHUB_TOKEN_FILE.exists():
+        headers["Authorization"] = "Bearer " + GITHUB_TOKEN_FILE.read_text().strip()
+    req = urllib.request.Request("https://api.github.com" + path, headers=headers)
+    with urllib.request.urlopen(req, timeout=20) as r:
+        body = r.read(FETCH_MAX_BYTES)
+    return body if accept.endswith("raw") else json.loads(body)
+
+
+def github(args: dict) -> dict:
+    op, repo, path = args["op"], args.get("repo", ""), args.get("path", "").strip("/")
+    q = urllib.parse.quote
+    if op == "list_repos":
+        owner = sorted(GITHUB_OWNERS)[0]
+        items = _gh(f"/users/{q(owner)}/repos?per_page=100&sort=pushed")
+        return {"repos": [{"name": r["full_name"], "private": r["private"], "pushed": r["pushed_at"],
+                           "description": r.get("description")} for r in items]}
+    if op == "tree":
+        ref = _gh(f"/repos/{repo}")["default_branch"]
+        t = _gh(f"/repos/{repo}/git/trees/{q(ref)}?recursive=1")
+        files = [e["path"] for e in t.get("tree", []) if e["type"] == "blob" and e["path"].startswith(path)]
+        return {"branch": ref, "files": files[:800], "truncated": len(files) > 800 or t.get("truncated")}
+    if op == "read":
+        raw = _gh(f"/repos/{repo}/contents/{q(path)}", "application/vnd.github.raw")
+        text = raw.decode("utf-8", errors="replace")
+        return {"path": path, "content": text[:FETCH_MAX_CHARS * 3], "truncated": len(text) > FETCH_MAX_CHARS * 3}
+    if op == "commits":
+        cs = _gh(f"/repos/{repo}/commits?per_page=20" + (f"&path={q(path)}" if path else ""))
+        return {"commits": [{"sha": c["sha"][:10], "date": c["commit"]["author"]["date"],
+                             "message": c["commit"]["message"].split("\n")[0]} for c in cs]}
+    if op == "search":
+        scope = f"repo:{repo}" if repo else " ".join(f"user:{o}" for o in sorted(GITHUB_OWNERS))
+        res = _gh(f"/search/code?q={q(args.get('query', '') + ' ' + scope)}&per_page=20")
+        return {"matches": [{"repo": i["repository"]["full_name"], "path": i["path"]} for i in res.get("items", [])]}
+    raise ValueError(op)
+
+
 def execute(tool: str, args: dict) -> dict:
     if tool == "web_search":
         return {"results": web_search(args["query"], 6)}
     if tool == "fetch_url":
         return fetch_url(args["url"])
+    if tool == "github":
+        return github(args)
     raise ValueError(tool)
 
 

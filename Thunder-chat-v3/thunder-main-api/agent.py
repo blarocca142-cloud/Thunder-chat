@@ -54,6 +54,9 @@ def _status_line(name: str, args: dict) -> str:
         return f"saving {args.get('path', '')}"
     if name == "read_file":
         return f"reading {args.get('path', '')}"
+    if name == "github":
+        what = args.get("path") or args.get("query") or args.get("repo") or ""
+        return f"reading github: {args.get('op', '')} {what}".strip()
     if name == "memory_search":
         return "checking memory"
     if name == "system_status":

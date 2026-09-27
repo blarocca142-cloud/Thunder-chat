@@ -142,6 +142,21 @@ check("a public host passes the address check", odris_gate.public_http_url("http
 check("a redirect onto the LAN is refused",
       odris_gate.public_http_url("http://192.168.1.1/admin") is not None)
 
+print("gate: github")
+for args, want in [
+    ({"op": "read", "repo": "blarocca142-cloud/Thunder-chat", "path": "README.md"}, True),
+    ({"op": "list_repos"}, True),
+    ({"op": "read", "repo": "someone-else/secrets", "path": "x"}, False),
+    ({"op": "push", "repo": "blarocca142-cloud/Thunder-chat"}, False),
+    ({"op": "delete_repo", "repo": "blarocca142-cloud/Thunder-chat"}, False),
+    ({"op": "read", "repo": "blarocca142-cloud/Thunder-chat", "path": "../../x"}, False),
+    ({"op": "search", "query": "patient named John dob 1/2/1960"}, False),
+]:
+    ok, why = odris_gate.decide("github", args, "127.0.0.1")
+    check(f"github {args.get('op')} {args.get('repo', '')} -> {'allowed' if want else 'refused'}", ok == want, why)
+check("the github token is read on Odris, never sent to Main",
+      "github_token" not in open(tools.__file__).read())
+
 print("gate: rate limit")
 odris_gate._calls["system_status"].clear()
 results = [odris_gate.decide("system_status", {}, "127.0.0.1")[0] for _ in range(25)]
