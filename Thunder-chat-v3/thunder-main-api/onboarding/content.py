@@ -162,164 +162,171 @@ SLIDES = [
     {
         "section": "Start here",
         "layout": "cover",
-        "title": "You are looking at a private AI company",
+        "title": "A fully local AI stack, built for data that cannot leave the building",
         "short": [
-            "Six computers in a house, running *our own AI*.",
-            "*Nothing we do leaves the building.*",
-            "That last sentence is *the entire business*.",
+            "Six commodity machines. *No external inference, no API keys.*",
+            "Chat, generative media, and a medical claims pipeline.",
+            "*Locality is the architecture*, not a deployment preference.",
         ],
         "detail": [
-            "Six computers in a house, running our own AI - chat, images, video, "
-            "and a claims pipeline for the family practice.",
-            "Nothing is rented. No OpenAI, no Google, no API bill, no company "
-            "holding the off switch.",
-            "That is not a hobbyist's preference. Patient data cannot go into "
-            "cloud AI without a signed contract most providers will not give a "
-            "small practice. We do not need one, because the data never leaves "
-            "the room it was scanned in.",
-            "Everything after this slide is detail on how that is actually true.",
+            "Six commodity x86 machines on a private network, running open-weight "
+            "models locally. No hosted inference, no API keys, no third-party "
+            "dependency in the data path.",
+            "Three workloads on one stack: a conversational assistant, generative "
+            "image and video, and a document-understanding pipeline for medical "
+            "claims.",
+            "The constraint driving all of it: protected health information cannot "
+            "be sent to a hosted model without a signed business associate "
+            "agreement, and providers will not extend one to a practice this size.",
+            "Locality is therefore not a preference to be traded away for "
+            "convenience. It is the property the system is designed around, and "
+            "every decision that follows is downstream of it.",
         ],
-        "notes": "Open here and stop. Let the room sit with 'nothing leaves the "
-                 "building' before any hardware talk - it is the only slide that "
-                 "matters if you only get one. Dad knows IT, so he will "
-                 "immediately wonder about the catch. The catch is speed and "
-                 "scale, and you are going to volunteer that yourself on the "
-                 "fleet slide rather than let him find it. Volunteering it is "
-                 "what buys credibility for the rest.",
+        "notes": "Open here and stop talking. Let 'no external inference' sit in "
+                 "the room before any hardware. It is the only slide that matters "
+                 "if you get one. Dad knows IT, so he will start hunting for the "
+                 "catch immediately - the catch is throughput and scale, and you "
+                 "volunteer it yourself two slides from now rather than letting him "
+                 "find it. Volunteering it is what buys credibility for everything "
+                 "after.",
         "terms": ["BAA", "PHI"],
     },
     {
         "section": "Start here",
-        "title": "What is actually built, in one list",
+        "title": "System components",
         "short": [
-            "*Thunder* - the assistant. Chat, voice, images, video.",
-            "*Odris* - the watchman. Reports what is breaking.",
-            "*The call organizer* - turns phone logs into a clean sheet.",
-            "*Claims* - scan a form, check it, flag it for a human.",
-            "The security layer wrapped around all of it.",
+            "*Thunder* - conversational assistant with retrieval and speech.",
+            "*Odris* - independent monitoring and operations plane.",
+            "*Call consolidation* - record linkage over telephony metadata.",
+            "*Claims* - document understanding with mechanical adjudication.",
+            "*Security* - encryption at rest, TLS, and intrusion detection.",
         ],
         "detail": [
-            "Thunder - the assistant. A 24-billion-parameter model on our own "
-            "graphics card, with memory, a voice, and an Android app.",
-            "Odris - the watchman. A separate assistant on a separate machine "
-            "whose only job is watching the other five and telling us what needs "
-            "a person.",
-            "The call organizer - takes exported phone logs and produces a "
-            "spreadsheet a human can act on, with the robocalls stripped out.",
-            "Claims - scan a paper form, read it, check it mechanically, and hand "
-            "anything doubtful to a person. It does not submit anything.",
-            "Security - encryption at rest, TLS between machines, decoy files "
-            "that scream when touched, and an audit trail.",
-            "Each of these is a working thing you can open, not a plan.",
+            "Thunder - a 23.6-billion-parameter assistant with a three-tier "
+            "retrieval system, nine synthesised voices, and an Android client.",
+            "Odris - a separate monitoring plane on separate hardware, holding the "
+            "fleet-wide health model and the operations dashboard.",
+            "Call consolidation - record linkage and label normalisation over "
+            "exported telephony metadata, producing an analyst-ready dataset.",
+            "Claims - optical character recognition, field extraction, and "
+            "deterministic validation. The pipeline submits nothing; it produces "
+            "adjudicated output for human sign-off.",
+            "Security - envelope encryption at rest, mutual TLS between nodes "
+            "under a private certificate authority, audited access, and canary "
+            "artifacts for intrusion detection.",
+            "Each of these is deployed and running, not specified.",
         ],
-        "notes": "This is the contents page in disguise. If he only wants one "
-                 "area, jump there from the menu - the deck is built to be "
-                 "skipped around in. The claims line is the one he will care "
-                 "about most because it is the family's actual money, so do not "
-                 "rush past it. Note 'it does not submit anything' out loud; "
-                 "that single design choice is why nobody can get in trouble.",
+        "notes": "This is the table of contents in disguise. If he wants one area, "
+                 "jump there from Contents - the deck is built to be entered in the "
+                 "middle. Do not rush the claims line; that one is the family's "
+                 "actual money. Say 'the pipeline submits nothing' out loud here, "
+                 "because it pre-empts every liability question he is about to ask.",
         "terms": [],
     },
 
     # -------------------------------------------------------------- The machines
     {
         "section": "The machines",
-        "title": "Six towers, and only one that matters",
+        "title": "Fleet topology: one accelerator, five supporting nodes",
         "short": [
-            "thunder-main - *RTX 3090, 24 GB*. This one does the work.",
-            "odris - watches the other five.",
-            "serverus - best processor in the house, holds memory.",
-            "thunder-engine - safety checks. thunder-cache - spare.",
-            "*One card does the thinking.* The rest are support.",
+            "*thunder-main* - RTX 3090, 24 GB VRAM. All inference.",
+            "*odris* - monitoring plane. 4 GB GPU, deliberately unused.",
+            "*serverus* - Xeon E3-1230 v5. Conversation store.",
+            "*thunder-engine* - classification. *thunder-cache* - batch capacity.",
+            "*One accelerator does the compute.* The rest provide durability.",
         ],
         "detail": [
-            "thunder-main (.10) - RTX 3090 with 24 GB of VRAM, 30 GB of system "
-            "RAM. Chat, images and video all happen here.",
-            "odris (.15) - a Radeon 550 with 4 GB. Too small to run a model, "
-            "which is fine: its job is watching the others and it does that on "
-            "the processor.",
-            "serverus (.13) - a Xeon E3-1230 v5, the best CPU in the fleet. "
-            "Stores conversation memory. Barely breaks a sweat.",
-            "thunder-engine (.12) - answers yes/no safety questions.",
-            "thunder-cache (.11) - spare capacity, and the overnight batch box.",
-            "The honest shape of it: one graphics card does the thinking and five "
-            "machines make it dependable.",
+            "thunder-main (.10) - RTX 3090, 24 GB VRAM, 30 GB system memory. All "
+            "language and diffusion inference executes here.",
+            "odris (.15) - Radeon 550, 4 GB. Too small to host a model, which is "
+            "appropriate: its workload is observation, and it runs on CPU.",
+            "serverus (.13) - Xeon E3-1230 v5, the strongest CPU in the fleet. "
+            "Holds the conversation store. Substantially under-utilised.",
+            "thunder-engine (.12) - binary safety classification.",
+            "thunder-cache (.11) - spare capacity, reserved for overnight batch.",
+            "The honest description: a single accelerator performs the computation, "
+            "and five machines provide availability, observability and storage.",
         ],
-        "notes": "He will ask why not pool all six into one big machine. That is "
-                 "the next slide and you have the measurements, so let him ask - "
-                 "answering a question he just raised lands better than "
-                 "pre-empting it. If he asks about cost, the towers are old "
-                 "office desktops; the 3090 is the only real money in the rack.",
+        "notes": "He will ask why the six are not pooled into one larger machine. "
+                 "That is the next slide and you have measurements, so let him ask "
+                 "it - answering a question he just raised lands far better than "
+                 "pre-empting it. On cost: the towers are retired office desktops; "
+                 "the 3090 is the only meaningful capital in the rack.",
         "terms": ["VRAM"],
     },
     {
         "section": "The machines",
         "layout": "stats",
-        "title": "We tried pooling them. It got 30x slower.",
+        "title": "A negative result: distributed inference across heterogeneous nodes",
         "stats": [
-            {"value": "55.5", "unit": "tok/s", "label": "The 3090 on its own", "tone": "good"},
-            {"value": "2.97", "unit": "tok/s", "label": "Plus serverus", "tone": "bad"},
-            {"value": "1.80", "unit": "tok/s", "label": "Plus all three helpers", "tone": "bad"},
+            {"value": "55.5", "unit": "tok/s", "label": "Single 3090", "tone": "good"},
+            {"value": "2.97", "unit": "tok/s", "label": "Adding serverus", "tone": "bad"},
+            {"value": "1.80", "unit": "tok/s", "label": "Adding all three nodes", "tone": "bad"},
         ],
         "short": [
-            "One 3090 alone: 55.5 tok/s.",
-            "3090 + serverus: 2.97.",
-            "All four together: 1.80.",
-            "*Adding machines made it slower than one machine.*",
-            "We know because we *measured* it, not because we guessed.",
+            "Identical model and prompt across three configurations.",
+            "*Adding nodes reduced throughput by 40% against a single node.*",
+            "Cause: per-token pipeline latency and layer placement on older silicon.",
+            "Local memory ~12 GB/s against 0.125 GB/s over gigabit Ethernet.",
+            "*Published against our own hypothesis, because we measured it.*",
         ],
         "detail": [
-            "Same model, same prompt, measured three ways:",
-            "3090 alone - 55.5 tokens per second. Faster than you can read.",
-            "3090 plus serverus - 2.97. 3090 plus all three helpers - 1.80.",
-            "Adding the two weakest machines made the whole thing 40% slower "
-            "than using one machine on its own.",
-            "The reason is plumbing: every token walks the whole chain, so the "
-            "fleet runs at the speed of its slowest member and gets worse as it "
-            "grows. Local memory moves at about 12 GB/s; the network moves at "
-            "0.125.",
-            "This is why 'just add more old towers' is not our growth plan, and "
-            "why we can say that with numbers instead of opinion.",
+            "Method: llama.cpp RPC backend, identical 24B model, identical prompt, "
+            "three configurations measured end to end.",
+            "Single 3090 in isolation: 55.5 tokens per second. Adding serverus: "
+            "2.97. Adding all three supporting nodes: 1.80.",
+            "Adding the two weakest nodes degraded throughput by roughly 40% "
+            "relative to using one node alone.",
+            "The mechanism is not mysterious. Every token traverses the full "
+            "pipeline, so aggregate throughput converges on the slowest member and "
+            "degrades as the topology grows. Local memory bandwidth is roughly 12 "
+            "GB/s; gigabit Ethernet is 0.125 GB/s.",
+            "The conclusion generalises: one machine with sufficient memory "
+            "outperforms several machines with pooled memory by more than an order "
+            "of magnitude.",
+            "Retained use: at 1.80 tokens per second the configuration still "
+            "produces roughly 50,000 tokens over an eight-hour window, which suits "
+            "asynchronous batch work where no one is waiting.",
         ],
-        "notes": "This is the slide that earns his trust, so do not hurry it. It "
-                 "is the shape of engineer he is - he will respect that we tested "
-                 "the appealing idea and published the result against ourselves. "
-                 "If he pushes, the fallback is real: 1.8 tok/s is still ~50,000 "
-                 "tokens over an eight-hour night, which is exactly what the "
-                 "overnight batch worker wants. Slow is fine when nobody is "
-                 "waiting.",
+        "notes": "This is the slide that earns his trust, so do not hurry it. He is "
+                 "the kind of engineer who will respect that we tested the "
+                 "appealing idea and published a result against ourselves. If he "
+                 "pushes on whether it was wasted, the retained use is real - the "
+                 "overnight batch worker wants exactly this. Slow is acceptable "
+                 "when nobody is waiting.",
         "terms": ["tok/s", "RPC backend"],
     },
     {
         "section": "The machines",
-        "title": "The tricks that make old hardware work",
+        "title": "Working inside hard constraints: memory, precision, bandwidth",
         "short": [
-            "Main's board maxes at *32 GB* of RAM. That ceiling is real.",
-            "So we borrow memory from three SSDs instead - *1.55 GB/s*.",
-            "*Twelve times faster* than borrowing from another machine.",
-            "The 3090 cannot do fp8. We use NF4, which it can.",
-            "Constraints are documented so nobody rediscovers them.",
+            "Main's board caps at *32 GB*. No upgrade path exists.",
+            "Overflow goes to three striped SSDs: *1.55 GB/s measured*.",
+            "*Twelve times the bandwidth* of borrowing from another node.",
+            "The 3090 is compute capability 8.6, so *fp8 is absent, not disabled*.",
+            "Every constraint is documented rather than rediscovered.",
         ],
         "detail": [
-            "Main is a Lenovo ThinkCentre with four DIMM slots, all full. 32 GB "
-            "is the board's hard ceiling and there is no upgrade path.",
-            "Instead we put 32 GB of swap on each of three SSDs at equal "
-            "priority, so the kernel spreads across all three: measured at 1.55 "
-            "GB/s. Gigabit ethernet is 0.125 GB/s, so the disks in this machine "
-            "beat any other machine on the network by twelve times.",
-            "The 3090 is compute capability 8.6, so fp8 simply does not exist on "
-            "it - not disabled, absent. NF4 works, and that is what runs video.",
-            "Video's memory allocator needs one specific setting or it runs out "
-            "of memory at 720p. That setting is the difference between working "
-            "and not.",
-            "All of this is written down in the handbook, because the expensive "
-            "version of knowing it is finding out twice.",
+            "thunder-main is a Lenovo ThinkCentre with four populated DIMM slots. "
+            "32 GB is the board maximum and there is no upgrade path.",
+            "Overflow is handled with 32 GB of swap on each of three SSDs at equal "
+            "priority, so the kernel stripes across all three. Measured at 1.55 "
+            "GB/s - roughly twelve times the bandwidth available from another node "
+            "over gigabit Ethernet.",
+            "The 3090 is compute capability 8.6. fp8 requires 8.9, so the format "
+            "is absent from the silicon rather than disabled in software. NF4 "
+            "quantisation is supported and is what makes video generation feasible.",
+            "One allocator setting is load-bearing for 720p and above: without "
+            "expandable segments, generation exhausts memory rather than running "
+            "slowly.",
+            "All of this is recorded in an engineering handbook. The expensive way "
+            "to hold this knowledge is to derive it twice.",
         ],
-        "notes": "Good slide to speed up on unless he bites - it is the most "
-                 "technical one in the deck. The point to land is cultural, not "
-                 "technical: every hard-won fact is written down so nobody pays "
-                 "for it twice. That is the thing that makes a team of more than "
-                 "one person possible, and it is why hiring is realistic.",
+        "notes": "Move briskly unless he bites - this is the most technical slide "
+                 "in the deck. The point to land is cultural rather than technical: "
+                 "every hard-won constraint is written down, which is what makes a "
+                 "second engineer productive in a day instead of a month. That is "
+                 "also the honest answer to 'could you actually hire into this'.",
         "terms": ["swap", "fp8", "NF4", "VRAM"],
     },
 
@@ -327,422 +334,420 @@ SLIDES = [
     {
         "section": "Thunder",
         "layout": "stats",
-        "title": "Thunder is ours, running on our card",
+        "title": "Thunder: a 23.6B model serving interactively on one consumer GPU",
         "stats": [
-            {"value": "23.6B", "unit": "params", "label": "On one graphics card", "tone": "good"},
-            {"value": "55", "unit": "tok/s", "label": "Faster than you read", "tone": "good"},
-            {"value": "$0", "unit": "/mo", "label": "No API key anywhere", "tone": "good"},
+            {"value": "23.6B", "unit": "parameters", "label": "Q4_K_M quantisation", "tone": "good"},
+            {"value": "55", "unit": "tok/s", "label": "Above reading speed", "tone": "good"},
+            {"value": "0", "unit": "external calls", "label": "Nothing leaves the network", "tone": "good"},
         ],
         "short": [
-            "24 billion parameters, on the 3090, at 55 tok/s.",
-            "Talks like a person, not a corporate chatbot.",
-            "Android app, voice, images, video, code.",
-            "*No API key. No bill.* No outage that is not ours.",
+            "23.6B parameters quantised to *roughly a quarter* of full precision.",
+            "Open Mistral base with a custom system prompt.",
+            "Android client, nine voices, generative media, code retention.",
+            "*No API key exists anywhere in this system.*",
         ],
         "detail": [
-            "A 23.6-billion-parameter model, quantised to about a quarter of its "
-            "full size so it fits in 24 GB, answering at 55 tokens per second.",
-            "Built on an open Mistral base with our own system prompt - so it is "
-            "direct and useful rather than hedging like a customer service bot.",
-            "It has an Android app, nine voices, image and video generation, and "
-            "a place to keep code it writes.",
-            "There is no API key anywhere in this system. If the internet goes "
-            "down, Thunder keeps working. If a company changes its pricing or "
-            "its terms, nothing here changes.",
+            "23.6 billion parameters at Q4_K_M, which fits 24 GB of VRAM and "
+            "serves at approximately 55 tokens per second - above sustained human "
+            "reading speed.",
+            "Built on an open Mistral base with a custom system prompt, tuned for "
+            "direct technical answers rather than hedged assistant register.",
+            "Surfaces: an Android client, nine synthesised voices, image and video "
+            "generation, and durable storage for generated code.",
+            "There is no API key in this system. Loss of internet connectivity does "
+            "not degrade it, and no external pricing or terms change can affect it.",
         ],
-        "notes": "Be straight if he asks how it compares to ChatGPT: a 24B is "
-                 "genuinely weaker at hard reasoning and long chains, and "
-                 "pretending otherwise gets found out in five minutes of him "
-                 "using it. Where it wins is the part that actually matters here "
-                 "- it is ours, it is private, it is free to run, and it knows "
-                 "our business because we gave it our context. Frame it as a "
-                 "specialist, not a smaller ChatGPT.",
+        "notes": "Be direct if he asks how it compares to a frontier model: a 24B "
+                 "is genuinely weaker on multi-step reasoning and long context, and "
+                 "claiming otherwise gets found out in five minutes of him using "
+                 "it. Where it wins is the axis that matters here - it is ours, it "
+                 "is private, it is free to operate, and it has our domain context. "
+                 "Frame it as a specialist, never as a smaller frontier model.",
         "terms": ["quantised", "Q4_K_M", "abliterated", "tok/s", "Ollama"],
     },
     {
         "section": "Thunder",
-        "title": "Why Thunder knows things - the memory",
+        "title": "Retrieval architecture: profile, semantic facts, documents",
         "short": [
-            "A profile that is always loaded: who we are, what the hardware is.",
-            "Facts recalled by meaning, only when relevant.",
-            "Documents - the handbooks - searchable.",
-            "Most of the gap to a big model is *context, not brains*.",
+            "A always-resident profile: domain, hardware, operator context.",
+            "Facts retrieved by *semantic similarity*, only when relevant.",
+            "Documents chunked on headings and indexed.",
+            "*Most of the gap to a frontier model is context, not reasoning.*",
         ],
         "detail": [
-            "Three layers. A profile always in front of it - who Blayne is, the "
-            "fleet, the hardware facts that are easy to get wrong. That single "
-            "thing is the biggest lever on answer quality in the whole system.",
-            "Facts, recalled by meaning rather than keyword, and only when they "
-            "are relevant to what was asked.",
-            "Documents - the handbook and the technical notes - chunked and "
-            "searchable.",
-            "Two lessons learned the hard way. Retrieval working is not "
-            "retrieval being used: notes were found correctly and then ignored "
-            "until they were moved to sit immediately before the question and "
-            "labelled as authoritative.",
-            "And never let it read its own answers back. An early version "
-            "learned one of Thunder's own invented file paths as a fact.",
+            "Three tiers. An always-resident profile carrying operator context, "
+            "fleet topology, and the hardware facts most often gotten wrong. This "
+            "is empirically the single largest lever on answer quality.",
+            "Facts retrieved by embedding similarity rather than keyword match, and "
+            "injected only when relevant to the query.",
+            "Documents - the engineering handbook and the security notes - chunked "
+            "on heading boundaries and indexed for retrieval.",
+            "Two findings worth carrying away. Retrieval succeeding is not "
+            "retrieval being used: passages recalled at 0.749 similarity were "
+            "ignored in favour of the model's prior until they were repositioned "
+            "immediately before the user turn and labelled authoritative.",
+            "And never re-ingest model output. An early configuration learned one "
+            "of the model's own fabricated file paths as a durable fact.",
         ],
-        "notes": "The second lesson is the important one and it is worth saying "
-                 "slowly, because it is the difference between a system that "
-                 "improves and one that rots. An AI that writes its own beliefs "
-                 "into its own memory compounds errors - one confident mistake "
-                 "becomes permanent context for every answer after it, and later "
-                 "there is no way to tell which facts were ever real. Which is "
-                 "why nothing enters memory without a human approving it. If he "
-                 "has managed data systems he will recognise this instantly.",
+        "notes": "The second finding is the important one and it is worth "
+                 "delivering slowly, because it separates a system that improves "
+                 "from one that decays. A model writing its own beliefs into its "
+                 "own long-term store compounds: one confident error becomes "
+                 "permanent context for every subsequent answer, and afterwards "
+                 "there is no way to determine which facts were ever grounded. If "
+                 "he has run data systems he will recognise this instantly.",
         "terms": [],
     },
     {
         "section": "Thunder",
-        "title": "Nothing writes to memory unreviewed",
+        "title": "Human-in-the-loop memory writes, and why autonomy was rejected",
         "short": [
-            "At 3am, Thunder reads back only what Blayne said. Never itself.",
-            "*It proposes. It does not save.*",
-            "Contradictions get flagged against each other, not silently picked.",
+            "A nightly job reads *operator turns only* - never model output.",
+            "*It proposes. It does not commit.*",
+            "Contradictory proposals are flagged against each other.",
             "A human approves or rejects. *Always.*",
         ],
         "detail": [
-            "A job runs nightly and reads the day's conversations - only "
-            "Blayne's messages, never Thunder's own replies.",
-            "It produces proposals: 'this looks worth remembering'. They sit in "
-            "a queue.",
-            "If two proposals contradict each other, both get flagged against "
-            "each other rather than one being quietly chosen. At least one is "
-            "wrong and a person should decide which.",
-            "Nothing enters long-term memory until approved. This is a rule, not "
-            "a setting, and it is written into the handbook as a thing not to "
-            "'improve'.",
+            "A scheduled job processes the previous day's conversations, reading "
+            "only the operator's turns and never the model's own responses.",
+            "Its output is a set of candidate facts held in a review queue. It has "
+            "no write path to durable memory.",
+            "Where two candidates conflict, both are flagged against each other "
+            "rather than one being silently selected. At least one is wrong, and "
+            "that is an operator decision.",
+            "Nothing enters long-term memory without explicit approval. This is an "
+            "invariant, not a configuration flag, and it is documented as such so "
+            "that it is not later optimised away.",
         ],
-        "notes": "If he asks why not just let it learn automatically - that is "
-                 "the exact trap. Unsupervised self-learning sounds like progress "
-                 "and is actually how you get a system nobody can trust in six "
-                 "months, with no way to audit which facts were real. The review "
-                 "queue is the whole reason we can hand this to an employee. "
-                 "Good place to mention this is the same principle as claims: the "
-                 "model proposes, a human or a mechanical check decides.",
+        "notes": "If he asks why not let it learn autonomously - that is precisely "
+                 "the failure mode. Unsupervised self-write sounds like progress "
+                 "and produces a system nobody can audit within months, with no way "
+                 "to separate grounded facts from fabricated ones. The review queue "
+                 "is the reason this can be handed to an employee at all. Connect "
+                 "it to claims: the model proposes, a deterministic check decides.",
         "terms": [],
     },
 
     # -------------------------------------------------------------------- Odris
     {
         "section": "Odris",
-        "title": "Odris watches, and cannot be silenced by what it watches",
+        "title": "Observability under compromise",
         "short": [
-            "A separate assistant on a separate machine.",
-            "Its job: node health, hardware, alerts, errors.",
-            "Different from Thunder on purpose.",
-            "The rule: *the watcher must not be controllable by the watched*.",
+            "*The watcher must not be controllable by the watched.*",
+            "Separate host, separate prompt, separate context.",
+            "Reaches into Main through a *single forced read-only command*.",
+            "If Main is compromised, its warnings remain trustworthy.",
         ],
         "detail": [
-            "Odris is not Thunder wearing a hat. Its own instructions, its own "
-            "context - live machine readings instead of chat history.",
-            "It watches the other five machines, reads their hardware health, "
-            "and tells us what needs a person.",
-            "The architectural rule behind it: the watcher must not be "
-            "controllable by the watched. If Main is compromised, anything Main "
-            "can switch off is worthless as a warning.",
-            "So Odris reaches into Main through a key that can run exactly one "
-            "read-only command and nothing else.",
-            "It runs on the weakest machine in the house, because watching does "
-            "not need a graphics card.",
+            "Odris is not the assistant in another role. It has its own system "
+            "prompt and its own context - live machine telemetry rather than "
+            "conversation history.",
+            "The governing principle: the watcher must not be controllable by the "
+            "watched. Any alarm the monitored host can suppress is not an alarm.",
+            "Implementation: Odris holds a key into Main restricted to one forced "
+            "command with no interactive shell. Full compromise of Main does not "
+            "grant use of that key for anything other than the single read.",
+            "It runs on the weakest machine in the fleet, because observation does "
+            "not require an accelerator.",
+            "This is the same separation principle behind an off-host log "
+            "collector, applied at the scale we actually operate at.",
         ],
-        "notes": "This is the slide to be proud of and it is genuinely good "
-                 "security design - the same principle behind a separate logging "
-                 "server in any serious shop. The restricted key is the detail "
-                 "worth naming: even if someone owns Main completely, they cannot "
-                 "use that key to do anything but the one read.",
+        "notes": "Be proud of this one - it is genuinely correct security design "
+                 "and the same reasoning behind a write-only log server in any "
+                 "serious environment. The restricted key is the detail worth "
+                 "naming explicitly, because it is the part that holds even under "
+                 "total compromise of the monitored host.",
         "terms": ["systemd"],
     },
     {
         "section": "Odris",
-        "title": "The bug that proves why this matters",
+        "title": "Incident report: a correct alert with no path to the operator",
         "short": [
-            "The phone warned about serverus. Opening the app showed nothing.",
-            "*The warning was real.* There was just no screen for it.",
-            "Three separate causes. All three now fixed.",
-            "Alerts have a history. Both AIs can explain them.",
+            "The phone reported a degraded drive on serverus. *The finding was real.*",
+            "Opening the client showed nothing. The assistant had no knowledge of it.",
+            "*Three independent defects*, none of them the detection logic.",
+            "Alerts now persist, surface, and are available to both assistants.",
         ],
         "detail": [
-            "The phone sent a notification about serverus's boot drive. Opening "
-            "the app showed nothing, and asking Thunder about it got a blank "
-            "look. It felt like the system was making things up.",
-            "It was not. The warning was correct - a drive with 6.4 years of "
-            "runtime carrying the boot partition.",
-            "Three causes. The daily summary was computed fresh each time and "
-            "thrown away, so nothing survived to be opened. No screen in the app "
-            "had ever displayed it. And the chat model was never told, so it "
-            "genuinely did not know.",
-            "Now: alerts persist with a first-seen, whether they are still true, "
-            "and what to do. A tapped notification opens onto the finding. And "
-            "both Thunder and Odris are given the live readings before they "
-            "answer.",
+            "Observed: a notification reporting 6.4 years of power-on time on the "
+            "boot device of serverus. Opening the client displayed nothing, and "
+            "querying the assistant about it returned no knowledge of the finding.",
+            "The detection was correct. The drive is 6.4 years old and carries "
+            "both /boot and root.",
+            "Three independent defects. The digest was recomputed per request and "
+            "discarded, so no record survived to be opened. No view in the client "
+            "had ever rendered it. And the finding was never placed in the "
+            "assistant's context, so its ignorance was accurate.",
+            "Resolved: findings now persist with first-observed and "
+            "still-present state, the notification resolves to the finding, and "
+            "both assistants receive current telemetry before answering.",
+            "The general lesson: a monitoring system is only as good as its "
+            "delivery path, and delivery is the part that is never tested.",
         ],
-        "notes": "Tell this one as a story, because it is the most honest slide "
-                 "in the deck and honesty is what you are actually selling. It "
-                 "shows the system caught a real problem, shows we found out why "
-                 "the reporting was broken, and shows the fix was three fixes "
-                 "rather than one guess. If he has ever been on call, 'the "
-                 "monitoring was right and the dashboard was empty' will land "
-                 "hard. It is also a live demo: open the Fleet tab.",
+        "notes": "Tell this as a narrative, because it is the most honest slide in "
+                 "the deck and the honesty is what you are actually selling. It "
+                 "demonstrates that the system caught a real fault, that we "
+                 "diagnosed why reporting failed, and that the fix was three fixes "
+                 "rather than one guess. If he has ever carried a pager, 'the "
+                 "monitoring was right and the dashboard was empty' will land hard. "
+                 "It also demos live - open the Odris tab.",
         "terms": [],
     },
 
     # ------------------------------------------------- The call organizer
     {
         "section": "The call organizer",
-        "title": "Phone logs in, a sheet a human can use out",
+        "title": "Record linkage and label normalisation over telephony metadata",
         "short": [
-            "Export the call log. Get back a clean spreadsheet.",
-            "Robocalls and junk filtered out.",
-            "Caller ID cleaned up - *'Wireless Caller' is not a name*.",
-            "Runs as a web page or a desktop app.",
+            "Exported call logs in, *analyst-ready dataset out*.",
+            "Automated filtering of unsolicited and machine-originated traffic.",
+            "*Caller-ID label normalisation* - carrier placeholders are not names.",
+            "One engine, two front ends: browser and desktop.",
         ],
         "detail": [
-            "Point it at an exported phone log and it produces a spreadsheet "
-            "organised the way a person actually wants to read it.",
-            "It strips the junk - robocalls, spam patterns, the repeat numbers "
-            "that are not people.",
-            "It cleans the caller ID labels, which are a mess in real data: a "
-            "number repeated inside its own name field, 'Wireless Caller', "
-            "'Unknown', 'Unavailable'. None of those are names and all of them "
-            "end up in the name column if nothing removes them.",
-            "Two front ends over one engine: a web page in the browser, and a "
-            "desktop app. Same code doing the work, so they cannot drift apart.",
-            "It is the smallest thing here and the most immediately useful, "
-            "which is usually how it goes.",
+            "Input is an exported call log. Output is a structured dataset "
+            "organised for human analysis rather than for the carrier's own "
+            "reporting format.",
+            "Unsolicited and machine-originated traffic is filtered on pattern and "
+            "repetition characteristics.",
+            "Caller-ID labels require normalisation before the data is usable. "
+            "Real-world fields contain the number repeated inside its own label, "
+            "and carrier placeholders such as 'Wireless Caller', 'Unknown' and "
+            "'Unavailable'. None are names, and all of them contaminate a name "
+            "column if nothing removes them.",
+            "Two front ends over one processing engine - a browser interface and a "
+            "desktop application - so the implementations cannot diverge.",
+            "It is the smallest component here and the most immediately useful, "
+            "which is a common outcome.",
         ],
-        "notes": "This is the one he can judge instantly because he has seen the "
-                 "raw data, so consider demoing it live - it is fast and "
-                 "unglamorous and that is the point. Worth mentioning the "
-                 "discipline: the repository has a rule that no call data, no "
-                 "spreadsheet, no contact list is ever committed alongside the "
-                 "code, because those hold real numbers and real names. The code "
-                 "is shareable; the data never leaves.",
+        "notes": "He can evaluate this one instantly because he has seen the raw "
+                 "data, so consider demoing it live - it is fast and unglamorous "
+                 "and that is the point. Mention the discipline: the repository "
+                 "excludes call data, spreadsheets and contact lists by policy, "
+                 "because those carry real numbers and real names. Code is "
+                 "shareable; the data never leaves.",
         "terms": [],
     },
 
     # ------------------------------------------------------------------- Claims
     {
         "section": "Claims",
-        "title": "Our version of the claims software",
+        "title": "Document understanding with mechanical adjudication",
         "short": [
-            "Scan a form. Read it. Check it. Flag anything doubtful.",
-            "*It submits nothing. Ever.* A person decides.",
-            "It already caught *the AI corrupting a diagnosis code*.",
-            "The practice bills on paper, by hand, today.",
+            "Scan, extract, then *validate deterministically*.",
+            "*The pipeline submits nothing.* Output is adjudicated for sign-off.",
+            "It has already caught *the model corrupting a diagnosis code*.",
+            "Current practice is manual preparation on paper.",
         ],
         "detail": [
-            "The pipeline: scan a paper form, read the text off it, pull out the "
-            "fields, then check every field mechanically - check digits, code "
-            "formats, impossible dates.",
-            "Anything that fails is blocked. Anything repaired or missing goes "
-            "to a review queue for a person. Nothing is ever submitted "
-            "automatically.",
-            "The validation has already earned itself: it caught the model "
-            "corrupting an ICD-10 diagnosis code and dropping the billing "
-            "provider entirely. The model was confidently wrong and the "
-            "mechanical check did not care how confident it was.",
-            "That is the whole design principle. The AI proposes, arithmetic "
-            "decides.",
-            "Today the practice does this by hand on paper and pays a cloud "
-            "provider for storage.",
+            "Pipeline: scan, optical character recognition, field extraction, then "
+            "deterministic validation of every field - check digits, code format "
+            "conformance, date feasibility.",
+            "Validation failures are blocked. Repaired or incomplete records enter "
+            "a review queue for a human. Nothing is transmitted automatically at "
+            "any point.",
+            "The validation layer has already justified itself: it detected the "
+            "model corrupting an ICD-10 diagnosis code and omitting the billing "
+            "provider entirely. The model was confidently wrong, and the "
+            "deterministic check was indifferent to its confidence.",
+            "That is the governing design principle for the whole pipeline. The "
+            "model proposes; arithmetic adjudicates.",
+            "The current process is manual preparation on paper, with records held "
+            "in third-party cloud storage.",
         ],
-        "notes": "The ICD-10 catch is the single most persuasive fact in this "
-                 "entire deck for a family business, so give it room. It proves "
-                 "we do not trust our own AI, and that we built the thing that "
-                 "checks it. Anyone selling him an AI claims product will not "
-                 "tell him a story about their model being wrong. Also: 'it "
-                 "submits nothing' is the answer to every liability question he "
-                 "is about to raise, so say it before he asks.",
+        "notes": "The ICD-10 detection is the single most persuasive fact in this "
+                 "deck for a family business, so give it room. It demonstrates that "
+                 "we do not trust our own model and that we built the component "
+                 "that checks it. Nobody selling him an AI claims product will tell "
+                 "him a story about their model being wrong. 'The pipeline submits "
+                 "nothing' answers every liability question - say it first.",
         "terms": ["OCR", "ICD-10"],
     },
     {
         "section": "Claims",
         "layout": "stats",
-        "title": "Where the patient data actually sits",
+        "title": "Encryption at rest: envelope keys, searchable ciphertext, audited access",
         "stats": [
-            {"value": "AES-256", "unit": "GCM", "label": "Per-record keys", "tone": "good"},
-            {"value": "34", "unit": "of 34", "label": "Attacks repelled", "tone": "good"},
-            {"value": "0", "unit": "", "label": "Real patient records, so far", "tone": "neutral"},
+            {"value": "AES-256", "unit": "GCM", "label": "Per-record data keys", "tone": "good"},
+            {"value": "34/34", "unit": "adversarial", "label": "Test suite passing", "tone": "good"},
+            {"value": "0", "unit": "records", "label": "Real PHI to date", "tone": "neutral"},
         ],
         "short": [
-            "Every record encrypted with *its own key*.",
-            "Searchable without being decrypted.",
-            "Every access logged. Keys can be rotated.",
-            "34 attacks run against it. *All 34 pass.*",
+            "Per-record data keys under a *single wrapped master key*.",
+            "Authenticated encryption, so *tampering fails loudly*.",
+            "Searchable without decryption via deterministic indexes.",
+            "*34 adversarial tests*, all passing, run on every change.",
         ],
         "detail": [
-            "Each record is encrypted with its own key, and those keys are "
-            "encrypted by one master key. Compromising one record does not give "
-            "you the next one, and rotating the master does not mean "
-            "re-encrypting everything.",
-            "The cipher is AES-256-GCM, which also detects tampering - an edited "
-            "record fails loudly rather than quietly decrypting to something "
-            "wrong.",
-            "Records can be searched without being decrypted, using stored "
-            "fingerprints rather than values.",
-            "Every access is written to an audit log. Backups are encrypted with "
-            "a passphrase of their own.",
-            "The test suite is 34 checks and most of them are attacks: tamper "
-            "with the ciphertext, move a record to another record's slot, use "
-            "the wrong key, use a weak passphrase, edit a backup archive. All 34 "
-            "pass, and it runs in seconds, so it runs after every change.",
+            "Every record is encrypted under its own data key; those keys are "
+            "wrapped by a single master key. Compromise of one record's key does "
+            "not extend to any other, and master-key rotation does not require "
+            "re-encrypting the corpus.",
+            "AES-256-GCM provides authenticated encryption, so modified ciphertext "
+            "fails decryption rather than silently yielding incorrect plaintext.",
+            "Records are searchable without decryption using deterministic "
+            "indexes over field values.",
+            "Every access is written to an audit log. Backups are separately "
+            "encrypted under their own passphrase.",
+            "The test suite is 34 checks, predominantly adversarial: ciphertext "
+            "tampering, record relocation, incorrect keys, weak passphrases, and "
+            "modified backup archives. All pass, and the suite runs in seconds, so "
+            "it runs on every change.",
         ],
-        "notes": "Two honest limits, and state them yourself before he finds "
-                 "them, because an engineer who spots an unstated limit stops "
-                 "believing the rest. One: encryption at rest does nothing "
-                 "against an attacker who already has administrator access on a "
-                 "running machine - the keys are in memory by definition. Two: "
-                 "the searchable fingerprint leaks equality; it can tell you two "
-                 "records hold the same value. Both are written in our own "
-                 "documentation. Saying them out loud is what makes the 34 "
-                 "passing tests believable.",
+        "notes": "State both limitations yourself before he finds them, because an "
+                 "engineer who spots an unstated limitation stops believing the "
+                 "rest of the deck. One: encryption at rest provides no protection "
+                 "against an adversary with root on a running host - the keys are "
+                 "resident by definition. Two: deterministic indexes leak equality, "
+                 "so they reveal that two records share a value. Both are in our "
+                 "own documentation. Saying them aloud is what makes 34 passing "
+                 "tests credible.",
         "terms": ["envelope encryption", "AES-256-GCM", "blind index", "test vault", "PHI"],
     },
     {
         "section": "Claims",
-        "title": "Two things we will not overstate",
+        "title": "Scope and limitations",
         "short": [
-            "*No real patient data has ever touched this.* Synthetic only.",
-            "*Good encryption is not compliance.*",
-            "The technical safeguards are built. The paperwork is not.",
-            "Risk analysis, written policies, training, contracts. *Not code.*",
+            "*All development and testing has used synthetic records.*",
+            "Technical safeguards are implemented and individually verified.",
+            "*Cryptography is not compliance.*",
+            "Risk analysis, policy, training, agreements. *Not engineering work.*",
         ],
         "detail": [
-            "Everything built so far has been tested on invented patients. No "
-            "real protected health information has been through any of it, and "
-            "that stays true until there is a deliberate decision to change it.",
-            "The technical safeguards are genuinely done, and each was verified "
-            "rather than assumed: encryption at rest, encrypted backups, "
-            "authentication, TLS between machines, audit logging, intrusion "
-            "detection.",
-            "None of that is compliance. HIPAA has a paperwork half - a written "
-            "risk analysis, written policies, workforce training, signed "
-            "agreements with anyone who touches the data.",
-            "That half is not code and cannot be written by an AI. It is the "
-            "real remaining work before a single real patient record moves.",
-            "Saying this clearly is not modesty. It is the difference between a "
-            "system you can defend and a lawsuit.",
+            "All development and testing to date has used synthetic patient "
+            "records. No protected health information has entered any component, "
+            "and that remains the case until a deliberate decision changes it.",
+            "The technical safeguards are implemented and each was verified rather "
+            "than assumed: encryption at rest, encrypted backups, authentication, "
+            "transport security between nodes, audit logging, intrusion detection.",
+            "None of that constitutes compliance. The HIPAA Security Rule has an "
+            "administrative half - documented risk analysis, written policy, "
+            "workforce training, and executed agreements with every party handling "
+            "the data.",
+            "That half is not engineering work and cannot be produced by a model. "
+            "It is the genuine remaining prerequisite before a single real record "
+            "is processed.",
+            "Stating this precisely is not modesty. It is the difference between a "
+            "defensible position and a liability.",
         ],
         "notes": "Do not soften this slide, and do not let enthusiasm in the room "
-                 "soften it either. If Dad comes away thinking we are compliant "
-                 "because the crypto is good, that is actively dangerous for the "
-                 "family. The right framing: we have done the expensive half that "
-                 "most small practices never manage, and the remaining half is "
-                 "forms and decisions that a person has to own. If he wants a job "
-                 "in this, that half is a genuinely great one for someone who "
-                 "knows IT and can write policy.",
+                 "soften it either. If he leaves believing we are compliant because "
+                 "the cryptography is sound, that is actively dangerous for the "
+                 "family. The correct framing: we have completed the expensive half "
+                 "that most small practices never manage, and the remainder is "
+                 "documentation and decisions a person has to own. If he wants a "
+                 "role, that half is genuinely well suited to someone with IT "
+                 "background who can write policy.",
         "terms": ["HIPAA", "BAA", "PHI"],
     },
 
     # ------------------------------------------------------------------ Security
     {
         "section": "Security",
-        "title": "Decoy files that scream",
+        "title": "Canary artifacts: high-signal intrusion detection",
         "short": [
-            "Files that exist only to be opened by the wrong person.",
-            "Named like things worth stealing.",
-            "Touch one and the phone knows *immediately*.",
-            "*Detection, not protection* - and that distinction matters.",
+            "Decoy files placed where an intruder would look.",
+            "*Nothing legitimate reads them, so any access is signal.*",
+            "Access raises an alert immediately, to the log and the operator.",
+            "*Detection, not prevention* - and the distinction is the value.",
         ],
         "detail": [
-            "Scattered where a snooper would look are files named like the "
-            "crown jewels - patient exports, billing records, a backup SSH key. "
-            "All fake.",
-            "Nothing legitimate ever reads them, so any access at all is a "
-            "signal rather than something to interpret.",
-            "Touch one and an alert fires instantly, into the system log and "
-            "onto the phone.",
-            "Be precise about what this is: detection, not protection. It cannot "
-            "stop a break-in. By the time one fires, someone is already inside. "
-            "What it buys is finding out now instead of in six months, which is "
-            "the difference that actually decides how bad a breach becomes.",
+            "Files named to resemble high-value targets - patient exports, billing "
+            "records, a backup private key - are placed where an intruder would "
+            "look. All are synthetic.",
+            "No legitimate process reads them, which makes any access a signal "
+            "rather than an event requiring interpretation. This is the highest "
+            "signal-to-noise detection available at this cost.",
+            "Access triggers an immediate alert into the system journal and to the "
+            "operator.",
+            "The classification matters: this is detection, not prevention. It "
+            "cannot stop an intrusion, and by the time one fires the adversary is "
+            "already inside. What it provides is time-to-detection measured in "
+            "seconds rather than months, which is the variable that determines how "
+            "severe a breach becomes.",
         ],
-        "notes": "There is a good war story here if he wants one. These fired at "
-                 "3am and it looked like a real intrusion for about an hour. It "
-                 "turned out to be Blayne's own file search sweeping them up - "
-                 "and the reason it read as an intrusion at first was a timezone "
-                 "mistake, because the log records UTC and 07:12 in the log was "
-                 "03:12 in the kitchen. Two fixes came out of it: the decoys "
-                 "moved somewhere a code search will not touch, and every "
-                 "timestamp shown to a person is now converted to local time "
-                 "first. A false alarm you understand is worth more than a quiet "
-                 "system.",
+        "notes": "There is a good incident here if he wants one. These fired at "
+                 "03:12 and read as a genuine intrusion for about an hour. Root "
+                 "cause was the operator's own recursive file search sweeping them "
+                 "up - and the reason it initially read as an intrusion is that the "
+                 "log records UTC, so 07:12 in the log was 03:12 locally. Two fixes "
+                 "followed: the decoys moved outside any path a code search "
+                 "traverses, and every timestamp shown to a person is converted "
+                 "first. A false positive you can explain is worth more than a "
+                 "system that stays quiet.",
         "terms": ["honeyfile", "canary"],
     },
     {
         "section": "Security",
-        "title": "The honest grade, including what is weak",
+        "title": "Threat model and current posture, including known gaps",
         "short": [
-            "Strong: the claims vault, the Odris dashboard, the egress lockdown.",
-            "Weak: *the network is trusted more than it should be*.",
-            "*Only one service on the fleet asks for a password.*",
-            "We know because we went looking, not because it broke.",
+            "Strong: the claims vault, the operations dashboard, egress control.",
+            "*Weak: the internal network is trusted more than it should be.*",
+            "*Exactly one service on the fleet performs authentication.*",
+            "Identified by auditing ourselves. *No compromise occurred.*",
         ],
         "detail": [
-            "What is genuinely strong: the claims encryption and its 34 attack "
-            "tests; the Odris dashboard, which is the one service that properly "
-            "authenticates; and the network lockdown that stops the AI processes "
-            "reaching the internet at all.",
-            "What is weak, stated plainly: the fleet largely trusts anything "
-            "already on the home network. Of all the services running across six "
-            "machines, exactly one asks for a password.",
-            "That is a reasonable posture for a house and not a reasonable one "
-            "for patient data, which is the honest reason it is on this slide.",
-            "The fix is not exotic - authentication on each service, which is "
-            "mostly plumbing. The plan is to build a test suite that attacks our "
-            "own network the way the vault tests attack the vault, so 'is our "
-            "security good' becomes a number we can re-run after every change "
-            "instead of a feeling.",
-            "We found this by auditing ourselves. Nothing was breached.",
+            "Genuinely strong: the claims vault and its adversarial test suite; the "
+            "operations dashboard, which is the one service enforcing "
+            "authentication; and firewall-level egress control preventing the "
+            "inference processes from reaching the internet at all.",
+            "Genuinely weak, stated plainly: the fleet largely trusts any host "
+            "already on the internal network. Across six machines and roughly a "
+            "dozen services, exactly one performs authentication.",
+            "That is a defensible posture for a residential network and an "
+            "indefensible one for protected health information, which is the "
+            "honest reason it appears in this deck.",
+            "The remediation is not exotic - per-service authentication, which is "
+            "largely plumbing. The plan is an adversarial test suite against our "
+            "own network, built the way the vault suite was, so that posture "
+            "becomes a number that can be re-measured after every change rather "
+            "than a subjective assessment.",
+            "This was identified by auditing ourselves. Nothing was compromised.",
         ],
-        "notes": "Including this slide is the point of the deck, and if you only "
-                 "remember one presenter note, make it this one. Anyone can "
-                 "present a system as finished. Showing the weak spot, with the "
-                 "fix already specified, is what a professional shop looks like - "
-                 "and it is the reason he should believe the strong slides. If he "
-                 "wants to contribute somewhere real, this is the most useful "
-                 "door in the whole deck: it is exactly the kind of methodical "
-                 "work someone with IT experience is good at.",
+        "notes": "Including this slide is the entire point of the deck, and if you "
+                 "remember one presenter note make it this one. Anyone can present "
+                 "a system as finished. Presenting the weak spot with the "
+                 "remediation already specified is what a professional operation "
+                 "looks like, and it is the reason he should believe the strong "
+                 "slides. If he wants to contribute somewhere real, this is the "
+                 "most useful door in the deck - methodical, testable work that "
+                 "suits IT experience.",
         "terms": ["bearer token", "test vault"],
     },
     {
         "section": "Security",
-        "title": "The model itself is a supply chain",
+        "title": "Model provenance as a supply-chain risk",
         "short": [
-            "For medical work, the model must be *one we can trust completely*.",
-            "Not Chinese-made. Preferably fully open about its training.",
-            "Locked-down network means local weights cannot phone home.",
-            "The real risk is *behaviour, not networking*. Validation covers it.",
+            "For clinical workloads, *provenance is a security property*.",
+            "Egress is blocked at the firewall, so *local weights cannot exfiltrate*.",
+            "*The residual risk is behavioural, not network* - and untestable by firewall.",
+            "Mitigation: the model is never the authority. Validation is.",
         ],
         "detail": [
-            "For anything touching claims, where the model came from is a "
-            "security question, not a preference. The requirement is American-"
-            "made and, ideally, fully open about what it was trained on.",
-            "The fear people have - a model 'phoning home' - is already handled "
-            "here. The AI processes are blocked from the internet at the firewall, "
-            "so weights running locally cannot send anything anywhere. That is "
-            "enforced, not hoped.",
-            "The real risk from foreign weights is subtler: a model trained to "
-            "behave badly on specific inputs. Networking controls do nothing "
-            "about that.",
-            "Which is why the answer is the same one that already works - the "
-            "model never gets to be the authority. Mechanical validation "
-            "decides, and it caught a bad diagnosis code the model was confident "
-            "about.",
-            "Worth knowing: the current chat model is built on a French open "
+            "For anything touching claims, model provenance is a security question "
+            "rather than a preference. The requirement is domestic origin and, "
+            "ideally, published training data and methodology.",
+            "The commonly-cited risk - a model exfiltrating data - is already "
+            "mitigated here. The inference processes are blocked from the internet "
+            "at the firewall, so locally-executed weights have no path out. That "
+            "is enforced, not assumed.",
+            "The residual risk from foreign weights is subtler and is not "
+            "addressed by network controls at all: a model trained to behave "
+            "incorrectly on specific inputs. No firewall detects that.",
+            "The mitigation is the one already in production: the model is never "
+            "the authority. Deterministic validation adjudicates, and it has "
+            "already caught a diagnosis code the model was confident about.",
+            "For completeness: the current chat model derives from a French open "
             "base, not a Chinese one.",
         ],
-        "notes": "There is a real distinction to draw if he is interested. Some "
-                 "models are American but weights-only - you get the finished "
-                 "model and cannot audit what went into it. A smaller set "
-                 "publishes the training data and the code too, which is the only "
-                 "case where 'ours' means something you can actually verify "
-                 "rather than trust. That is the category to prefer for the "
-                 "claims role. Also worth saying: this is a slide about "
-                 "defending against a threat nobody has aimed at us yet, which "
-                 "is the right time to build the defence.",
+        "notes": "There is a real distinction to draw if he engages. Some "
+                 "open-weight models are domestic but weights-only - you receive "
+                 "the artefact and cannot audit what produced it. A smaller set "
+                 "publishes training data and code, which is the only case where "
+                 "'ours' is verifiable rather than trusted. That is the category to "
+                 "prefer for the clinical role. Also worth saying: this slide "
+                 "defends against a threat nobody has aimed at us, which is the "
+                 "correct time to build the defence.",
         "terms": ["abliterated", "LoRA"],
     },
 
@@ -750,167 +755,168 @@ SLIDES = [
     {
         "section": "Pictures and video",
         "layout": "stats",
-        "title": "It makes pictures and video too",
+        "title": "Generative media on consumer hardware: measured throughput",
         "stats": [
-            {"value": "4", "unit": "min", "label": "5 seconds at 480p", "tone": "good"},
-            {"value": "8", "unit": "min", "label": "5 seconds at 720p", "tone": "neutral"},
-            {"value": "22", "unit": "min", "label": "5 seconds at 1080p", "tone": "neutral"},
+            {"value": "4", "unit": "minutes", "label": "5s at 480p", "tone": "good"},
+            {"value": "8", "unit": "minutes", "label": "5s at 720p", "tone": "neutral"},
+            {"value": "22", "unit": "minutes", "label": "5s at 1080p", "tone": "neutral"},
         ],
         "short": [
-            "Images in seconds. Editing by description.",
-            "Video from a sentence - 5 seconds at 480p in about 4 minutes.",
-            "1080p exists and costs about 22 minutes.",
-            "All on our card. *No subscription, no watermark, no upload.*",
+            "Stills in seconds. Editing conditioned on natural language.",
+            "Video from text, at *four denoising steps*.",
+            "Duration limits enforced server-side - *VRAM, not patience*.",
+            "*Diffusion does not shard*, so additional nodes cannot help.",
         ],
         "detail": [
-            "Images generate in seconds, and there is a separate model for "
-            "editing an existing picture by describing the change.",
-            "Video generates from a written prompt. Measured on our card: five "
-            "seconds at 480p takes about four minutes, at 720p about eight, and "
-            "at 1080p about twenty-two.",
-            "Portrait works as well as landscape, and length limits are enforced "
-            "by the server because the card runs out of memory rather than "
-            "slowing down.",
-            "All of it local. Nothing uploaded, no subscription, no watermark, no "
-            "terms of service deciding what we may generate.",
-            "Video cannot be split across machines - unlike chat, the maths does "
-            "not divide - so more towers will never make this faster. Only a "
-            "better card will.",
+            "Still image generation completes in seconds, with a separate model "
+            "for editing an existing image conditioned on a natural-language "
+            "instruction.",
+            "Text-to-video at four denoising steps. Measured on this hardware: "
+            "five seconds of output takes approximately four minutes at 480p, "
+            "eight at 720p, and twenty-two at 1080p.",
+            "Portrait and landscape are both supported. Duration limits are "
+            "enforced server-side because the binding constraint is VRAM "
+            "exhaustion rather than degraded throughput.",
+            "Entirely local: no upload, no subscription, no watermarking, and no "
+            "external terms governing what may be generated.",
+            "Unlike autoregressive inference, diffusion does not shard across "
+            "hosts, so additional nodes cannot reduce these times. Only a larger "
+            "accelerator can.",
         ],
-        "notes": "Demo this rather than describing it; it is the most immediately "
-                 "impressive thing in the house and it does not need explaining. "
-                 "Start a 480p clip early and let it finish while you talk "
-                 "through other slides. Be straight that it is not Hollywood - "
-                 "it is four-step generation on a consumer card, and the "
-                 "achievement is that it runs here at all for free rather than "
-                 "that it beats a studio.",
+        "notes": "Demonstrate rather than describe - this is the most immediately "
+                 "impressive component and needs no explanation. Start a 480p clip "
+                 "early and let it complete while you talk through other slides. Be "
+                 "straight that this is four-step generation on a consumer card: "
+                 "the achievement is that it runs here at zero marginal cost, not "
+                 "that it competes with a studio.",
         "terms": ["diffusion", "NF4", "VRAM"],
     },
     {
         "section": "Pictures and video",
-        "title": "This deck was made by Thunder",
+        "title": "This presentation was produced by the system it describes",
         "short": [
-            "Written, illustrated and narrated *on our own hardware*.",
-            "*No cloud AI touched it.*",
-            "Which makes it the demo, not a slideshow about the demo.",
+            "Narrated by the local speech model. Illustrated on the same GPU.",
+            "*No hosted AI service was involved at any point.*",
+            "*The artefact is the demonstration*, not a description of one.",
         ],
         "detail": [
-            "The artwork on these slides was generated on our 3090. The narration "
-            "is Thunder's own voice. Some of the copy was drafted by Thunder and "
-            "edited by a person.",
-            "Nothing in this presentation went through a cloud AI service.",
-            "Which is the point worth making twice: the thing explaining the "
-            "system is itself produced by the system. If it can build its own "
-            "onboarding deck, the claim that it can read a claims form is not a "
-            "promise.",
+            "The narration is synthesised locally by the speech model running on "
+            "this hardware. Generated imagery comes from the same GPU. Portions of "
+            "the copy were drafted by the local model and edited by a person.",
+            "No hosted AI service was involved in producing this presentation.",
+            "Which is the claim worth making twice: the artefact explaining the "
+            "system was produced by the system. If it can generate its own "
+            "onboarding material, the assertion that it can read a claims form is "
+            "a demonstration rather than a promise.",
         ],
-        "notes": "Good place to be a little theatrical - play the narration for "
-                 "one slide rather than explaining that narration exists. Be "
-                 "honest about the division of labour if he asks: the technical "
-                 "accuracy was written by a person because being wrong about our "
-                 "own system in front of him would be worse than being "
-                 "impressive, and the art and voice are genuinely Thunder's.",
+        "notes": "Be slightly theatrical here - play the narration for one slide "
+                 "rather than explaining that narration exists. Be honest about the "
+                 "division of labour if asked: technical accuracy was human-written, "
+                 "because being wrong about our own system in front of him is worse "
+                 "than being impressive, and the voice and imagery are genuinely "
+                 "the local models.",
         "terms": [],
     },
 
     # ------------------------------------------------------- Where this goes
     {
         "section": "Where this goes",
-        "title": "The business, honestly",
+        "title": "Deployment context: locality as a structural advantage",
         "short": [
-            "The family practice bills by hand and pays for cloud storage.",
-            "Thunder is local, so it needs *no patient-data contract*.",
-            "That is a *real moat*, not a pitch.",
-            "First: replace the hand-billing. Then look outward.",
+            "The practice prepares claims manually and pays for cloud storage.",
+            "Hosted AI requires an agreement *providers will not extend at this size*.",
+            "*A local system needs no such agreement.*",
+            "First the internal deployment. Only then anything external.",
         ],
         "detail": [
-            "The immediate opportunity is in the family: claims are billed by "
-            "hand on paper, and the practice pays a cloud provider to store "
-            "records.",
-            "A cloud AI cannot legally handle patient data for them without a "
-            "signed agreement most providers will not offer a practice this "
-            "size. Thunder does not need one, because the data never leaves the "
-            "building.",
-            "That is a genuine structural advantage rather than a sales line - "
-            "it comes from the architecture, and a competitor with a cloud "
-            "product cannot copy it without becoming local too.",
-            "The order matters: make the family's billing work first, with real "
-            "records and real accountability. Everything outward-facing depends "
-            "on having done it once, properly.",
+            "The immediate opportunity is internal: claims are prepared manually on "
+            "paper, and records are held in third-party cloud storage at ongoing "
+            "cost.",
+            "A hosted model cannot lawfully process their patient data without a "
+            "business associate agreement, and providers will not extend one to a "
+            "practice of this size.",
+            "A local system requires no such agreement, because the data does not "
+            "leave the premises. This is a structural advantage rather than a "
+            "commercial claim - it follows from the architecture, and a competitor "
+            "with a hosted product cannot replicate it without becoming local.",
+            "Sequencing matters. The internal deployment comes first, with real "
+            "records and real accountability. Anything external depends on having "
+            "done it once, properly.",
         ],
-        "notes": "This is where he can see himself, so slow down and leave "
-                 "silence. He is closer to the practice than to the code, and "
-                 "the paperwork half of compliance - policies, training, risk "
-                 "analysis, chasing agreements - is genuinely the critical path "
-                 "and genuinely suits someone with IT experience who can write. "
-                 "That is not a made-up job to include him; it is the actual "
+        "notes": "This is where he can see himself, so slow down and leave silence. "
+                 "He is closer to the practice than to the code, and the "
+                 "administrative half of compliance - policy, training, risk "
+                 "analysis, executing agreements - is genuinely the critical path "
+                 "and genuinely suits someone with IT background who can write. "
+                 "That is not an invented role to include him; it is the actual "
                  "blocker.",
         "terms": ["BAA", "HIPAA"],
     },
     {
         "section": "Where this goes",
-        "title": "Our own model - the real version of that goal",
+        "title": "Toward a domain-specific model: what is reachable",
         "short": [
-            "Training a frontier model from scratch is *not reachable*. Straight up.",
-            "Teaching an open model our specific job *is reachable*.",
-            "A specialist can beat a giant generalist at one narrow task.",
-            "*Nobody else has our data.* That is the actual advantage.",
+            "*Frontier pre-training is not reachable.* Nine figures and a datacentre.",
+            "*Domain adaptation of an open base is* - on the GPU already here.",
+            "A narrow specialist can outperform a general model *on one task*.",
+            "*The advantage is proprietary data*, not compute.",
         ],
         "detail": [
-            "The honest version first: training a frontier model from scratch "
-            "costs upwards of a hundred million dollars and tens of thousands of "
-            "specialised chips. That is not a budget problem to solve, it is a "
-            "different sport.",
-            "What is reachable on the hardware in this house: taking an open "
-            "American model and training it further on our own domain - our "
-            "forms, our payers, our denial patterns.",
-            "That produces a specialist. And on one narrow, high-repetition job "
-            "with good validation around it, a well-tuned small model genuinely "
-            "beats a giant generalist, because the giant is trying to be good at "
-            "everything.",
-            "The advantage is not compute, it is data nobody else has.",
-            "So the goal stands, restated accurately: not 'our own ChatGPT', but "
-            "the best claims model in existence, because it was trained on the "
-            "only copy of the right material.",
+            "The honest position first: pre-training a frontier model requires "
+            "expenditure in the hundreds of millions and tens of thousands of "
+            "specialised accelerators. That is not a budget constraint to overcome; "
+            "it is a different category of undertaking.",
+            "What is reachable on this hardware: continued training of an open "
+            "domestic base on our own domain - our forms, our payers, our denial "
+            "patterns.",
+            "That produces a specialist. On a narrow, high-repetition task with "
+            "rigorous validation around it, a well-adapted small model can "
+            "outperform a general frontier model, because the general model is "
+            "optimising for breadth.",
+            "The durable advantage is not compute. It is a proprietary corpus "
+            "nobody else holds.",
+            "So the objective restated precisely: not a general assistant of our "
+            "own, but the strongest claims-adjudication model in existence, trained "
+            "on the only copy of the relevant material.",
         ],
-        "notes": "Blayne has asked for this repeatedly and it matters to him, so "
-                 "do not flatten it into 'impossible' - flatten it into 'not that "
-                 "way, this way'. The reframe is real, not a consolation: a "
-                 "narrow specialist outperforming a generalist on one task is "
-                 "how small teams actually win, and it is achievable on the card "
-                 "already in the rack. Timeline is deliberately not on this slide. "
-                 "It is a direction, not a date.",
+        "notes": "He has raised this repeatedly and it matters to him, so do not "
+                 "flatten it into 'impossible' - flatten it into 'not by that "
+                 "route, by this one'. The reframe is real rather than "
+                 "consolation: a narrow specialist beating a generalist on one task "
+                 "is how small teams actually win, and it is achievable on the card "
+                 "already in the rack. No timeline on this slide deliberately. It "
+                 "is a direction, not a commitment.",
         "terms": ["LoRA", "tok/s"],
     },
     {
         "section": "Where this goes",
-        "title": "What is next, in order",
+        "title": "Roadmap, ordered by dependency",
         "short": [
-            "Authentication on every service. The known weak spot.",
-            "A test suite that attacks our own network.",
-            "The overnight worker: queue at night, review in the morning.",
-            "Then the claims fine-tune.",
+            "Per-service authentication across the fleet. *The known gap.*",
+            "An adversarial test suite against our own network.",
+            "Asynchronous batch processing overnight, reviewed in the morning.",
+            "Then domain adaptation, once there is reviewed data to train on.",
         ],
         "detail": [
-            "Authentication on every service across the fleet. Unglamorous "
-            "plumbing, and the single biggest gap we know about.",
-            "A security test suite aimed at our own network, built the way the "
-            "vault tests were - mostly attacks, re-runnable, producing a number "
-            "rather than an opinion.",
-            "The overnight worker: queue up work at night, let the slow "
-            "distributed setup grind through it, and have drafts and flags "
-            "waiting in the morning. This is the one job where 1.8 tokens per "
-            "second is genuinely fine, because nobody is sitting there.",
-            "Then the claims fine-tune, once there is enough reviewed real data "
-            "to train on honestly.",
-            "Deliberately not on this list: anything outward-facing before the "
-            "family's billing works end to end.",
+            "Per-service authentication across the fleet. Unglamorous plumbing, and "
+            "the largest gap we have identified in our own posture.",
+            "An adversarial test suite aimed at our own network, constructed the "
+            "way the vault suite was - predominantly attacks, re-runnable, "
+            "producing a measurement rather than an assessment.",
+            "Asynchronous batch processing: queue work overnight, let the "
+            "distributed configuration process it, and have drafts and exceptions "
+            "waiting in the morning. This is the one workload where 1.80 tokens per "
+            "second is entirely adequate, because no one is waiting on it.",
+            "Then domain adaptation, once sufficient reviewed real data exists to "
+            "train on honestly.",
+            "Deliberately excluded: anything external before the internal claims "
+            "deployment works end to end.",
         ],
-        "notes": "Ordered by dependency rather than excitement, and that is worth "
+        "notes": "Ordered by dependency rather than by interest, and that is worth "
                  "pointing out - it is the difference between a roadmap and a "
-                 "wishlist. If he wants to pick something up, the top two are the "
-                 "most delegable work in the entire system: both are methodical, "
-                 "both are testable, and neither requires knowing how a model "
+                 "wishlist. If he wants to take something on, the top two items are "
+                 "the most delegable work in the system: both methodical, both "
+                 "testable, and neither requires understanding how a transformer "
                  "works.",
         "terms": [],
     },
@@ -918,35 +924,34 @@ SLIDES = [
     # ------------------------------------------------------------ Working here
     {
         "section": "Working here",
-        "title": "How we actually work",
+        "title": "Engineering practices",
         "short": [
-            "*Build it, do not describe it.*",
-            "*Verify before claiming.* Check the log, check the endpoint.",
-            "Write down anything learned the hard way.",
-            "*Baby steps.* One thing at a time.",
+            "*Build it rather than describe it.*",
+            "*Verify before claiming.* Check the log, the endpoint, the artefact.",
+            "Document anything learned the hard way, immediately.",
+            "One change at a time, completed. *State the weakness aloud.*",
         ],
         "detail": [
-            "Build it, do not describe it. Hours have been lost to discussing "
-            "features that did not exist yet. If it can be built in the time it "
-            "takes to explain it, build it.",
-            "Verify before claiming. 'Found the bug' before confirming it cost "
-            "real trust once. Check the log, check the endpoint, check the "
-            "installed app - then say it.",
-            "Write down anything learned the hard way, immediately. The handbook "
-            "exists so nobody pays twice for the same lesson, and it is why a "
-            "second person can be useful here in a day rather than a month.",
-            "One thing at a time, finished, before the next. Five half-built "
-            "features are worth nothing.",
-            "Say the weak part out loud. Every slide in this deck that admits a "
-            "limit made the rest more believable.",
+            "Build rather than describe. Hours have been lost discussing features "
+            "that did not yet exist. If it can be built in the time required to "
+            "explain it, build it.",
+            "Verify before claiming. Asserting a root cause before confirming it "
+            "has cost real credibility here. Check the log, check the endpoint, "
+            "check the installed artefact - then state it.",
+            "Document anything learned the hard way, immediately. The handbook "
+            "exists so that no constraint is paid for twice, and it is why a second "
+            "engineer becomes productive in a day rather than a month.",
+            "One change at a time, completed, before the next. Five partially "
+            "implemented features have no value.",
+            "State the weakness aloud. Every slide in this deck that concedes a "
+            "limitation made the remainder more credible.",
         ],
-        "notes": "Close on this rather than on technology, because it is what "
-                 "makes the rest repeatable and it is what you are actually "
-                 "asking him to join. Then hand him something small and real - "
-                 "the authentication work or the security test suite - because "
-                 "nobody understands a system by being shown it. Ask what he "
-                 "wants to poke at first and let the answer decide where you go "
-                 "next.",
+        "notes": "Close on this rather than on technology, because it is what makes "
+                 "the rest repeatable and it is what you are actually asking him to "
+                 "join. Then hand him something small and real - the authentication "
+                 "work or the network test suite - because nobody understands a "
+                 "system by being shown it. Ask what he wants to examine first and "
+                 "let the answer decide where you go next.",
         "terms": [],
     },
 ]

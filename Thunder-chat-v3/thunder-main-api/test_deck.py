@@ -51,8 +51,13 @@ def main():
           "not compliance" in joined or "none of that is compliance" in joined)
     check("names the paperwork gap",
           all(w in joined for w in ("risk analysis", "training")))
-    check("admits the fleet's weak spot",
-          "one asks for a password" in joined or "trusts anything" in joined)
+    # These guard the honesty commitments, so they are keyed to the claim rather
+    # than to a sentence. The copy has been rewritten once already and the
+    # concession has to survive the next rewrite too.
+    check("admits only one service authenticates",
+          "exactly one" in joined and "authentic" in joined)
+    check("admits the internal network is over-trusted",
+          "trusts any host" in joined or "trusted more than it should" in joined)
     check("does not claim HIPAA compliance",
           "we are hipaa compliant" not in joined and "fully compliant" not in joined)
 
