@@ -280,6 +280,94 @@ if tools.netless_prefix():
 else:
     print("  skip sandboxed code has no network (no user namespaces on this box)")
 
+print("turbo backend (llama-server, OpenAI wire format)")
+
+
+class FakeLlama:
+    """Plays back scripted turns as llama-server SSE, with tool-call
+    arguments split into fragments the way the real server sends them."""
+
+    def __init__(self, turns):
+        self.turns, self.requests = list(turns), []
+        outer = self
+
+        class H(BaseHTTPRequestHandler):
+            def do_POST(self):
+                body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                outer.requests.append(body)
+                turn = outer.turns.pop(0) if outer.turns else {"content": "(out)"}
+                if turn == "NO_JINJA":
+                    msg = b'{"error":{"message":"tools param requires --jinja flag"}}'
+                    self.send_response(500)
+                    self.send_header("Content-Length", str(len(msg)))
+                    self.end_headers()
+                    self.wfile.write(msg)
+                    return
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.end_headers()
+
+                def send(delta):
+                    self.wfile.write(("data: " + json.dumps({"choices": [{"delta": delta}]}) + "\n\n").encode())
+                for i, (name, args) in enumerate(turn.get("calls", [])):
+                    raw = json.dumps(args)
+                    send({"tool_calls": [{"index": i, "id": f"c{i}", "function": {"name": name, "arguments": ""}}]})
+                    for j in range(0, len(raw), 5):
+                        send({"tool_calls": [{"index": i, "function": {"arguments": raw[j:j + 5]}}]})
+                text = turn.get("content", "")
+                for j in range(0, len(text), 6):
+                    send({"content": text[j:j + 6]})
+                self.wfile.write(b"data: [DONE]\n\n")
+
+            def log_message(self, *a):
+                pass
+
+            def handle(self):
+                try:
+                    super().handle()
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+
+        self.url = serve(H)
+
+
+def run_turbo(turns, user_text="q"):
+    fake = FakeLlama(turns)
+    box = tools.Toolbox(Path(tempfile.mkdtemp()))
+    out = list(agent.run(fake.url, "m", [{"role": "user", "content": user_text}], {}, box, user_text,
+                         backend="openai"))
+    return "".join(t for k, t in out if k == "text"), [t for k, t in out if k == "status"], fake, box
+
+
+text, status, fake, box = run_turbo([
+    {"calls": [("run_python", {"code": "print(6*7)"})]},
+    {"content": "It is 42."},
+])
+tool_msgs = [m for m in fake.requests[1]["messages"] if m["role"] == "tool"]
+check("fragmented tool-call arguments are reassembled and run", tool_msgs and "42" in tool_msgs[0]["content"],
+      str(tool_msgs))
+check("tool results carry the call id the server expects", tool_msgs and tool_msgs[0].get("tool_call_id") == "c0")
+asst = [m for m in fake.requests[1]["messages"] if m["role"] == "assistant"][0]
+check("the assistant turn is replayed in OpenAI shape",
+      asst["tool_calls"][0]["type"] == "function" and isinstance(asst["tool_calls"][0]["function"]["arguments"], str))
+check("prompt cache reuse is requested", fake.requests[0].get("cache_prompt") is True)
+check("the answer streams through", text == "It is 42.", text)
+
+text, *_ = run_turbo([{"content": "Answer: 答案"}, {"content": "Answer in English."}])
+check("the English guard works on the turbo path too", "English" in text and not tools.FOREIGN_SCRIPT.search(text), text)
+
+try:
+    run_turbo(["NO_JINJA"])
+    check("a server started without tool support falls back", False)
+except agent.ToolsUnsupported:
+    check("a server started without tool support falls back", True)
+
+text, status, fake, box = run_turbo([
+    {"calls": [("web_search", {"query": "a"}), ("system_status", {})]},
+    {"content": "done"},
+])
+check("two tool calls in one turn both run", status == ["searching the web: a", "checking the hardware"], str(status))
+
 print("failure modes")
 tools.GATE = "http://127.0.0.1:1"
 box = tools.Toolbox(Path(tempfile.mkdtemp()))

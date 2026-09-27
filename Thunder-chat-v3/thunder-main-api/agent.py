@@ -36,7 +36,7 @@ def _post_stream(url: str, payload: dict, timeout: int = 900):
         return urllib.request.urlopen(req, timeout=timeout)
     except urllib.error.HTTPError as e:
         body = e.read().decode(errors="replace")
-        if e.code == 400 and "does not support tools" in body:
+        if (e.code == 400 and "does not support tools" in body) or "--jinja" in body:
             raise ToolsUnsupported(body) from e
         raise RuntimeError(f"ollama {e.code}: {body[:300]}") from e
 
@@ -64,23 +64,15 @@ def _status_line(name: str, args: dict) -> str:
     return name
 
 
-def _one_round(ollama: str, model: str, messages: list[dict], options: dict,
-               with_tools: bool, emitted: list[str]):
-    """Stream one model turn.
-
-    Yields text that has passed the guard. Returns (tool_calls, violation) via
-    StopIteration.value: tool_calls is a list (maybe empty); violation is the
-    correction to give the model if the guard tripped, else None.
-    """
+def _stream_ollama(base: str, model: str, messages: list[dict], options: dict, with_tools: bool):
+    """Ollama's native API. Yields ("text", str) and ("call", {id, name, arguments})."""
     payload = {"model": model, "stream": True, "messages": messages, "options": options}
     if with_tools:
         payload["tools"] = tools.SPECS
     think = os.environ.get("THUNDER_THINK")
     if think in ("0", "1"):
         payload["think"] = think == "1"
-    calls: list[dict] = []
-    pending = ""
-    resp = _post_stream(f"{ollama}/api/chat", payload)
+    resp = _post_stream(f"{base}/api/chat", payload)
     try:
         for raw in resp:
             line = raw.decode().strip()
@@ -91,21 +83,97 @@ def _one_round(ollama: str, model: str, messages: list[dict], options: dict,
             except json.JSONDecodeError:
                 continue
             msg = chunk.get("message", {}) or {}
-            calls.extend(msg.get("tool_calls") or [])
-            piece = msg.get("content") or ""
-            if piece:
-                pending += piece
-                problem = tools.needs_regeneration("".join(emitted)[-200:] + pending)
-                if problem:
-                    return calls, problem
-                if len(pending) >= FLUSH_AT or "\n" in pending:
-                    emitted.append(pending)
-                    yield pending
-                    pending = ""
+            for c in msg.get("tool_calls") or []:
+                fn = c.get("function", {}) or {}
+                args = fn.get("arguments") or {}
+                if isinstance(args, str):
+                    try:
+                        args = json.loads(args)
+                    except json.JSONDecodeError:
+                        args = {}
+                yield "call", {"id": c.get("id", ""), "name": fn.get("name", ""), "arguments": args}
+            if msg.get("content"):
+                yield "text", msg["content"]
             if chunk.get("done"):
                 break
     finally:
         resp.close()
+
+
+def _stream_openai(base: str, model: str, messages: list[dict], options: dict, with_tools: bool):
+    """llama.cpp's llama-server (OpenAI-compatible). This is the Turbo path:
+    speculative decoding and prompt-cache reuse live in the server, so nothing
+    here changes except the wire format. Tool-call arguments arrive as string
+    fragments across chunks and are assembled by index."""
+    payload = {"model": model, "stream": True, "messages": messages,
+               "temperature": options.get("temperature", 0.6),
+               "max_tokens": options.get("num_predict", 4096),
+               "repeat_penalty": options.get("repeat_penalty", 1.0),
+               "cache_prompt": True}
+    if with_tools:
+        payload["tools"] = tools.SPECS
+    partial: dict[int, dict] = {}
+    resp = _post_stream(f"{base}/v1/chat/completions", payload)
+    try:
+        for raw in resp:
+            line = raw.decode().strip()
+            if not line.startswith("data:"):
+                continue
+            data = line[5:].strip()
+            if data == "[DONE]":
+                break
+            try:
+                chunk = json.loads(data)
+            except json.JSONDecodeError:
+                continue
+            for choice in chunk.get("choices") or []:
+                delta = choice.get("delta") or {}
+                for tc in delta.get("tool_calls") or []:
+                    slot = partial.setdefault(tc.get("index", 0), {"id": "", "name": "", "args": ""})
+                    slot["id"] = tc.get("id") or slot["id"]
+                    fn = tc.get("function") or {}
+                    slot["name"] += fn.get("name") or ""
+                    slot["args"] += fn.get("arguments") or ""
+                if delta.get("content"):
+                    yield "text", delta["content"]
+    finally:
+        resp.close()
+    for i in sorted(partial):
+        slot = partial[i]
+        try:
+            args = json.loads(slot["args"]) if slot["args"].strip() else {}
+        except json.JSONDecodeError:
+            args = {}
+        yield "call", {"id": slot["id"] or f"call_{i}", "name": slot["name"], "arguments": args}
+
+
+def _one_round(base: str, model: str, messages: list[dict], options: dict,
+               with_tools: bool, emitted: list[str], backend: str = "ollama"):
+    """Stream one model turn through the guard.
+
+    Yields text that has passed. Returns (calls, violation) via
+    StopIteration.value: calls is a list of {id, name, arguments}; violation is
+    the correction to give the model if the guard tripped, else None.
+    """
+    stream = (_stream_openai if backend == "openai" else _stream_ollama)(
+        base, model, messages, options, with_tools)
+    calls: list[dict] = []
+    pending = ""
+    try:
+        for kind, value in stream:
+            if kind == "call":
+                calls.append(value)
+                continue
+            pending += value
+            problem = tools.needs_regeneration("".join(emitted)[-200:] + pending)
+            if problem:
+                return calls, problem
+            if len(pending) >= FLUSH_AT or "\n" in pending:
+                emitted.append(pending)
+                yield pending
+                pending = ""
+    finally:
+        stream.close()
     if pending:
         problem = tools.needs_regeneration("".join(emitted)[-200:] + pending)
         if problem:
@@ -115,8 +183,26 @@ def _one_round(ollama: str, model: str, messages: list[dict], options: dict,
     return calls, None
 
 
-def run(ollama: str, model: str, messages: list[dict], options: dict, box: tools.Toolbox,
-        user_text: str = ""):
+def _record_calls(messages: list[dict], text: str, calls: list[dict], backend: str) -> None:
+    if backend == "openai":
+        messages.append({"role": "assistant", "content": text or None, "tool_calls": [
+            {"id": c["id"], "type": "function",
+             "function": {"name": c["name"], "arguments": json.dumps(c["arguments"])}} for c in calls]})
+    else:
+        messages.append({"role": "assistant", "content": text, "tool_calls": [
+            {"function": {"name": c["name"], "arguments": c["arguments"]}} for c in calls]})
+
+
+def _record_result(messages: list[dict], call: dict, result: dict, backend: str) -> None:
+    content = json.dumps(result)[:16_000]
+    if backend == "openai":
+        messages.append({"role": "tool", "tool_call_id": call["id"], "content": content})
+    else:
+        messages.append({"role": "tool", "tool_name": call["name"], "content": content})
+
+
+def run(base: str, model: str, messages: list[dict], options: dict, box: tools.Toolbox,
+        user_text: str = "", backend: str = "ollama"):
     messages = list(messages)
     steps = 0
     repairs = 0
@@ -128,7 +214,7 @@ def run(ollama: str, model: str, messages: list[dict], options: dict, box: tools
                              "You have used your tool budget. Answer now with what you have, and say "
                              "plainly what you could not confirm."})
         start = len(emitted)
-        gen = _one_round(ollama, model, messages, options, allow_tools, emitted)
+        gen = _one_round(base, model, messages, options, allow_tools, emitted, backend)
         while True:
             try:
                 piece = next(gen)
@@ -161,21 +247,11 @@ def run(ollama: str, model: str, messages: list[dict], options: dict, box: tools
             break
         if calls:
             steps += 1
-            round_text = "".join(emitted[start:])
-            messages.append({"role": "assistant", "content": round_text, "tool_calls": calls})
+            _record_calls(messages, "".join(emitted[start:]), calls, backend)
             for call in calls:
-                fn = call.get("function", {}) or {}
-                name = fn.get("name", "")
-                args = fn.get("arguments") or {}
-                if isinstance(args, str):
-                    try:
-                        args = json.loads(args)
-                    except json.JSONDecodeError:
-                        args = {}
-                yield "status", _status_line(name, args)
-                result = box.call(name, args)
-                messages.append({"role": "tool", "tool_name": name,
-                                 "content": json.dumps(result)[:16_000]})
+                yield "status", _status_line(call["name"], call["arguments"])
+                result = box.call(call["name"], call["arguments"])
+                _record_result(messages, call, result, backend)
             continue
         break
 

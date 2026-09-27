@@ -498,6 +498,23 @@ TOOLS_ON = os.environ.get("THUNDER_TOOLS", "1") != "0"
 # model instead - thunder:latest (Mistral) until the shootout picks a better
 # non-Chinese one.
 MEDICAL_MODEL = os.environ.get("THUNDER_MEDICAL_MODEL", "thunder:latest")
+
+# Turbo: llama.cpp's llama-server, which can do what Ollama cannot - speculative
+# decoding (a small draft model proposes, the big one verifies several tokens
+# per pass) and prompt-cache reuse. Used for the main model when it is up;
+# Ollama stays for the medical model and as the fallback. See thunder-turbo/.
+BACKEND = os.environ.get("THUNDER_BACKEND", "ollama")
+LLAMACPP = os.environ.get("THUNDER_LLAMACPP_URL", "http://127.0.0.1:8081")
+
+
+def turbo_up() -> bool:
+    if BACKEND != "llamacpp":
+        return False
+    try:
+        with urllib.request.urlopen(f"{LLAMACPP}/health", timeout=1) as r:
+            return r.status == 200
+    except Exception:
+        return False
 TOOL_OPTIONS = {
     "repeat_penalty": 1.05,
     "repeat_last_n": 128,
@@ -904,7 +921,10 @@ def chat_turn(msg: str, extra_history: list[dict] | None = None, persona: str = 
                             forge=lambda task: forge.forge(task, OLLAMA, model))
         parts: list[str] = []
         try:
-            for kind, text in agent.run(OLLAMA, model, messages, TOOL_OPTIONS, box, user_text=msg):
+            turbo = model != MEDICAL_MODEL and turbo_up()
+            base, backend = (LLAMACPP, "openai") if turbo else (OLLAMA, "ollama")
+            for kind, text in agent.run(base, model, messages, TOOL_OPTIONS, box, user_text=msg,
+                                        backend=backend):
                 if kind == "text":
                     parts.append(text)
                     yield text
