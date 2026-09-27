@@ -36,6 +36,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -119,6 +120,10 @@ data class Line(val who: String, val text: String)
 
 private enum class ThunderTab { Chat, Studio, Code }
 
+// Video and photo are shelved (2026-09-27). The Studio still works on the
+// server; the tab is hidden so chat and code have the room.
+private const val SHOW_STUDIO = false
+
 @Composable
 fun ThunderRoot() {
     val context = LocalContext.current
@@ -135,6 +140,8 @@ fun ThunderRoot() {
     var draft by remember { mutableStateOf("") }
     var showSettings by remember { mutableStateOf(false) }
     var waiting by remember { mutableStateOf(false) }
+    // Index of the reply still arriving, so its tool strip can show live work.
+    var streamingSlot by remember { mutableIntStateOf(-1) }
     var activeId by remember { mutableStateOf<String?>(store.newId()) }
     var chats by remember { mutableStateOf(store.list()) }
     var renameChat by remember { mutableStateOf<Chat?>(null) }
@@ -229,6 +236,7 @@ fun ThunderRoot() {
             // reply appears immediately instead of after the whole generation.
             val slot = lines.size
             lines.add(Line("thunder", ""))
+            streamingSlot = slot
             var first = true
             val full = api.chatStream(server, msg, voice, sending?.id) { delta ->
                 if (first) {
@@ -238,14 +246,12 @@ fun ThunderRoot() {
                 lines[slot] = Line("thunder", lines[slot].text + delta)
             }
             lines[slot] = Line("thunder", full)
+            streamingSlot = -1
             waiting = false
             persistActive()
             if (speakReplies && full.isNotBlank()) {
                 // Prose only - reading a generation prompt aloud is noise.
-                val spoken = parseSegments(full)
-                    .filterIsInstance<Segment.Prose>()
-                    .joinToString(" ") { it.text }
-                    .ifBlank { full }
+                val spoken = spokenText(full)
                 val audio = api.speak(server, spoken, voice)
                 if (audio != null) {
                     // Odris's neural voice.
@@ -411,9 +417,10 @@ fun ThunderRoot() {
                         contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        items(lines) { line ->
+                        itemsIndexed(lines) { index, line ->
                             Bubble(
                                 line = line,
+                                streaming = index == streamingSlot,
                                 onSendToStudio = { prompt ->
                                     studioPrefill = prompt
                                     tab = ThunderTab.Studio
@@ -483,7 +490,7 @@ fun ThunderRoot() {
                         label = { Text(stringResource(R.string.tab_chat)) },
                         colors = colors
                     )
-                    NavigationBarItem(
+                    if (SHOW_STUDIO) NavigationBarItem(
                         selected = tab == ThunderTab.Studio,
                         onClick = { tab = ThunderTab.Studio },
                         icon = { Icon(Icons.Outlined.AutoAwesome, contentDescription = null) },
@@ -1300,129 +1307,63 @@ private fun ThunderWordmark(modifier: Modifier = Modifier) {
 @Composable
 private fun Bubble(
     line: Line,
+    streaming: Boolean = false,
     onSendToStudio: (String) -> Unit = {},
     onSaveCode: (String, String) -> Unit = { _, _ -> }
 ) {
     val mine = line.who == "you"
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
-    Row(
-        Modifier.fillMaxWidth(),
-        horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start
-    ) {
-        Column(
-            Modifier
-                .widthIn(max = 320.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(if (mine) ThunderInk.YouBubble else Color.Transparent)
-                .padding(horizontal = if (mine) 14.dp else 2.dp, vertical = 9.dp)
-        ) {
-            // Selection handles partial copies; the button covers the common
-            // case of wanting the whole thing, which is miserable to drag-select
-            // inside a scrolling list.
-            if (mine) {
+    fun copy(text: String) {
+        clipboard.setText(AnnotatedString(text))
+        Toast.makeText(context, context.getString(R.string.copied), Toast.LENGTH_SHORT).show()
+    }
+    if (mine) {
+        // His messages: a compact bubble on the right. Thunder's: full width,
+        // no bubble - a reply with code and tables needs every pixel, which is
+        // why the frontier apps all draw it this way.
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            Box(
+                Modifier
+                    .padding(start = 48.dp)
+                    .clip(RoundedCornerShape(18.dp, 18.dp, 4.dp, 18.dp))
+                    .background(ThunderInk.YouBubble)
+                    .padding(horizontal = 14.dp, vertical = 10.dp)
+            ) {
                 SelectionContainer {
                     Text(line.text, color = ThunderInk.Ink, fontSize = 15.sp, lineHeight = 22.sp)
                 }
-            } else {
-                parseSegments(line.text).forEach { seg ->
-                    when (seg) {
-                        is Segment.Prose -> SelectionContainer {
-                            Text(seg.text, color = ThunderInk.Ink, fontSize = 15.sp, lineHeight = 22.sp)
-                        }
-                        is Segment.Block -> ActionBlock(
-                            text = seg.text,
-                            isPrompt = seg.isPrompt,
-                            onSave = { onSaveCode(seg.text, seg.language) },
-                            onCopy = {
-                                clipboard.setText(AnnotatedString(seg.text))
-                                Toast.makeText(context, context.getString(R.string.copied), Toast.LENGTH_SHORT).show()
-                            },
-                            onSendToStudio = { onSendToStudio(seg.text) }
-                        )
-                    }
-                    Spacer(Modifier.height(6.dp))
-                }
-            }
-            if (!mine) {
-                Row(
-                    Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .clickable {
-                            clipboard.setText(AnnotatedString(line.text))
-                            Toast.makeText(
-                                context,
-                                context.getString(R.string.copied),
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        }
-                        .padding(horizontal = 4.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        Icons.Outlined.ContentCopy,
-                        contentDescription = stringResource(R.string.copy_cd),
-                        tint = ThunderInk.Mute,
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Spacer(Modifier.width(5.dp))
-                    Text(
-                        stringResource(R.string.copy_label),
-                        color = ThunderInk.Mute,
-                        fontSize = 11.sp
-                    )
-                }
             }
         }
+        return
     }
-}
-
-/** A block lifted out of a reply: copy it, or hand it straight to the Studio. */
-@Composable
-private fun ActionBlock(
-    text: String,
-    isPrompt: Boolean,
-    onCopy: () -> Unit,
-    onSendToStudio: () -> Unit,
-    onSave: () -> Unit = {}
-) {
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .background(ThunderInk.SlateDeep)
-            .border(1.dp, ThunderInk.Hairline, RoundedCornerShape(8.dp))
-            .padding(10.dp)
-    ) {
-        SelectionContainer {
-            Text(text, color = ThunderInk.Ink, fontSize = 13.sp, lineHeight = 19.sp)
-        }
-        Spacer(Modifier.height(8.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            BlockAction(Icons.Outlined.ContentCopy, stringResource(R.string.copy_label), onCopy)
-            if (isPrompt) {
-                Spacer(Modifier.width(14.dp))
-                BlockAction(Icons.Outlined.AutoAwesome, stringResource(R.string.send_to_studio), onSendToStudio)
-            } else {
-                Spacer(Modifier.width(14.dp))
-                BlockAction(Icons.Outlined.Save, stringResource(R.string.save_code), onSave)
+    Column(Modifier.fillMaxWidth()) {
+        ReplyView(
+            reply = line.text,
+            streaming = streaming,
+            onCopy = { copy(it) },
+            onSaveCode = onSaveCode,
+            onSendToStudio = if (SHOW_STUDIO) onSendToStudio else null
+        )
+        if (!streaming && line.text.isNotBlank()) {
+            Row(
+                Modifier
+                    .padding(top = 4.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .clickable { copy(line.text) }
+                    .padding(horizontal = 4.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    Icons.Outlined.ContentCopy,
+                    contentDescription = stringResource(R.string.copy_cd),
+                    tint = ThunderInk.Mute,
+                    modifier = Modifier.size(14.dp)
+                )
+                Spacer(Modifier.width(5.dp))
+                Text(stringResource(R.string.copy_label), color = ThunderInk.Mute, fontSize = 11.sp)
             }
         }
-    }
-}
-
-@Composable
-private fun BlockAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
-    Row(
-        Modifier
-            .clip(RoundedCornerShape(6.dp))
-            .clickable { onClick() }
-            .padding(horizontal = 4.dp, vertical = 3.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(icon, contentDescription = label, tint = ThunderInk.Gold, modifier = Modifier.size(14.dp))
-        Spacer(Modifier.width(5.dp))
-        Text(label, color = ThunderInk.Gold, fontSize = 11.sp)
     }
 }
 

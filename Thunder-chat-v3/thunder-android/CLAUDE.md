@@ -3,7 +3,7 @@
 The APK is a client shell. It already launches.
 
 Your job:
-1. Keep the UI.
+1. The UI is being revamped at Blayne's request (2026-09-27): replies render through `ui/ReplyRender.kt`.
 2. Point Settings → Server URL at Thunder-Main (`http://IP:8080`).
 3. Confirm these endpoints on Main:
    - GET /status
