@@ -10,6 +10,7 @@ import re
 import shutil
 import subprocess
 import threading
+import time
 import traceback
 import urllib.error
 import urllib.request
@@ -17,6 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from collections import deque
+from concurrent.futures import Future, ThreadPoolExecutor
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -87,6 +89,33 @@ ODRIS_YOUTUBE = "http://10.168.168.15:9008/youtube"
 YOUTUBE_URL = re.compile(
     r"https?://(?:www\.|m\.)?(?:youtube\.com/watch\?\S*v=|youtu\.be/)([\w-]{11})")
 MEM = memory.Memory(DATA / "memory")
+
+# ---- who is talking ------------------------------------------------------------
+# Thunder was built for one person, and everything assumed it: one history on
+# serverus, one memory, one profile injected into every prompt. A second user
+# would have been told they were Blayne and had their conversations mixed into
+# his. Each user now gets their own history, memory, profile and code
+# workspace. Blayne is the owner and keeps everything that exists today.
+OWNER = "owner"
+_USER_MEM: dict[str, memory.Memory] = {}
+
+
+def safe_user(name: str) -> str:
+    return re.sub(r"[^a-z0-9_-]", "", (name or "").lower())[:32] or OWNER
+
+
+def mem_for(user: str) -> memory.Memory:
+    user = safe_user(user)
+    if user == OWNER:
+        return MEM
+    if user not in _USER_MEM:
+        _USER_MEM[user] = memory.Memory(DATA / "memory" / "users" / user)
+    return _USER_MEM[user]
+
+
+def workspace_for(user: str) -> Path:
+    user = safe_user(user)
+    return CODE if user == OWNER else CODE / "_users" / user
 if not MEM.profile().strip():
     MEM.set_profile(memory.DEFAULT_PROFILE)
 WEB = Path(__file__).resolve().parent.parent / "thunder-web"
@@ -131,12 +160,12 @@ def save_tokens(tokens: dict) -> None:
     TOKENS_FILE.chmod(0o600)
 
 
-def mint_token(name: str) -> str:
+def mint_token(name: str, user: str = OWNER) -> str:
     import secrets
 
     token = secrets.token_urlsafe(32)
     tokens = load_tokens()
-    tokens[token] = {"name": name, "created": utc_ts(), "last_seen": None}
+    tokens[token] = {"name": name, "user": safe_user(user), "created": utc_ts(), "last_seen": None}
     save_tokens(tokens)
     return token
 
@@ -176,8 +205,12 @@ async def authenticate(request: Request, call_next):
             return JSONResponse(status_code=401,
                                 content={"error": "a bearer token is required"})
         who = record.get("name", "unknown")
-        record["last_seen"] = utc_ts()
-        save_tokens(tokens)
+        request.state.user = safe_user(record.get("user") or OWNER)
+        # Every request used to rewrite the token file; once a minute is plenty
+        # for "last seen", and the phone polls /status every 15 seconds.
+        if utc_ts() - (record.get("last_seen") or 0) > 60:
+            record["last_seen"] = utc_ts()
+            save_tokens(tokens)
     response = await call_next(request)
     # Status polling would otherwise drown the log in noise.
     if path not in ("/status", "/health"):
@@ -274,6 +307,9 @@ class VideoIn(BaseModel):
 class TokenIn(BaseModel):
     admin_secret: str = ""
     name: str = ""
+    # Which person this device belongs to. Empty = the owner (Blayne). A new
+    # name gets its own history, memory, profile and code workspace.
+    user: str = ""
 
 
 class UploadIn(BaseModel):
@@ -528,17 +564,17 @@ def persona_for(voice: str | None) -> str:
     return VOICE_PERSONAS.get((voice or "").strip(), "")
 
 
-def serverus_recent(limit: int = 10) -> list[dict]:
+def serverus_recent(limit: int = 10, who: str = OWNER) -> list[dict]:
     try:
-        with urllib.request.urlopen(f"{SERVERUS}/recent?limit={limit}", timeout=2) as r:
+        with urllib.request.urlopen(f"{SERVERUS}/recent?limit={limit}&who={who}", timeout=2) as r:
             return json.loads(r.read().decode()).get("turns", [])
     except Exception:
         return []  # Serverus down - chat still works, just without memory
 
 
-def serverus_append(user_msg: str, reply: str) -> None:
+def serverus_append(user_msg: str, reply: str, who: str = OWNER) -> None:
     try:
-        payload = json.dumps({"user": user_msg, "reply": reply}).encode()
+        payload = json.dumps({"user": user_msg, "reply": reply, "who": who}).encode()
         req = urllib.request.Request(
             f"{SERVERUS}/append",
             data=payload,
@@ -835,7 +871,7 @@ def maybe_augment_with_youtube(message: str) -> str | None:
     return f"{message}\n\n{header}\n{text}\n--- end of transcript ---"
 
 
-def remember_if_asked(message: str) -> dict | None:
+def remember_if_asked(message: str, mem: "memory.Memory | None" = None) -> dict | None:
     """Store a fact only when actually told to.
 
     Inferring what is worth keeping fills memory with rubbish, and rubbish in
@@ -844,17 +880,49 @@ def remember_if_asked(message: str) -> dict | None:
     fact = memory.extract_instruction(message)
     if not fact:
         return None
-    rec = MEM.remember(fact, source="asked")
+    rec = (mem or MEM).remember(fact, source="asked")
     if rec:
         log_event("memory", f"remembered: {fact[:80]}")
     return rec
 
 
+_POOL = ThreadPoolExecutor(max_workers=16, thread_name_prefix="ctx")
+
+
+def gather_context(recall_text: str, user: str = OWNER) -> dict:
+    """Everything a reply needs from the fleet, fetched at the same time.
+
+    These were five sequential round trips before a word was generated -
+    serverus history, memory recall, exchange recall (which embedded the same
+    text a second time), alerts. Now they run in parallel and the embedding
+    is computed once; the slowest one sets the wait instead of the sum.
+    """
+    mem = mem_for(user)
+    jobs = {
+        "profile": _POOL.submit(lambda: mem.profile().strip()),
+        "recent": _POOL.submit(serverus_recent, 6, safe_user(user)),
+        "notes": _POOL.submit(mem.recall_block, recall_text),
+        "past": _POOL.submit(mem.exchange_block, recall_text),
+    }
+    if safe_user(user) == OWNER:
+        # Fleet alerts are about Blayne's machines; other users don't get them.
+        jobs["live"] = _POOL.submit(alerts.context_block, DATA)
+    out = {}
+    for k, f in jobs.items():
+        try:
+            out[k] = f.result(timeout=12)
+        except Exception:
+            out[k] = [] if k == "recent" else ""
+    return out
+
+
 def build_messages(message: str, recall_text: str, extra_history: list[dict] | None,
-                   persona: str, tool_mode: bool, strip_medical: bool = False) -> list[dict]:
+                   persona: str, tool_mode: bool, strip_medical: bool = False,
+                   user: str = OWNER, ctx: dict | None = None) -> list[dict]:
     """strip_medical drops any earlier turn or recalled note that looks medical,
     so a model not trusted with medical work never sees it in its context."""
-    profile = MEM.profile().strip()
+    ctx = ctx if ctx is not None else gather_context(recall_text, user)
+    profile = ctx.get("profile", "")
     system = (SYSTEM_PROMPT
               + (STUDIO_PROMPT if STUDIO_ON else "")
               + (f"\n\n{tools.TOOL_RULES}" if tool_mode else "")
@@ -862,34 +930,43 @@ def build_messages(message: str, recall_text: str, extra_history: list[dict] | N
               + (f"\n\n{persona}" if persona else ""))
     messages = [{"role": "system", "content": system}]
     ok = (lambda text: not tools.looks_medical(text)) if strip_medical else (lambda text: True)
-    messages.extend(m for m in serverus_recent(6) if ok(m.get("content", "")))
+    messages.extend(m for m in ctx.get("recent", []) if ok(m.get("content", "")))
     for item in (extra_history or []):
         role = item.get("role") or item.get("who")
         content = item.get("content") or item.get("text") or ""
         role = {"you": "user", "thunder": "assistant", "bot": "assistant"}.get(role, role)
         if content and role in ("user", "assistant") and ok(content):
             messages.append({"role": role, "content": content})
-    notes = MEM.recall_block(recall_text)
+    notes = ctx.get("notes", "")
     if notes and ok(notes):
         messages.append({"role": "system", "content": notes})
-    past = MEM.exchange_block(recall_text)
+    past = ctx.get("past", "")
     if past and ok(past):
         messages.append({"role": "system", "content": past})
     # Last, immediately before the question, for the same reason the recalled
     # notes are: retrieval that is merely present loses to the training prior.
     # Without this, Thunder sends a notification about a drive and then has no
     # idea what the notification was when asked about it thirty seconds later.
-    live = alerts.context_block(DATA)
+    live = ctx.get("live", "")
     if live and ok(live):
         messages.append({"role": "system", "content": live})
     messages.append({"role": "user", "content": message})
     return messages
 
 
-def store_turn(clean: str, reply: str) -> None:
-    serverus_append(clean, reply)
-    MEM.remember_exchange(clean, reply)
-    remember_if_asked(clean)
+def store_turn(clean: str, reply: str, user: str = OWNER, background: bool = True) -> None:
+    """Save the exchange. In the background by default: it embeds the
+    exchange and writes to serverus, and the phone used to wait for both
+    before it was told the reply was done."""
+    def work():
+        mem = mem_for(user)
+        serverus_append(clean, reply, safe_user(user))
+        mem.remember_exchange(clean, reply)
+        remember_if_asked(clean, mem)
+    if background:
+        _POOL.submit(work)
+    else:
+        work()
 
 
 def legacy_augment(msg: str) -> str:
@@ -899,7 +976,8 @@ def legacy_augment(msg: str) -> str:
 
 
 def chat_turn(msg: str, extra_history: list[dict] | None = None, persona: str = "",
-              show_status: bool = True, clean: str | None = None):
+              show_status: bool = True, clean: str | None = None, user: str = OWNER,
+              ctx: "Future | None" = None):
     """One reply, as text pieces. The tool loop when the model supports it,
     the old keyword-search path when it does not.
 
@@ -916,8 +994,10 @@ def chat_turn(msg: str, extra_history: list[dict] | None = None, persona: str = 
     if TOOLS_ON:
         message = maybe_augment_with_youtube(msg) or msg
         messages = build_messages(message, clean, extra_history, persona, tool_mode=True,
-                                  strip_medical=(model != MEDICAL_MODEL))
-        box = tools.Toolbox(CODE, MEM, system_summary,
+                                  strip_medical=(model != MEDICAL_MODEL), user=user,
+                                  ctx=ctx.result() if ctx is not None else None)
+        box = tools.Toolbox(workspace_for(user), mem_for(user),
+                            system_summary if safe_user(user) == OWNER else None,
                             forge=lambda task: forge.forge(task, OLLAMA, model))
         parts: list[str] = []
         try:
@@ -932,12 +1012,13 @@ def chat_turn(msg: str, extra_history: list[dict] | None = None, persona: str = 
                     yield f"[{text}]\n"
             if box.log:
                 log_event("tools", ", ".join(f"{e['tool']}{'' if e['ok'] else '(x)'}" for e in box.log))
-            store_turn(clean, "".join(parts))
+            store_turn(clean, "".join(parts), user)
             return
         except agent.ToolsUnsupported:
             log_event("tools", f"{model} cannot call tools - using the old search path")
     yield from ollama_chat_stream(legacy_augment(msg), memory_message=clean,
-                                  extra_history=extra_history, persona=persona, model=model)
+                                  extra_history=extra_history, persona=persona, model=model,
+                                  user=user, ctx=ctx.result() if ctx is not None else None)
 
 
 def ollama_chat(message: str, memory_message: str | None = None,
@@ -1215,13 +1296,13 @@ def warm_model() -> None:
 
 def ollama_chat_stream(message: str, memory_message: str | None = None,
                        extra_history: list[dict] | None = None, persona: str = "",
-                       model: str | None = None):
+                       model: str | None = None, user: str = OWNER, ctx: dict | None = None):
     """Yields reply text as it is produced. Same message assembly as
     ollama_chat, but the caller sees the first words in about a second instead
     of waiting out the whole answer."""
     recall_text = memory_message if memory_message is not None else message
     messages = build_messages(message, recall_text, extra_history, persona, tool_mode=False,
-                              strip_medical=(model or MODEL) != MEDICAL_MODEL)
+                              strip_medical=(model or MODEL) != MEDICAL_MODEL, user=user, ctx=ctx)
 
     payload = json.dumps({
         "model": model or MODEL, "stream": True, "messages": messages, "options": CHAT_OPTIONS,
@@ -1246,15 +1327,44 @@ def ollama_chat_stream(message: str, memory_message: str | None = None,
                 yield piece
             if chunk.get("done"):
                 break
-    store_turn(recall_text, "".join(parts))
+    store_turn(recall_text, "".join(parts), user)
+
+
+_STATUS_CACHE: dict = {"at": 0.0, "probes": None}
+_STATUS_LOCK = threading.Lock()
+
+
+def _probes() -> dict:
+    """The live checks behind /status, run in parallel and reused for three
+    seconds. They used to run one after another, each with its own timeout,
+    on every /status poll and after every single chat reply - a reply could
+    wait two seconds on the Odris heartbeat just to write "chat ok"."""
+    with _STATUS_LOCK:
+        if _STATUS_CACHE["probes"] is not None and time.time() - _STATUS_CACHE["at"] < 3:
+            return _STATUS_CACHE["probes"]
+    jobs = {"ollama": _POOL.submit(ollama_up), "heartbeat": _POOL.submit(odris_heartbeat),
+            "egress": _POOL.submit(recent_blocked_egress), "canary": _POOL.submit(canary_hits),
+            "gpu": _POOL.submit(genai_state)}
+    fallback = {"ollama": False, "heartbeat": None, "egress": [], "canary": [],
+                "gpu": {"up": False, "loaded": [], "loading": None, "busy": False}}
+    out = {}
+    for k, f in jobs.items():
+        try:
+            out[k] = f.result(timeout=6)
+        except Exception:
+            out[k] = fallback[k]
+    with _STATUS_LOCK:
+        _STATUS_CACHE.update(at=time.time(), probes=out)
+    return out
 
 
 def read_status() -> dict:
+    p = _probes()
     base = {
         "mode": "idle",
         "odriss": "no_heartbeat",
         "cache": "idle",
-        "ollama": ollama_up(),
+        "ollama": p["ollama"],
         "model": MODEL,
         "job_id": None,
         "job_title": None,
@@ -1268,9 +1378,9 @@ def read_status() -> dict:
             base.update(json.loads(STATUS.read_text()))
         except json.JSONDecodeError:
             pass
-    base["ollama"] = ollama_up()
+    base["ollama"] = p["ollama"]
     base["model"] = MODEL
-    heartbeat = odris_heartbeat()
+    heartbeat = p["heartbeat"]
     if heartbeat:
         base["odriss"] = "ok"
         base["odris_nodes"] = heartbeat.get("nodes", {})
@@ -1281,24 +1391,34 @@ def read_status() -> dict:
     base["maintenance"] = get_maintenance()
     if base["maintenance"]["active"]:
         base["state"] = "maintenance"
-    base["blocked_egress"] = recent_blocked_egress()
+    base["blocked_egress"] = p["egress"]
     if base["blocked_egress"]:
         base["state"] = "security_alert"
-    base["canary"] = canary_hits()
+    base["canary"] = p["canary"]
     if base["canary"]:
         base["state"] = "security_alert"
     base["app_version"] = BACKEND_VERSION
-    base["gpu"] = genai_state()
+    base["gpu"] = p["gpu"]
     base["image_hook"] = bool(creative.IMAGE_HOOK)
     base["video_hook"] = bool(creative.VIDEO_HOOK)
     return base
 
 
+_STATUS_WRITE = threading.Lock()
+
+
 def write_status(**extra) -> dict:
-    cur = read_status()
-    cur.update({k: v for k, v in extra.items() if v is not None})
-    cur["last_write_unix"] = utc_ts()
-    STATUS.write_text(json.dumps(cur, indent=2))
+    """Record what Thunder is doing. Only the file - no fleet probes."""
+    with _STATUS_WRITE:
+        cur = {}
+        if STATUS.exists():
+            try:
+                cur = json.loads(STATUS.read_text())
+            except json.JSONDecodeError:
+                cur = {}
+        cur.update({k: v for k, v in extra.items() if v is not None})
+        cur["last_write_unix"] = utc_ts()
+        STATUS.write_text(json.dumps(cur, indent=2))
     return cur
 
 
@@ -1870,9 +1990,10 @@ def create_token(body: TokenIn):
     if body.admin_secret != get_admin_secret():
         raise HTTPException(403, "admin secret required")
     name = (body.name or "").strip() or "unnamed client"
-    token = mint_token(name)
-    log_event("auth", f"token issued for {name}")
-    return {"token": token, "name": name,
+    user = safe_user(body.user) if body.user.strip() else OWNER
+    token = mint_token(name, user)
+    log_event("auth", f"token issued for {name} ({user})")
+    return {"token": token, "name": name, "user": user,
             "note": "Store this now - it is not recoverable."}
 
 
@@ -1938,11 +2059,18 @@ def warm():
     return {"ok": True, "model": MODEL}
 
 
+def request_user(request: Request) -> str:
+    return getattr(request.state, "user", OWNER)
+
+
 @app.post("/chat")
-def chat(body: ChatIn):
+def chat(body: ChatIn, request: Request):
     msg = (body.message or "").strip()
     if not msg:
         return {"reply": "Say something."}
+    user = request_user(request)
+    # Start fetching history and memory now, while the safety check runs.
+    ctx = _POOL.submit(gather_context, msg, user)
     maint = get_maintenance()
     if maint["active"]:
         return {
@@ -1958,7 +2086,7 @@ def chat(body: ChatIn):
         # this through it would produce a confident answer about nothing.
         try:
             reply = ollama_vision(body.message or "", image_b64)
-            serverus_append(body.message or f"[image: {attached['name']}]", reply)
+            serverus_append(body.message or f"[image: {attached['name']}]", reply, user)
             write_status(mode="code", message="vision ok")
             log_event("vision", f"{attached['name']} -> {len(reply)} chars")
             return {"reply": reply, "read_as": "image", "file": attached["name"]}
@@ -1970,7 +2098,8 @@ def chat(body: ChatIn):
         try:
             reply = "".join(chat_turn(
                 msg, extra_history=body.messages, persona=persona_for(body.voice),
-                show_status=False, clean=body.message or msg,
+                show_status=False, clean=body.message or msg, user=user,
+                ctx=ctx if msg == (body.message or "").strip() else None,
             ))
             write_status(mode="code", message="chat ok")
             log_event("chat", f"ok ({len(msg)} chars)")
@@ -1989,7 +2118,7 @@ def chat(body: ChatIn):
 
 
 @app.post("/chat/stream")
-def chat_stream(body: ChatIn):
+def chat_stream(body: ChatIn, request: Request):
     """Newline-delimited JSON, one {"delta": "..."} per chunk, then
     {"done": true}. Chosen over SSE because the Android client already parses
     JSON lines and this needs no extra dependency on either end.
@@ -2006,6 +2135,8 @@ def chat_stream(body: ChatIn):
 
     if not msg:
         return StreamingResponse(emit("Say something."), media_type="application/x-ndjson")
+    user = request_user(request)
+    ctx = _POOL.submit(gather_context, msg, user)
     maint = get_maintenance()
     if maint["active"]:
         return StreamingResponse(
@@ -2025,7 +2156,7 @@ def chat_stream(body: ChatIn):
     if image_b64:
         try:
             reply = ollama_vision(body.message or "", image_b64)
-            serverus_append(body.message or f"[image: {attached['name']}]", reply)
+            serverus_append(body.message or f"[image: {attached['name']}]", reply, user)
             log_event("vision", f"{attached['name']} -> {len(reply)} chars")
             return StreamingResponse(emit(reply), media_type="application/x-ndjson")
         except Exception as e:
@@ -2037,7 +2168,8 @@ def chat_stream(body: ChatIn):
         try:
             for piece in chat_turn(
                 msg, extra_history=body.messages, persona=persona_for(body.voice),
-                clean=body.message or msg,
+                clean=body.message or msg, user=user,
+                ctx=ctx if msg == (body.message or "").strip() else None,
             ):
                 yield json.dumps({"delta": piece}) + "\n"
             write_status(mode="code", message="chat ok")
@@ -2177,7 +2309,8 @@ def apply_job(body: ApplyIn):
 def cancel(body: CancelIn):
     job_id = body.job_id or body.id or ""
     CANCEL.write_text(json.dumps({"job_id": job_id, "at": utc_ts()}))
-    st = write_status(job_id=None, job_title=None, cache="idle", mode="idle", progress=None, message="Cancel requested")
+    write_status(job_id=None, job_title=None, cache="idle", mode="idle", progress=None, message="Cancel requested")
+    st = read_status()
     st.update({"status": "cancelled", "cancelled": True, "id": job_id, "job_id": job_id})
     return st
 
