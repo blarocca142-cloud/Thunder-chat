@@ -14,6 +14,7 @@ check memory or check the hardware. Every call is asked of **Odris** first.
 |---|---|---|
 | `web_search`, `fetch_url` | Odris | Refused if the text looks like patient data (SSN, DOB, member/claim IDs, NPI, ICD-10). `fetch_url` refuses LAN, loopback, link-local and cloud-metadata addresses, including via redirect. |
 | `run_python` | Main | Own network namespace (`unshare -rn`) so it has **no network**, temp dir thrown away, 30s CPU, 2GB memory, 50MB files. |
+| `forge_code` | Main | Tests written first and blind, several candidates, every one run in the same sandbox as `run_python`, repair from real tracebacks, and a review of the test itself when every candidate fails the same line. Returns the passing code and its tests, or an honest failure with the error. `forge.py`, `test_forge.py`. Odris caps it at 6 a minute. |
 | `read_file`, `write_file`, `list_files` | Main | Confined to `thunder-data/code` (the code workspace). `../` and absolute paths refused. |
 | `memory_search`, `system_status` | Main | Read-only. |
 

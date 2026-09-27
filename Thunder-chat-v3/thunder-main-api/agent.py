@@ -48,6 +48,8 @@ def _status_line(name: str, args: dict) -> str:
         return f"reading {args.get('url', '')}"
     if name == "run_python":
         return "running code"
+    if name == "forge_code":
+        return "running code - forge: tests, candidates, repair"
     if name == "write_file":
         return f"saving {args.get('path', '')}"
     if name == "read_file":

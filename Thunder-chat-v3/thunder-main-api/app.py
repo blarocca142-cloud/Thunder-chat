@@ -28,6 +28,7 @@ import codestore
 import consolidate
 import creative
 import digest
+import forge
 import memory
 import tools
 import uploads
@@ -883,7 +884,8 @@ def chat_turn(msg: str, extra_history: list[dict] | None = None, persona: str = 
         message = maybe_augment_with_youtube(msg) or msg
         messages = build_messages(message, clean, extra_history, persona, tool_mode=True,
                                   strip_medical=(model != MEDICAL_MODEL))
-        box = tools.Toolbox(CODE, MEM, system_summary)
+        box = tools.Toolbox(CODE, MEM, system_summary,
+                            forge=lambda task: forge.forge(task, OLLAMA, model))
         parts: list[str] = []
         try:
             for kind, text in agent.run(OLLAMA, model, messages, TOOL_OPTIONS, box, user_text=msg):

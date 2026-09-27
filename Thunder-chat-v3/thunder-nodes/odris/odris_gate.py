@@ -62,6 +62,7 @@ TOOLS: dict[str, dict] = {
     "web_search":   {"runs": "odris", "per_min": 20, "args": {"query": (str, 1, 300)}},
     "fetch_url":    {"runs": "odris", "per_min": 20, "args": {"url": (str, 8, 2000)}},
     "run_python":   {"runs": "main",  "per_min": 30, "args": {"code": (str, 1, 40_000)}},
+    "forge_code":   {"runs": "main",  "per_min": 6,   "args": {"task": (str, 1, 20_000)}},
     "read_file":    {"runs": "main",  "per_min": 60, "args": {"path": (str, 1, 300)}},
     "write_file":   {"runs": "main",  "per_min": 30, "args": {"path": (str, 1, 300), "content": (str, 0, 200_000)}},
     "list_files":   {"runs": "main",  "per_min": 60, "args": {"path": (str, 0, 300)}},
