@@ -81,8 +81,12 @@ def main():
     check("presenter offers jumping to a chapter", "Jump to a chapter" in pres)
     check("both choices call begin()",
           pres.count("begin(false)") == 1 and pres.count("begin(true)") == 1)
-    check("cast view waits rather than showing slide one",
-          "Waiting for the presenter" in audience)
+    # Intent, not wording: the cast view must have a cover state and must name
+    # the two choices, so a television is never sitting on slide one of a deck
+    # nobody has started.
+    check("cast view has a cover state", "function cover(" in audience)
+    check("cast view names both choices on the cover",
+          "Quick tour" in audience and "Full detail" in audience)
     check("cast view has no buttons at all",
           "<button" not in audience)
 
@@ -104,6 +108,22 @@ def main():
           '"55.5"' in json_of(audience) and '"1.80"' in json_of(audience))
     check("both views can render stats", "statsBlock" in audience and "statsBlock" in pres)
     check("cover layout exists", any(s.get("layout") == "cover" for s in content.SLIDES))
+
+    print("\nlook and feel")
+    check("light theme, not the near-black one Blayne rejected",
+          "#FBF9F5" in audience and "#0A0C10" not in audience)
+    check("highlighted phrases are rendered, not printed literally",
+          "function rich(" in audience and "function rich(" in pres)
+    check("<mark> has a style to land in", "mark {" in audience)
+    check("highlight markers never reach the screen as asterisks",
+          "split('*')" in audience)
+    check("chapter accents are the deep set, not the pastels",
+          "#C2410C" in audience and "#C4A35A" not in audience)
+    check("position is shown per chapter, not just as N of 23",
+          "function dots(" in audience)
+    check("presenter can change the narrator", 'id="voiceBtn"' in pres)
+    n_marked = sum(l.count("*") // 2 for s in content.SLIDES for l in s["short"])
+    check("there are phrases worth highlighting", n_marked >= 30, str(n_marked))
 
     print("\nno external resources")
     for name, html in (("audience", audience), ("presenter", pres)):

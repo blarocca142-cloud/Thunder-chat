@@ -103,98 +103,91 @@ def _payload(audience: bool = False) -> str:
 
 
 # --------------------------------------------------------------------- styling
-# Shared by both views. The chapter accent arrives as --accent, set from JS on
-# every slide change, so one stylesheet recolours the whole room.
+# Light, warm and confident. The first version was near-black with pastel
+# accents, and the verdict was "dark", "underground" and "mid 2000s" - which was
+# fair. Dark decks read as either a code editor or a nightclub, and this one has
+# to read as a company. Paper background, deep ink, one strong chapter colour.
+#
+# The chapter accent arrives as --accent, set from JS on every slide change, so a
+# single stylesheet recolours the wash, the rail, the numerals, the highlights
+# and the dots together.
 _CSS = r"""
 :root {
-  --bg0:#0A0C10; --bg1:#12161D; --bg2:#1A1F28;
-  --ink:#F2EEE6; --ink-dim:#A8A399; --ink-faint:#6E6A63;
-  --accent:#C4A35A;
-  --glass:rgba(255,255,255,.045);
-  --edge:rgba(255,255,255,.09);
-  --good:#7FD69B; --bad:#FF8A7A;
+  --paper:#FBF9F5; --paper-2:#F4F1EA; --card:#FFFFFF;
+  --ink:#14161A; --ink-2:#4A5058; --ink-3:#8A9099;
+  --line:#E4DFD5;
+  --accent:#C2410C;
+  --good:#047857; --bad:#BE123C;
+  --shadow:0 1px 2px rgba(20,22,26,.04),0 8px 24px rgba(20,22,26,.06);
+  --shadow-lg:0 2px 4px rgba(20,22,26,.04),0 18px 48px rgba(20,22,26,.09);
 }
 * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
 html,body { margin:0; height:100%; }
 body {
-  background:var(--bg0);
+  background:var(--paper);
   color:var(--ink);
   overflow:hidden;
   font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-  font-feature-settings:"kern" 1,"liga" 1,"cv11" 1;
+  font-feature-settings:"kern" 1,"liga" 1,"ss01" 1;
   -webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;
 }
 
-/* Slow-drifting colour field. Three soft blobs, one of them the chapter accent,
-   so changing chapter visibly changes the light in the room. */
-.bg { position:fixed; inset:-25%; pointer-events:none; filter:blur(70px); opacity:.6; }
+/* A soft wash of the chapter colour, not a gradient you notice. Two very light
+   tints high and low, so the page has depth without looking like a background
+   image from a template. */
+.bg { position:fixed; inset:0; pointer-events:none; overflow:hidden; }
 .bg i {
-  position:absolute; display:block; border-radius:50%;
-  width:60vmax; height:60vmax; mix-blend-mode:screen;
+  position:absolute; display:block; border-radius:50%; filter:blur(90px);
+  width:70vmax; height:70vmax; opacity:.13;
+  transition:background .8s ease;
 }
-.bg i:nth-child(1) {
-  background:radial-gradient(circle,var(--accent) 0%,transparent 62%);
-  top:-14%; left:-8%; animation:drift1 26s ease-in-out infinite alternate;
-}
-.bg i:nth-child(2) {
-  background:radial-gradient(circle,#2F6FB8 0%,transparent 62%);
-  bottom:-20%; right:-10%; animation:drift2 32s ease-in-out infinite alternate;
-}
-.bg i:nth-child(3) {
-  background:radial-gradient(circle,#6B4E9B 0%,transparent 66%);
-  top:28%; right:18%; animation:drift3 38s ease-in-out infinite alternate;
-  opacity:.65;
-}
-@keyframes drift1 { to { transform:translate3d(9vw,7vh,0) scale(1.14); } }
-@keyframes drift2 { to { transform:translate3d(-11vw,-6vh,0) scale(1.1); } }
-@keyframes drift3 { to { transform:translate3d(6vw,-9vh,0) scale(.9); } }
+.bg i:nth-child(1) { background:var(--accent); top:-32%; right:-18%; }
+.bg i:nth-child(2) { background:var(--accent); bottom:-40%; left:-24%; opacity:.07; }
 
-/* Grain. Keeps large flat gradients from banding on a television, which is the
-   single thing that made the first version look cheap. */
-.grain {
-  position:fixed; inset:0; pointer-events:none; opacity:.028; z-index:2;
-  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E");
-}
-
-@media (prefers-reduced-motion:reduce) {
-  .bg i { animation:none; }
-  .fx { animation:none !important; }
-}
-
-.rail { position:fixed; top:0; left:0; right:0; height:3px; z-index:6; background:rgba(255,255,255,.06); }
-.rail b { display:block; height:100%; background:var(--accent); transition:width .45s cubic-bezier(.4,0,.2,1); box-shadow:0 0 14px var(--accent); }
+.rail { position:fixed; top:0; left:0; right:0; height:3px; z-index:6; background:var(--line); }
+.rail b { display:block; height:100%; background:var(--accent); transition:width .5s cubic-bezier(.4,0,.2,1); }
 
 .wrap { position:relative; z-index:3; height:100%; display:flex; flex-direction:column; }
 
-.chapter { display:flex; align-items:center; gap:.7em; color:var(--accent); font-weight:650; letter-spacing:.14em; text-transform:uppercase; }
-.chapter s { text-decoration:none; opacity:.5; font-variant-numeric:tabular-nums; }
-.chapter em { font-style:normal; width:2.2em; height:1px; background:currentColor; opacity:.45; }
+/* Chapter line: a short accent rule, the number, the name. */
+.chapter { display:flex; align-items:center; gap:.85em; color:var(--accent); font-weight:700; letter-spacing:.11em; text-transform:uppercase; }
+.chapter em { display:block; height:2px; background:var(--accent); border-radius:2px; font-style:normal; flex:none; }
+.chapter s { text-decoration:none; font-variant-numeric:tabular-nums; opacity:.55; }
 
-h1 { margin:0; font-weight:760; letter-spacing:-.022em; line-height:1.04; text-wrap:balance; }
-.sub { color:var(--ink-dim); font-weight:400; }
+h1 { margin:0; font-weight:800; letter-spacing:-.028em; line-height:1.02; color:var(--ink); text-wrap:balance; }
+.sub { color:var(--ink-2); font-weight:400; }
 
 ul { margin:0; padding:0; list-style:none; display:flex; flex-direction:column; }
-li { display:flex; gap:.75em; align-items:flex-start; color:var(--ink); }
-li > s {
-  flex:none; text-decoration:none; color:var(--accent); font-variant-numeric:tabular-nums;
-  opacity:.85; font-weight:700;
+li { display:flex; gap:.8em; align-items:flex-start; color:var(--ink-2); }
+li > s { flex:none; text-decoration:none; color:var(--accent); font-variant-numeric:tabular-nums; font-weight:800; opacity:.5; }
+
+/* The highlight. A marker-pen wash of the chapter colour, and the ink goes to
+   full black inside it - this is the phrase the room should remember. */
+mark {
+  background:color-mix(in srgb,var(--accent) 15%,transparent);
+  color:var(--ink); font-weight:680;
+  padding:.04em .2em; margin:0 -.04em; border-radius:.2em;
+  -webkit-box-decoration-break:clone; box-decoration-break:clone;
 }
 
 /* Numbers get to be numbers. */
 .stats { display:flex; flex-wrap:wrap; }
-.stat { flex:1 1 0; min-width:6em; border-left:2px solid var(--edge); }
-.stat.good { border-left-color:var(--good); }
-.stat.bad { border-left-color:var(--bad); }
-.stat b { display:block; font-weight:780; letter-spacing:-.03em; line-height:1; font-variant-numeric:tabular-nums; }
-.stat u { display:block; text-decoration:none; color:var(--ink-faint); font-weight:600; }
-.stat span { display:block; color:var(--ink-dim); }
+.stat { flex:1 1 0; min-width:5.5em; }
+.stat b { display:block; font-weight:800; letter-spacing:-.04em; line-height:.95; font-variant-numeric:tabular-nums; color:var(--ink); }
+.stat.good b { color:var(--good); }
+.stat.bad b { color:var(--bad); }
+.stat u { display:block; text-decoration:none; color:var(--ink-3); font-weight:700; text-transform:uppercase; letter-spacing:.09em; }
+.stat span { display:block; color:var(--ink-2); }
+.stat hr { border:0; height:3px; border-radius:3px; background:var(--line); margin:0 0 .7em; width:2.4em; }
+.stat.good hr { background:var(--good); }
+.stat.bad hr { background:var(--bad); }
 
-.fx { animation:rise .5s cubic-bezier(.16,1,.3,1) both; }
-@keyframes rise { from { opacity:0; transform:translateY(14px); } to { opacity:1; transform:none; } }
+.fx { animation:rise .55s cubic-bezier(.16,1,.3,1) both; }
+@keyframes rise { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:none; } }
+@media (prefers-reduced-motion:reduce) { .fx { animation:none !important; } }
 
-.card { background:var(--glass); border:1px solid var(--edge); border-radius:16px; backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px); }
 button { font:inherit; color:inherit; background:none; border:none; cursor:pointer; }
-.term { color:var(--accent); border-bottom:1px dashed color-mix(in srgb,var(--accent) 60%,transparent); cursor:pointer; }
 .mono { font-variant-numeric:tabular-nums; }
 """
 
@@ -204,61 +197,79 @@ _AUDIENCE = r"""<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#FBF9F5">
 <title>Thunder</title>
 <style>__CSS__
-.wrap { padding:clamp(28px,5vh,70px) clamp(30px,6vw,110px) clamp(60px,8vh,90px); justify-content:center; }
+.wrap { padding:clamp(30px,5.5vh,72px) clamp(34px,6.5vw,120px) clamp(72px,10vh,110px); justify-content:center; }
+
+/* The chapter number, oversized and almost invisible behind the slide. Gives the
+   page a focal depth that a flat list of bullets never has. */
+.ghost {
+  position:absolute; top:clamp(10px,2vh,40px); right:clamp(26px,4vw,74px);
+  font-size:clamp(90px,17vw,320px); font-weight:800; line-height:.8;
+  color:var(--accent); opacity:.07; letter-spacing:-.05em;
+  font-variant-numeric:tabular-nums; pointer-events:none; user-select:none;
+}
+
 .chapter { font-size:clamp(11px,1.15vw,17px); margin-bottom:clamp(14px,2.4vh,30px); }
-h1 { font-size:clamp(30px,4.6vw,86px); }
-.slide h1 { margin-bottom:clamp(20px,3.4vh,44px); }
-ul { gap:clamp(12px,2.1vh,26px); margin-top:clamp(6px,1vh,14px); }
-li { font-size:clamp(17px,2.25vw,40px); line-height:1.32; }
-li > s { font-size:.62em; padding-top:.36em; }
+.chapter em { width:clamp(22px,2.6vw,48px); }
+h1 { font-size:clamp(31px,4.7vw,88px); }
+.slide h1 { margin-bottom:clamp(20px,3.4vh,46px); }
+ul { gap:clamp(13px,2.2vh,28px); }
+li { font-size:clamp(17px,2.3vw,41px); line-height:1.3; }
+li > s { font-size:.58em; padding-top:.34em; }
 .detailed h1 { font-size:clamp(25px,3.5vw,64px); }
-.detailed li { font-size:clamp(14px,1.62vw,29px); line-height:1.4; }
-.detailed ul { gap:clamp(9px,1.5vh,18px); }
+.detailed li { font-size:clamp(14px,1.62vw,29px); line-height:1.42; }
+.detailed ul { gap:clamp(9px,1.5vh,19px); }
 
-.stats { gap:clamp(16px,2.6vw,48px); margin-bottom:clamp(20px,3vh,40px); }
-.stat { padding-left:clamp(12px,1.4vw,24px); }
-.stat b { font-size:clamp(34px,5.6vw,104px); }
-.stat u { font-size:clamp(11px,1.15vw,19px); margin-top:.35em; }
-.stat span { font-size:clamp(12px,1.25vw,21px); margin-top:.5em; line-height:1.3; }
-.detailed .stat b { font-size:clamp(26px,3.8vw,68px); }
+.stats { gap:clamp(18px,3vw,54px); margin-bottom:clamp(22px,3.4vh,44px); }
+.stat b { font-size:clamp(36px,5.8vw,108px); }
+.stat u { font-size:clamp(9px,.92vw,15px); margin-top:.6em; }
+.stat span { font-size:clamp(12px,1.22vw,21px); margin-top:.45em; line-height:1.3; }
+.detailed .stat b { font-size:clamp(27px,3.9vw,70px); }
 
-/* The opening frame. Deliberately unlike the slides: it is a title card, and it
-   is what sits on the television while the room settles. */
+/* Title card. */
 .cover { display:flex; flex-direction:column; justify-content:center; height:100%; }
-.mark { display:flex; align-items:center; gap:.8em; color:var(--accent); font-weight:700; letter-spacing:.34em; text-transform:uppercase; font-size:clamp(10px,1.05vw,15px); margin-bottom:clamp(20px,3.4vh,42px); }
-.mark i { display:block; width:clamp(7px,.7vw,11px); height:clamp(7px,.7vw,11px); border-radius:50%; background:var(--accent); box-shadow:0 0 18px var(--accent); animation:pulse 2.6s ease-in-out infinite; }
-@keyframes pulse { 50% { opacity:.35; transform:scale(.82); } }
-.cover h1 { font-size:clamp(34px,6.4vw,124px); max-width:19em; }
-.cover .sub { font-size:clamp(15px,1.85vw,32px); margin-top:clamp(16px,2.6vh,34px); max-width:30em; line-height:1.45; }
-.cover .hint { margin-top:clamp(26px,4.4vh,56px); color:var(--ink-faint); font-size:clamp(11px,1.15vw,18px); display:flex; align-items:center; gap:.7em; }
-.cover .hint b { color:var(--ink-dim); font-weight:600; }
+.mark { display:flex; align-items:center; gap:.7em; color:var(--accent); font-weight:800; letter-spacing:.3em; text-transform:uppercase; font-size:clamp(10px,1.05vw,16px); margin-bottom:clamp(22px,3.6vh,46px); }
+.mark i { display:block; width:clamp(8px,.8vw,13px); height:clamp(8px,.8vw,13px); border-radius:50%; background:var(--accent); animation:pulse 2.8s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity:.3; transform:scale(.8); } }
+.cover h1 { font-size:clamp(36px,6.6vw,128px); max-width:18em; }
+.cover .sub { font-size:clamp(15px,1.9vw,33px); margin-top:clamp(18px,2.8vh,36px); max-width:28em; line-height:1.42; }
+.cover .hint { margin-top:clamp(28px,4.6vh,60px); color:var(--ink-3); font-size:clamp(11px,1.15vw,18px); }
+.cover .hint b { color:var(--accent); font-weight:700; }
 
-.foot { position:absolute; left:clamp(30px,6vw,110px); right:clamp(30px,6vw,110px); bottom:clamp(20px,3vh,38px); display:flex; justify-content:space-between; align-items:baseline; font-size:clamp(10px,1.05vw,16px); color:var(--ink-faint); z-index:4; }
-.foot .now { color:var(--ink-dim); }
+/* Position, as chapter-grouped ticks. Twenty-three dots in ten groups tells you
+   where you are and how much of this chapter is left, which a "4 / 23" cannot. */
+.dots { position:absolute; left:clamp(34px,6.5vw,120px); bottom:clamp(30px,4.4vh,54px); display:flex; align-items:center; gap:clamp(7px,.75vw,13px); }
+.dots .grp { display:flex; gap:clamp(3px,.3vw,5px); }
+.dots span { display:block; width:clamp(5px,.5vw,9px); height:clamp(5px,.5vw,9px); border-radius:99px; background:var(--line); transition:all .4s ease; }
+.dots span.past { background:var(--ink-3); opacity:.5; }
+.dots span.cur { background:var(--accent); width:clamp(17px,1.7vw,30px); }
+
+.foot { position:absolute; right:clamp(34px,6.5vw,120px); bottom:clamp(28px,4.2vh,52px); text-align:right; font-size:clamp(10px,1.02vw,16px); color:var(--ink-3); z-index:4; }
+.foot .now { color:var(--ink-2); font-weight:650; display:block; }
 .offline { color:var(--bad); }
 
-/* A phone or tablet held up as a second screen. */
 @media (max-aspect-ratio:1/1) {
-  h1 { font-size:clamp(28px,7.4vw,58px); }
-  .cover h1 { font-size:clamp(32px,9vw,68px); }
-  li { font-size:clamp(16px,4.3vw,30px); }
-  .detailed li { font-size:clamp(13px,3.5vw,24px); }
+  h1 { font-size:clamp(28px,7.6vw,58px); }
+  .cover h1 { font-size:clamp(33px,9.2vw,70px); }
+  li { font-size:clamp(16px,4.4vw,30px); }
+  .detailed li { font-size:clamp(13px,3.6vw,24px); }
   .chapter { font-size:clamp(10px,2.7vw,15px); }
-  .stat b { font-size:clamp(28px,9vw,56px); }
-  .stats { gap:18px; }
+  .stat b { font-size:clamp(30px,9.4vw,58px); }
+  .stats { gap:20px; }
+  .ghost { font-size:26vw; }
   .foot { font-size:clamp(10px,2.6vw,14px); }
 }
 </style></head>
 <body>
-<div class="bg"><i></i><i></i><i></i></div>
-<div class="grain"></div>
+<div class="bg"><i></i><i></i></div>
 <div class="rail"><b id="rail" style="width:0"></b></div>
 <div class="wrap" id="wrap"><div id="stage"></div></div>
+<div class="dots" id="dots"></div>
 <div class="foot">
   <span class="now" id="count"></span>
-  <span id="brand">Made by Thunder &middot; running on our own hardware</span>
+  <span id="brand">Made by Thunder &middot; our own hardware</span>
 </div>
 <script>
 const DATA = __PAYLOAD__;
@@ -266,31 +277,53 @@ let rev = -1, failures = 0;
 
 function esc(t) { const d = document.createElement('div'); d.textContent = t; return d.innerHTML; }
 
+/* *phrase* becomes a highlighted phrase. content.py validates that the markers
+   pair up, so an odd one cannot reach here and highlight the rest of the line. */
+function rich(text) {
+  const parts = String(text).split('*');
+  let out = '';
+  for (let i = 0; i < parts.length; i++) {
+    out += (i % 2) ? '<mark>' + esc(parts[i]) + '</mark>' : esc(parts[i]);
+  }
+  return out;
+}
+
 function bullets(lines) {
   return '<ul>' + lines.map(function (line, i) {
-    return '<li class="fx" style="animation-delay:' + (90 + i * 75) + 'ms">' +
-           '<s>' + String(i + 1).padStart(2, '0') + '</s><span>' + esc(line) + '</span></li>';
+    return '<li class="fx" style="animation-delay:' + (110 + i * 80) + 'ms">' +
+           '<s>' + String(i + 1).padStart(2, '0') + '</s><span>' + rich(line) + '</span></li>';
   }).join('') + '</ul>';
 }
 
 function statsBlock(stats) {
   return '<div class="stats">' + stats.map(function (s, i) {
-    return '<div class="stat ' + (s.tone || '') + ' fx" style="animation-delay:' + (90 + i * 95) + 'ms">' +
-           '<b>' + esc(s.value) + '</b>' +
+    return '<div class="stat ' + (s.tone || '') + ' fx" style="animation-delay:' + (110 + i * 100) + 'ms">' +
+           '<hr><b>' + esc(s.value) + '</b>' +
            (s.unit ? '<u>' + esc(s.unit) + '</u>' : '<u>&nbsp;</u>') +
            '<span>' + esc(s.label) + '</span></div>';
   }).join('') + '</div>';
+}
+
+function dots(slide, started) {
+  const box = document.getElementById('dots');
+  if (!started) { box.innerHTML = ''; return; }
+  box.innerHTML = DATA.sections.map(function (sec) {
+    let g = '';
+    for (let i = sec.first; i < sec.first + sec.count; i++) {
+      g += '<span class="' + (i === slide ? 'cur' : (i < slide ? 'past' : '')) + '"></span>';
+    }
+    return '<span class="grp">' + g + '</span>';
+  }).join('');
 }
 
 function cover() {
   const s = DATA.slides[0];
   return '<div class="cover">' +
     '<div class="mark fx"><i></i><span>Thunder</span></div>' +
-    '<h1 class="fx" style="animation-delay:80ms">' + esc(s.title) + '</h1>' +
-    '<div class="sub fx" style="animation-delay:180ms">Six computers in a house, running our own AI. ' +
+    '<h1 class="fx" style="animation-delay:90ms">' + esc(s.title) + '</h1>' +
+    '<div class="sub fx" style="animation-delay:200ms">Six computers in a house, running our own AI. ' +
       'Nothing we do leaves the building.</div>' +
-    '<div class="hint fx" style="animation-delay:300ms">Waiting for the presenter to pick ' +
-      '<b>&nbsp;Quick tour&nbsp;</b> or <b>&nbsp;Full detail</b></div>' +
+    '<div class="hint fx" style="animation-delay:320ms">Choose <b>Quick tour</b> or <b>Full detail</b> to begin</div>' +
     '</div>';
 }
 
@@ -304,28 +337,30 @@ function render(st) {
     stage.innerHTML = cover();
     document.getElementById('count').textContent = '';
     document.getElementById('rail').style.width = '0';
+    dots(0, false);
     return;
   }
 
   const s = DATA.slides[st.slide];
   if (!s) return;
   const sec = DATA.sections.find(function (x) { return x.name === s.section; }) || {};
-  document.documentElement.style.setProperty('--accent', DATA.accents[s.section] || '#C4A35A');
+  document.documentElement.style.setProperty('--accent', DATA.accents[s.section] || '#C2410C');
   wrap.className = 'wrap' + (st.detail ? ' detailed' : '');
 
-  const lines = st.detail ? s.detail : s.short;
-  const head = '<div class="chapter fx"><s>' + String(sec.number || 1).padStart(2, '0') +
-               '</s><em></em><span>' + esc(s.section) + '</span></div>' +
-               '<h1 class="fx" style="animation-delay:60ms">' + esc(s.title) + '</h1>';
+  const n = String(sec.number || 1).padStart(2, '0');
+  stage.innerHTML =
+    '<div class="ghost">' + n + '</div>' +
+    '<div class="slide">' +
+      '<div class="chapter fx"><em></em><s>' + n + '</s><span>' + esc(s.section) + '</span></div>' +
+      '<h1 class="fx" style="animation-delay:70ms">' + rich(s.title) + '</h1>' +
+      ((s.layout === 'stats' && s.stats) ? statsBlock(s.stats) : '') +
+      bullets(st.detail ? s.detail : s.short) +
+    '</div>';
 
-  stage.innerHTML = '<div class="slide">' + head +
-    ((s.layout === 'stats' && s.stats) ? statsBlock(s.stats) : '') +
-    bullets(lines) + '</div>';
-
-  document.getElementById('count').textContent =
-    esc(s.section) + '  —  ' + (st.slide + 1) + ' of ' + DATA.slides.length;
+  document.getElementById('count').textContent = (st.slide + 1) + ' / ' + DATA.slides.length;
   document.getElementById('rail').style.width =
     ((st.slide + 1) / DATA.slides.length * 100) + '%';
+  dots(st.slide, true);
 }
 
 async function poll() {
@@ -335,7 +370,7 @@ async function poll() {
     failures = 0;
     const brand = document.getElementById('brand');
     brand.classList.remove('offline');
-    brand.textContent = 'Made by Thunder · running on our own hardware';
+    brand.textContent = 'Made by Thunder · our own hardware';
     if (st.rev !== rev) { rev = st.rev; render(st); }
   } catch (e) {
     // Say so on the third miss, not the first: one dropped poll on wifi is
@@ -343,7 +378,7 @@ async function poll() {
     if (++failures >= 3) {
       const brand = document.getElementById('brand');
       brand.classList.add('offline');
-      brand.textContent = 'Lost the presenter — slide is frozen';
+      brand.textContent = 'Lost the presenter';
     }
   }
   setTimeout(poll, 700);
@@ -359,77 +394,88 @@ _PRESENTER = r"""<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<meta name="theme-color" content="#0A0C10">
+<meta name="theme-color" content="#FBF9F5">
 <title>Thunder &middot; presenter</title>
 <style>__CSS__
-.bar { display:flex; align-items:center; gap:7px; padding:12px 14px 10px; }
-.bar .who { font-size:10px; letter-spacing:.2em; text-transform:uppercase; color:var(--accent); font-weight:750; }
-.bar .sp { flex:1; }
-.chip { background:var(--glass); border:1px solid var(--edge); border-radius:999px; padding:8px 13px; font-size:12px; color:var(--ink-dim); font-weight:600; }
-.chip.on { background:var(--accent); border-color:var(--accent); color:#0A0C10; }
-.scroll { flex:1; overflow-y:auto; overscroll-behavior:contain; padding:4px 14px 122px; }
+.bar { display:flex; align-items:center; gap:6px; padding:12px 13px 10px; overflow-x:auto; scrollbar-width:none; }
+.bar::-webkit-scrollbar { display:none; }
+.bar .who { font-size:10px; letter-spacing:.18em; text-transform:uppercase; color:var(--accent); font-weight:800; flex:none; }
+.bar .sp { flex:1; min-width:4px; }
+.chip { background:var(--card); border:1px solid var(--line); border-radius:999px; padding:8px 13px; font-size:12px; color:var(--ink-2); font-weight:650; flex:none; box-shadow:var(--shadow); }
+.chip.on { background:var(--accent); border-color:var(--accent); color:#fff; }
+.scroll { flex:1; overflow-y:auto; overscroll-behavior:contain; padding:4px 13px 124px; }
 
-.slidecard { padding:16px; }
-.slidecard .chapter { font-size:10px; margin-bottom:11px; }
-.slidecard h1 { font-size:22px; margin-bottom:13px; }
-.slidecard ul { gap:10px; }
+.slidecard { background:var(--card); border:1px solid var(--line); border-radius:18px; padding:17px; box-shadow:var(--shadow); }
+.slidecard .chapter { font-size:10px; margin-bottom:12px; }
+.slidecard .chapter em { width:20px; }
+.slidecard h1 { font-size:23px; margin-bottom:14px; }
+.slidecard ul { gap:11px; }
 .slidecard li { font-size:14px; line-height:1.45; }
-.slidecard li > s { font-size:.72em; padding-top:.3em; }
-.slidecard .stats { gap:12px; margin-bottom:14px; }
-.slidecard .stat { padding-left:10px; min-width:4.6em; }
-.slidecard .stat b { font-size:26px; }
-.slidecard .stat u { font-size:9px; margin-top:.3em; }
-.slidecard .stat span { font-size:11px; margin-top:.35em; line-height:1.25; }
+.slidecard li > s { font-size:.7em; padding-top:.3em; }
+.slidecard .stats { gap:14px; margin-bottom:15px; }
+.slidecard .stat { min-width:4.4em; }
+.slidecard .stat hr { width:1.6em; height:2px; margin-bottom:.5em; }
+.slidecard .stat b { font-size:27px; }
+.slidecard .stat u { font-size:8px; margin-top:.45em; }
+.slidecard .stat span { font-size:11px; margin-top:.3em; line-height:1.25; }
 
-.label { color:var(--accent); font-size:10px; letter-spacing:.2em; text-transform:uppercase; font-weight:750; margin:22px 0 9px; display:flex; align-items:center; gap:8px; }
-.label em { flex:1; height:1px; background:var(--edge); font-style:normal; }
-.notes { background:color-mix(in srgb,var(--accent) 9%,transparent); border:1px solid color-mix(in srgb,var(--accent) 26%,transparent); border-radius:14px; padding:15px; font-size:15px; line-height:1.58; color:var(--ink); }
-.next { color:var(--ink-dim); font-size:13px; line-height:1.5; }
+.label { color:var(--accent); font-size:10px; letter-spacing:.18em; text-transform:uppercase; font-weight:800; margin:22px 0 9px; display:flex; align-items:center; gap:9px; }
+.label em { flex:1; height:1px; background:var(--line); font-style:normal; }
+.notes { background:var(--card); border:1px solid var(--line); border-left:3px solid var(--accent); border-radius:6px 16px 16px 6px; padding:15px; font-size:15px; line-height:1.58; color:var(--ink); box-shadow:var(--shadow); }
+.next { color:var(--ink-2); font-size:13px; line-height:1.5; }
 .termrow { display:flex; flex-wrap:wrap; gap:8px; }
-.termrow .term { background:var(--glass); border:1px solid var(--edge); border-bottom-style:dashed; border-radius:9px; padding:7px 11px; font-size:13px; }
+.termrow button { background:var(--card); border:1px solid var(--line); border-bottom:2px solid var(--accent); border-radius:10px; padding:8px 12px; font-size:13px; color:var(--ink); font-weight:600; box-shadow:var(--shadow); }
 
-.nav { position:fixed; left:0; right:0; bottom:0; display:flex; gap:9px; padding:11px 14px calc(11px + env(safe-area-inset-bottom)); background:linear-gradient(to top,rgba(10,12,16,.99),rgba(10,12,16,.9)); border-top:1px solid var(--edge); z-index:8; }
-.nav button { flex:1; background:var(--glass); border:1px solid var(--edge); border-radius:13px; padding:15px 0; font-size:15px; font-weight:650; }
-.nav button.primary { background:var(--accent); border-color:var(--accent); color:#0A0C10; flex:1.7; }
-.nav button:disabled { opacity:.3; }
+.nav { position:fixed; left:0; right:0; bottom:0; display:flex; gap:9px; padding:11px 13px calc(11px + env(safe-area-inset-bottom)); background:linear-gradient(to top,var(--paper) 72%,rgba(251,249,245,.86)); border-top:1px solid var(--line); z-index:8; }
+.nav button { flex:1; background:var(--card); border:1px solid var(--line); border-radius:14px; padding:15px 0; font-size:15px; font-weight:700; box-shadow:var(--shadow); }
+.nav button.primary { background:var(--accent); border-color:var(--accent); color:#fff; flex:1.8; }
+.nav button:disabled { opacity:.35; box-shadow:none; }
 
-.sheet { position:fixed; inset:0; background:rgba(6,8,11,.78); backdrop-filter:blur(7px); display:none; align-items:flex-end; z-index:20; }
+.sheet { position:fixed; inset:0; background:rgba(20,22,26,.4); backdrop-filter:blur(5px); display:none; align-items:flex-end; z-index:20; }
 .sheet.open { display:flex; animation:fadein .2s ease; }
 @keyframes fadein { from { opacity:0; } }
-.sheetbody { background:var(--bg1); border:1px solid var(--edge); border-bottom:0; width:100%; max-height:82vh; overflow-y:auto; border-radius:20px 20px 0 0; padding:20px 18px calc(22px + env(safe-area-inset-bottom)); animation:up .26s cubic-bezier(.16,1,.3,1); }
-@keyframes up { from { transform:translateY(26px); } }
-.sheetbody h2 { margin:0 0 10px; font-size:17px; color:var(--accent); letter-spacing:-.01em; }
-.sheetbody p { font-size:15px; line-height:1.6; margin:0; color:var(--ink); }
-.grip { width:36px; height:4px; border-radius:99px; background:var(--edge); margin:0 auto 16px; }
+.sheetbody { background:var(--paper); border-top:1px solid var(--line); width:100%; max-height:84vh; overflow-y:auto; border-radius:22px 22px 0 0; padding:18px 16px calc(24px + env(safe-area-inset-bottom)); box-shadow:var(--shadow-lg); animation:up .28s cubic-bezier(.16,1,.3,1); }
+@keyframes up { from { transform:translateY(28px); } }
+.sheetbody h2 { margin:0 0 9px; font-size:19px; color:var(--ink); letter-spacing:-.015em; }
+.sheetbody p { font-size:15px; line-height:1.6; margin:0; color:var(--ink-2); }
+.grip { width:38px; height:4px; border-radius:99px; background:var(--line); margin:0 auto 16px; }
+.note { color:var(--ink-3); font-size:12px; margin-bottom:15px; line-height:1.45; }
 
-/* Contents. A grid of chapters, not a list of 23 slides - the complaint was
-   being stuck swiping, and what fixes that is jumping to a chapter by name. */
-.toc h2 { margin:0 0 4px; font-size:19px; color:var(--ink); }
-.toc .note { color:var(--ink-faint); font-size:12px; margin-bottom:16px; }
-.chap { display:flex; align-items:center; gap:13px; width:100%; text-align:left; padding:13px 12px; border-radius:13px; border:1px solid var(--edge); background:var(--glass); margin-bottom:9px; }
-.chap.cur { border-color:var(--accent); background:color-mix(in srgb,var(--accent) 12%,transparent); }
-.chap .n { font-size:12px; font-weight:750; font-variant-numeric:tabular-nums; width:22px; flex:none; opacity:.85; }
+/* Contents: chapters, not 23 slides. */
+.chap { display:flex; align-items:center; gap:13px; width:100%; text-align:left; padding:13px 13px; border-radius:14px; border:1px solid var(--line); background:var(--card); margin-bottom:9px; box-shadow:var(--shadow); }
+.chap.cur { border-color:var(--accent); border-width:2px; }
+.chap .n { font-size:13px; font-weight:800; font-variant-numeric:tabular-nums; width:23px; flex:none; }
 .chap .t { flex:1; }
-.chap .t b { display:block; font-size:15px; font-weight:650; }
-.chap .t span { display:block; font-size:12px; color:var(--ink-dim); margin-top:2px; line-height:1.35; }
-.chap .c { font-size:11px; color:var(--ink-faint); flex:none; font-variant-numeric:tabular-nums; }
+.chap .t b { display:block; font-size:15px; font-weight:700; color:var(--ink); }
+.chap .t span { display:block; font-size:12px; color:var(--ink-3); margin-top:2px; line-height:1.35; }
+.chap .c { font-size:11px; color:var(--ink-3); flex:none; font-variant-numeric:tabular-nums; }
+
+/* Voice picker. */
+.vrow { display:flex; align-items:center; gap:11px; width:100%; padding:12px 13px; border-radius:13px; border:1px solid var(--line); background:var(--card); margin-bottom:8px; box-shadow:var(--shadow); }
+.vrow.cur { border-color:var(--accent); border-width:2px; }
+.vrow .t { flex:1; text-align:left; }
+.vrow .t b { display:block; font-size:15px; font-weight:700; color:var(--ink); }
+.vrow .t span { display:block; font-size:12px; color:var(--ink-3); margin-top:2px; }
+.vrow .play { flex:none; width:38px; height:38px; border-radius:50%; background:var(--accent); color:#fff; font-size:14px; font-weight:800; }
+.vrow .use { flex:none; font-size:12px; font-weight:700; color:var(--accent); padding:8px 10px; }
+.prog { height:6px; border-radius:99px; background:var(--line); overflow:hidden; margin:12px 0 4px; }
+.prog b { display:block; height:100%; background:var(--accent); transition:width .3s ease; }
 
 /* The opening choice. */
-.start { padding:26px 18px 30px; }
-.start .mark { display:flex; align-items:center; gap:.75em; color:var(--accent); font-weight:750; letter-spacing:.3em; text-transform:uppercase; font-size:10px; margin-bottom:18px; }
-.start .mark i { width:8px; height:8px; border-radius:50%; background:var(--accent); box-shadow:0 0 14px var(--accent); }
-.start h1 { font-size:27px; margin-bottom:12px; }
-.start .sub { font-size:14px; line-height:1.55; margin-bottom:24px; }
-.pick { display:flex; flex-direction:column; gap:11px; margin-bottom:8px; }
-.pick button { text-align:left; padding:17px 16px; border-radius:15px; border:1px solid var(--edge); background:var(--glass); }
-.pick button.hero { border-color:var(--accent); background:color-mix(in srgb,var(--accent) 13%,transparent); }
-.pick b { display:block; font-size:16px; font-weight:700; margin-bottom:4px; }
-.pick span { display:block; font-size:12.5px; color:var(--ink-dim); line-height:1.45; }
-.pick .meta { color:var(--accent); font-weight:650; }
+.start { padding:24px 16px 28px; }
+.start .mark { display:flex; align-items:center; gap:.7em; color:var(--accent); font-weight:800; letter-spacing:.26em; text-transform:uppercase; font-size:10px; margin-bottom:18px; }
+.start .mark i { width:9px; height:9px; border-radius:50%; background:var(--accent); }
+.start h1 { font-size:28px; margin-bottom:12px; }
+.start .sub { font-size:14px; line-height:1.55; margin-bottom:22px; }
+.pick { display:flex; flex-direction:column; gap:10px; }
+.pick button { text-align:left; padding:17px 16px; border-radius:16px; border:1px solid var(--line); background:var(--card); box-shadow:var(--shadow); }
+.pick button.hero { border-color:var(--accent); border-width:2px; }
+.pick b { display:block; font-size:16px; font-weight:750; margin-bottom:4px; color:var(--ink); }
+.pick span { display:block; font-size:12.5px; color:var(--ink-2); line-height:1.45; }
+.pick .meta { color:var(--accent); font-weight:700; }
 </style></head>
 <body>
-<div class="bg"><i></i><i></i><i></i></div>
-<div class="grain"></div>
+<div class="bg"><i></i><i></i></div>
 <div class="rail"><b id="rail" style="width:0"></b></div>
 
 <div class="wrap">
@@ -438,6 +484,7 @@ _PRESENTER = r"""<!doctype html>
     <span class="sp"></span>
     <button class="chip" id="autoBtn">Auto</button>
     <button class="chip" id="speakBtn">Read</button>
+    <button class="chip" id="voiceBtn">Voice</button>
     <button class="chip" id="detailBtn">Detail</button>
     <button class="chip" id="tocBtn">Contents</button>
   </div>
@@ -449,16 +496,25 @@ _PRESENTER = r"""<!doctype html>
 </div>
 
 <div class="sheet" id="sheet"><div class="sheetbody">
-  <div class="grip"></div>
-  <h2 id="sheetTitle"></h2>
-  <p id="sheetText"></p>
+  <div class="grip"></div><h2 id="sheetTitle"></h2><p id="sheetText"></p>
 </div></div>
 
-<div class="sheet" id="toc"><div class="sheetbody toc">
-  <div class="grip"></div>
-  <h2>Contents</h2>
+<div class="sheet" id="toc"><div class="sheetbody">
+  <div class="grip"></div><h2>Contents</h2>
   <div class="note" id="tocNote"></div>
   <div id="tocList"></div>
+</div></div>
+
+<div class="sheet" id="voices"><div class="sheetbody">
+  <div class="grip"></div><h2>Narrator</h2>
+  <div class="note">Every voice reads the same line, so the seconds are pure pace.
+    Tap the circle to hear it. "Use this" re-narrates all 23 slides on Main -
+    about a minute.</div>
+  <div id="voiceList"></div>
+  <div id="voiceProg" style="display:none">
+    <div class="prog"><b id="voiceBar" style="width:0"></b></div>
+    <div class="note" id="voiceStatus"></div>
+  </div>
 </div></div>
 
 <script>
@@ -466,6 +522,15 @@ const DATA = __PAYLOAD__;
 let st = { slide: 0, detail: false, started: false };
 
 function esc(t) { const d = document.createElement('div'); d.textContent = t; return d.innerHTML; }
+
+function rich(text) {
+  const parts = String(text).split('*');
+  let out = '';
+  for (let i = 0; i < parts.length; i++) {
+    out += (i % 2) ? '<mark>' + esc(parts[i]) + '</mark>' : esc(parts[i]);
+  }
+  return out;
+}
 
 function post(patch) {
   Object.assign(st, patch);
@@ -484,19 +549,20 @@ function go(delta) {
   post({ slide: n });
 }
 
-function jump(i) {
-  if (!auto) stopSpeaking();
-  post({ slide: i, started: true });
-}
+function jump(i) { if (!auto) stopSpeaking(); post({ slide: i, started: true }); }
 
 function openSheet(title, text) {
   document.getElementById('sheetTitle').textContent = title;
   document.getElementById('sheetText').textContent = text;
   document.getElementById('sheet').classList.add('open');
 }
+function closeSheets() {
+  document.querySelectorAll('.sheet.open').forEach(function (s) { s.classList.remove('open'); });
+}
 
 /* ---------------------------------------------------------------- narration */
 const audio = new Audio();
+const sampler = new Audio();
 let auto = false;
 
 function stopSpeaking() {
@@ -511,15 +577,15 @@ function speak() {
     document.getElementById('speakBtn').className = 'chip on';
   }).catch(function () {
     document.getElementById('speakBtn').className = 'chip';
-    openSheet('No narration yet', 'This slide has not been narrated. Run ' +
-      'python3 -m onboarding.narrate on Main to generate it.');
+    openSheet('No narration yet', 'This slide has not been narrated. Pick a ' +
+      'voice under Voice, or run python3 -m onboarding.narrate on Main.');
   });
 }
 
 audio.onended = function () {
   document.getElementById('speakBtn').className = 'chip';
   if (auto && st.slide < DATA.slides.length - 1) {
-    setTimeout(function () { if (auto) { go(1); speak(); } }, 1100);
+    setTimeout(function () { if (auto) { go(1); speak(); } }, 1000);
   } else if (auto) {
     auto = false;
     document.getElementById('autoBtn').className = 'chip';
@@ -532,46 +598,44 @@ function startScreen() {
     '<div class="mark"><i></i><span>Thunder</span></div>' +
     '<h1>' + esc(DATA.slides[0].title) + '</h1>' +
     '<div class="sub">' + DATA.slides.length + ' slides across ' + DATA.sections.length +
-      ' chapters. Pick how much detail goes on the television — you can ' +
-      'switch at any point, and either way your notes stay on this screen.</div>' +
+      ' chapters. Pick how much detail goes on the television — you can switch ' +
+      'at any point, and either way your notes stay on this screen.</div>' +
     '<div class="pick">' +
       '<button class="hero" onclick="begin(false)">' +
-        '<b>Quick tour</b><span>The short version. A few lines a slide, big enough ' +
-        'to read across a room. <span class="meta">Best if you are talking over it.</span></span></button>' +
+        '<b>Quick tour</b><span>The short version. A few lines a slide, big enough to ' +
+        'read across a room. <span class="meta">Best if you are talking over it.</span></span></button>' +
       '<button onclick="begin(true)">' +
         '<b>Full detail</b><span>Every slide expanded with the depth behind it. ' +
         '<span class="meta">Best if someone is reading it themselves.</span></span></button>' +
       '<button onclick="document.getElementById(\'tocBtn\').click()">' +
-        '<b>Jump to a chapter</b><span>Skip straight to claims, security, or ' +
-        'wherever the question lands.</span></button>' +
+        '<b>Jump to a chapter</b><span>Skip straight to claims, security, or wherever ' +
+        'the question lands.</span></button>' +
     '</div></div>';
 }
 
 function bullets(lines) {
   return '<ul>' + lines.map(function (line, i) {
-    return '<li><s>' + String(i + 1).padStart(2, '0') + '</s><span>' + esc(line) + '</span></li>';
+    return '<li><s>' + String(i + 1).padStart(2, '0') + '</s><span>' + rich(line) + '</span></li>';
   }).join('') + '</ul>';
 }
 
 function statsBlock(stats) {
   return '<div class="stats">' + stats.map(function (s) {
-    return '<div class="stat ' + (s.tone || '') + '"><b>' + esc(s.value) + '</b>' +
+    return '<div class="stat ' + (s.tone || '') + '"><hr><b>' + esc(s.value) + '</b>' +
            (s.unit ? '<u>' + esc(s.unit) + '</u>' : '<u>&nbsp;</u>') +
            '<span>' + esc(s.label) + '</span></div>';
   }).join('') + '</div>';
 }
 
 function render() {
-  const bar = document.getElementById('bar');
   const nav = document.getElementById('nav');
   const scroll = document.getElementById('scroll');
+  const hideable = ['autoBtn', 'speakBtn', 'detailBtn'];
 
   if (!st.started) {
     document.documentElement.style.setProperty('--accent', DATA.accents[DATA.slides[0].section]);
-    // Only Contents is useful before starting; the rest would act on nothing.
-    ['autoBtn', 'speakBtn', 'detailBtn'].forEach(function (id) {
-      document.getElementById(id).style.display = 'none';
-    });
+    // Only Voice and Contents do anything before starting.
+    hideable.forEach(function (id) { document.getElementById(id).style.display = 'none'; });
     nav.style.display = 'none';
     document.getElementById('rail').style.width = '0';
     scroll.innerHTML = startScreen();
@@ -579,30 +643,27 @@ function render() {
     return;
   }
 
-  ['autoBtn', 'speakBtn', 'detailBtn'].forEach(function (id) {
-    document.getElementById(id).style.display = '';
-  });
+  hideable.forEach(function (id) { document.getElementById(id).style.display = ''; });
   nav.style.display = '';
-  scroll.style.paddingBottom = '122px';
+  scroll.style.paddingBottom = '124px';
 
   const s = DATA.slides[st.slide];
   const sec = DATA.sections.find(function (x) { return x.name === s.section; }) || {};
-  document.documentElement.style.setProperty('--accent', DATA.accents[s.section] || '#C4A35A');
+  document.documentElement.style.setProperty('--accent', DATA.accents[s.section] || '#C2410C');
 
   const terms = (s.terms && s.terms.length)
     ? '<div class="termrow">' + s.terms.map(function (n) {
-        return '<button class="term" onclick="defn(this)" data-t="' + esc(n) + '">' + esc(n) + '</button>';
+        return '<button onclick="defn(this)" data-t="' + esc(n) + '">' + esc(n) + '</button>';
       }).join('') + '</div>'
     : '<div class="next">Nothing to define on this one.</div>';
-
   const nxt = DATA.slides[st.slide + 1];
+  const n = String(sec.number || 1).padStart(2, '0');
 
   scroll.innerHTML =
-    '<div class="card slidecard">' +
-      '<div class="chapter"><s>' + String(sec.number || 1).padStart(2, '0') +
-        '</s><em></em><span>' + esc(s.section) + '  ·  ' +
-        (st.slide + 1) + '/' + DATA.slides.length + '</span></div>' +
-      '<h1>' + esc(s.title) + '</h1>' +
+    '<div class="slidecard">' +
+      '<div class="chapter"><em></em><s>' + n + '</s><span>' + esc(s.section) +
+        '  ·  ' + (st.slide + 1) + '/' + DATA.slides.length + '</span></div>' +
+      '<h1>' + rich(s.title) + '</h1>' +
       ((s.layout === 'stats' && s.stats) ? statsBlock(s.stats) : '') +
       bullets(st.detail ? s.detail : s.short) +
     '</div>' +
@@ -621,7 +682,69 @@ function render() {
 }
 
 function begin(detail) { post({ started: true, detail: detail, slide: 0 }); }
-function defn(el) { const n = el.getAttribute('data-t'); openSheet(n, DATA.glossary[n] || ''); }
+function defn(el) { const k = el.getAttribute('data-t'); openSheet(k, DATA.glossary[k] || ''); }
+
+/* ---------------------------------------------------------- voice selection */
+let voiceData = null;
+
+function playSample(v) {
+  sampler.pause();
+  sampler.src = '/deck/voice-sample/' + v;
+  sampler.play().catch(function () {
+    openSheet('Could not play that', 'Main may still be synthesising the sample. Try again.');
+  });
+}
+
+function useVoice(v) {
+  fetch('/deck/narrate', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ voice: v })
+  }).then(function () {
+    document.getElementById('voiceProg').style.display = '';
+    pollNarrate();
+  });
+}
+
+function pollNarrate() {
+  fetch('/deck/narrate/status', { cache: 'no-store' })
+    .then(function (r) { return r.json(); })
+    .then(function (p) {
+      const pct = p.total ? (p.done / p.total * 100) : 0;
+      document.getElementById('voiceBar').style.width = pct + '%';
+      document.getElementById('voiceStatus').textContent = p.error
+        ? ('Failed: ' + p.error)
+        : (p.running ? ('Narrating ' + p.done + ' of ' + p.total + ' in ' + p.voice + '…')
+                     : (p.done ? ('Done — ' + p.done + ' slides in ' + p.voice + '.') : ''));
+      if (p.running) setTimeout(pollNarrate, 1200);
+      else if (!p.error) { voiceData = null; renderVoices(); }
+    })
+    .catch(function () { /* leave the last message up */ });
+}
+
+function renderVoices() {
+  const list = document.getElementById('voiceList');
+  if (!voiceData) {
+    fetch('/deck/voices', { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) { voiceData = d; renderVoices(); });
+    list.innerHTML = '<div class="note">Loading voices…</div>';
+    return;
+  }
+  list.innerHTML = '';
+  voiceData.choices.forEach(function (c) {
+    const row = document.createElement('div');
+    row.className = 'vrow' + (c.voice === voiceData.current ? ' cur' : '');
+    row.innerHTML =
+      '<button class="play">&#9654;</button>' +
+      '<span class="t"><b>' + esc(c.name) + '</b><span>' + esc(c.note) + '</span></span>' +
+      (c.voice === voiceData.current ? '<span class="use">in use</span>'
+                                     : '<button class="use">Use this</button>');
+    row.querySelector('.play').onclick = function () { playSample(c.voice); };
+    const use = row.querySelector('button.use');
+    if (use) use.onclick = function () { useVoice(c.voice); };
+    list.appendChild(row);
+  });
+}
 
 /* ------------------------------------------------------------------ wiring */
 document.getElementById('prev').onclick = function () { go(-1); };
@@ -635,11 +758,17 @@ document.getElementById('autoBtn').onclick = function () {
   this.className = 'chip' + (auto ? ' on' : '');
   if (auto) { if (!st.started) post({ started: true }); speak(); } else stopSpeaking();
 };
+document.getElementById('voiceBtn').onclick = function () {
+  renderVoices();
+  document.getElementById('voices').classList.add('open');
+};
 
 document.getElementById('sheet').onclick = function () { this.classList.remove('open'); };
-document.getElementById('toc').onclick = function (e) {
-  if (e.target === this) this.classList.remove('open');
-};
+['toc', 'voices'].forEach(function (id) {
+  document.getElementById(id).onclick = function (e) {
+    if (e.target === this) this.classList.remove('open');
+  };
+});
 
 document.getElementById('tocBtn').onclick = function () {
   const list = document.getElementById('tocList');
@@ -650,15 +779,12 @@ document.getElementById('tocBtn').onclick = function () {
     const cur = st.started && st.slide >= sec.first && st.slide < sec.first + sec.count;
     const b = document.createElement('button');
     b.className = 'chap' + (cur ? ' cur' : '');
-    b.style.setProperty('--accent', sec.accent);
+    b.style.borderColor = cur ? sec.accent : '';
     b.innerHTML = '<span class="n" style="color:' + sec.accent + '">' +
       String(sec.number).padStart(2, '0') + '</span>' +
       '<span class="t"><b>' + esc(sec.name) + '</b><span>' + esc(sec.blurb) + '</span></span>' +
       '<span class="c">' + sec.count + '</span>';
-    b.onclick = function () {
-      document.getElementById('toc').classList.remove('open');
-      jump(sec.first);
-    };
+    b.onclick = function () { closeSheets(); jump(sec.first); };
     list.appendChild(b);
   });
   document.getElementById('toc').classList.add('open');
@@ -683,14 +809,12 @@ document.addEventListener('touchend', function (e) {
 
 // A keyboard, for rehearsing at the desk.
 document.addEventListener('keydown', function (e) {
-  if (e.key === 'Escape') {
-    document.querySelectorAll('.sheet.open').forEach(function (s) { s.classList.remove('open'); });
-    return;
-  }
+  if (e.key === 'Escape') { closeSheets(); return; }
   if (e.key === 'ArrowRight' || e.key === ' ') go(1);
   if (e.key === 'ArrowLeft') go(-1);
   if (e.key === 'd') post({ detail: !st.detail });
   if (e.key === 't') document.getElementById('tocBtn').click();
+  if (e.key === 'v') document.getElementById('voiceBtn').click();
 });
 
 // Adopt whatever position the deck is already on, so opening the presenter view

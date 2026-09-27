@@ -32,6 +32,7 @@ import memory
 import odris_persona
 import uploads
 from onboarding import deck as onboarding_deck
+from onboarding import narrate as onboarding_narrate
 
 OLLAMA = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
 MODEL = os.environ.get("THUNDER_MODEL", "dolphin3")  # never default to a Qwen/Alibaba model
@@ -1573,6 +1574,62 @@ def local_apk():
     return FileResponse(LOCAL_APK,
                         media_type="application/vnd.android.package-archive",
                         filename="thunder-local.apk")
+
+
+@app.get("/deck/voices")
+def deck_voices():
+    """The narrator shortlist, plus whichever one the deck is currently in.
+
+    A list rather than a decision: the first voice was chosen on the theory that
+    a deep one carries across a room, and it read as flat enough that Blayne
+    thought the audio had cut out. Reputations are not ears.
+    """
+    return {
+        "current": onboarding_narrate.current_voice(),
+        "choices": [{"voice": v, "name": n, "note": d}
+                    for v, n, d in onboarding_narrate.VOICE_CHOICES],
+        "sample_line": onboarding_narrate.SAMPLE_LINE,
+    }
+
+
+@app.get("/deck/voice-sample/{voice}")
+def deck_voice_sample(voice: str):
+    """One fixed sentence in one voice, so they can be compared fairly."""
+    known = {v for v, _, _ in onboarding_narrate.VOICE_CHOICES}
+    if voice not in known:
+        raise HTTPException(status_code=404, detail="not on the shortlist")
+    try:
+        return FileResponse(onboarding_narrate.sample(voice), media_type="audio/wav")
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"could not synthesise: {e}")
+
+
+class DeckNarrateIn(BaseModel):
+    voice: str
+
+
+@app.post("/deck/narrate")
+def deck_narrate(body: DeckNarrateIn):
+    """Re-narrate the whole deck in a chosen voice, in the background.
+
+    Twenty-three slides takes about a minute, which is far too long to hold a
+    request open from a phone, so this starts a thread and the presenter polls
+    /deck/narrate/status.
+    """
+    known = {v for v, _, _ in onboarding_narrate.VOICE_CHOICES}
+    if body.voice not in known:
+        raise HTTPException(status_code=400, detail="not on the shortlist")
+    if onboarding_narrate.PROGRESS.get("running"):
+        return {"ok": False, "message": "already narrating",
+                **onboarding_narrate.PROGRESS}
+    threading.Thread(target=onboarding_narrate.regenerate,
+                     args=(body.voice,), daemon=True).start()
+    return {"ok": True, "started": body.voice}
+
+
+@app.get("/deck/narrate/status")
+def deck_narrate_status():
+    return dict(onboarding_narrate.PROGRESS)
 
 
 @app.get("/deck/audio/{index}")

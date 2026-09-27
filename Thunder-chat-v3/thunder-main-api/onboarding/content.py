@@ -91,8 +91,8 @@ GLOSSARY = {
     "fp8": "An 8-bit number format that makes newer cards much faster. Our 3090 "
            "cannot do it at all - it needs compute capability 8.9 and the 3090 is "
            "8.6. This is not a setting we forgot to turn on; the silicon lacks it.",
-    "NF4": "A different 4-bit format that our card *can* do. It is what makes "
-           "video generation possible here at all.",
+    "NF4": "A different 4-bit format that our card does support, unlike fp8. It "
+           "is what makes video generation possible here at all.",
     "LoRA": "A small add-on trained on top of a big model to teach it one thing. "
             "Cheap to train, easy to swap. The realistic route to a model that is "
             "genuinely ours: not training a giant from scratch, but teaching an "
@@ -132,17 +132,20 @@ SECTIONS = [
 # The colour is not decoration: on a deck this long the fastest way to know where
 # you are is that the room changed colour, and it means a glance at the progress
 # rail tells you how much of a chapter is left.
+# Chosen for a light background. The first set was picked against near-black and
+# they were pastel - on paper they washed out to nothing, which was part of why
+# the deck read as dated. These are deep enough to carry text and a highlight.
 SECTION_META = {
-    "Start here":         {"accent": "#C4A35A", "blurb": "What this is, in ninety seconds"},
-    "The machines":       {"accent": "#7FB3FF", "blurb": "Six towers, and which one matters"},
-    "Thunder":            {"accent": "#FFB347", "blurb": "The assistant, and how it remembers"},
-    "Odris":              {"accent": "#8FCB9B", "blurb": "The watchman that cannot be silenced"},
-    "The call organizer": {"accent": "#C89BFF", "blurb": "Phone logs to a usable sheet"},
-    "Claims":             {"accent": "#6FD8CE", "blurb": "The money, and how it is protected"},
-    "Security":           {"accent": "#FF8A7A", "blurb": "Honest grade, weak spots included"},
-    "Pictures and video": {"accent": "#FF9ED8", "blurb": "The part that demos itself"},
-    "Where this goes":    {"accent": "#FFD479", "blurb": "The business and the real roadmap"},
-    "Working here":       {"accent": "#A8B4C4", "blurb": "How we actually work"},
+    "Start here":         {"accent": "#C2410C", "blurb": "What this is, in ninety seconds"},
+    "The machines":       {"accent": "#1D4ED8", "blurb": "Six towers, and which one matters"},
+    "Thunder":            {"accent": "#B45309", "blurb": "The assistant, and how it remembers"},
+    "Odris":              {"accent": "#047857", "blurb": "The watchman that cannot be silenced"},
+    "The call organizer": {"accent": "#7C3AED", "blurb": "Phone logs to a usable sheet"},
+    "Claims":             {"accent": "#0E7490", "blurb": "The money, and how it is protected"},
+    "Security":           {"accent": "#BE123C", "blurb": "Honest grade, weak spots included"},
+    "Pictures and video": {"accent": "#A21CAF", "blurb": "The part that demos itself"},
+    "Where this goes":    {"accent": "#A16207", "blurb": "The business and the real roadmap"},
+    "Working here":       {"accent": "#334155", "blurb": "How we actually work"},
 }
 
 # Layouts. A deck where every slide is a bulleted list reads as a document
@@ -161,9 +164,9 @@ SLIDES = [
         "layout": "cover",
         "title": "You are looking at a private AI company",
         "short": [
-            "Six computers in a house, running our own AI.",
-            "Nothing we do leaves the building.",
-            "That last sentence is the entire business.",
+            "Six computers in a house, running *our own AI*.",
+            "*Nothing we do leaves the building.*",
+            "That last sentence is *the entire business*.",
         ],
         "detail": [
             "Six computers in a house, running our own AI - chat, images, video, "
@@ -189,10 +192,10 @@ SLIDES = [
         "section": "Start here",
         "title": "What is actually built, in one list",
         "short": [
-            "Thunder - the assistant. Chat, voice, images, video.",
-            "Odris - the watchman. Reports what is breaking.",
-            "The call organizer - turns phone logs into a clean sheet.",
-            "Claims - scan a form, check it, flag it for a human.",
+            "*Thunder* - the assistant. Chat, voice, images, video.",
+            "*Odris* - the watchman. Reports what is breaking.",
+            "*The call organizer* - turns phone logs into a clean sheet.",
+            "*Claims* - scan a form, check it, flag it for a human.",
             "The security layer wrapped around all of it.",
         ],
         "detail": [
@@ -223,11 +226,11 @@ SLIDES = [
         "section": "The machines",
         "title": "Six towers, and only one that matters",
         "short": [
-            "thunder-main - RTX 3090, 24 GB. This one does the work.",
+            "thunder-main - *RTX 3090, 24 GB*. This one does the work.",
             "odris - watches the other five.",
             "serverus - best processor in the house, holds memory.",
             "thunder-engine - safety checks. thunder-cache - spare.",
-            "One card does the thinking. The rest are support.",
+            "*One card does the thinking.* The rest are support.",
         ],
         "detail": [
             "thunder-main (.10) - RTX 3090 with 24 GB of VRAM, 30 GB of system "
@@ -262,8 +265,8 @@ SLIDES = [
             "One 3090 alone: 55.5 tok/s.",
             "3090 + serverus: 2.97.",
             "All four together: 1.80.",
-            "Adding machines made it slower than one machine.",
-            "We know because we measured it, not because we guessed.",
+            "*Adding machines made it slower than one machine.*",
+            "We know because we *measured* it, not because we guessed.",
         ],
         "detail": [
             "Same model, same prompt, measured three ways:",
@@ -291,9 +294,9 @@ SLIDES = [
         "section": "The machines",
         "title": "The tricks that make old hardware work",
         "short": [
-            "Main's board maxes at 32 GB of RAM. That ceiling is real.",
-            "So we borrow memory from three SSDs instead - 1.55 GB/s.",
-            "Twelve times faster than borrowing from another machine.",
+            "Main's board maxes at *32 GB* of RAM. That ceiling is real.",
+            "So we borrow memory from three SSDs instead - *1.55 GB/s*.",
+            "*Twelve times faster* than borrowing from another machine.",
             "The 3090 cannot do fp8. We use NF4, which it can.",
             "Constraints are documented so nobody rediscovers them.",
         ],
@@ -334,7 +337,7 @@ SLIDES = [
             "24 billion parameters, on the 3090, at 55 tok/s.",
             "Talks like a person, not a corporate chatbot.",
             "Android app, voice, images, video, code.",
-            "No API key. No bill. No outage that is not ours.",
+            "*No API key. No bill.* No outage that is not ours.",
         ],
         "detail": [
             "A 23.6-billion-parameter model, quantised to about a quarter of its "
@@ -363,7 +366,7 @@ SLIDES = [
             "A profile that is always loaded: who we are, what the hardware is.",
             "Facts recalled by meaning, only when relevant.",
             "Documents - the handbooks - searchable.",
-            "Most of the gap to a big model is context, not brains.",
+            "Most of the gap to a big model is *context, not brains*.",
         ],
         "detail": [
             "Three layers. A profile always in front of it - who Blayne is, the "
@@ -395,9 +398,9 @@ SLIDES = [
         "title": "Nothing writes to memory unreviewed",
         "short": [
             "At 3am, Thunder reads back only what Blayne said. Never itself.",
-            "It proposes. It does not save.",
+            "*It proposes. It does not save.*",
             "Contradictions get flagged against each other, not silently picked.",
-            "A human approves or rejects. Always.",
+            "A human approves or rejects. *Always.*",
         ],
         "detail": [
             "A job runs nightly and reads the day's conversations - only "
@@ -429,7 +432,7 @@ SLIDES = [
             "A separate assistant on a separate machine.",
             "Its job: node health, hardware, alerts, errors.",
             "Different from Thunder on purpose.",
-            "The rule: the watcher must not be controllable by the watched.",
+            "The rule: *the watcher must not be controllable by the watched*.",
         ],
         "detail": [
             "Odris is not Thunder wearing a hat. Its own instructions, its own "
@@ -456,7 +459,7 @@ SLIDES = [
         "title": "The bug that proves why this matters",
         "short": [
             "The phone warned about serverus. Opening the app showed nothing.",
-            "The warning was real. There was just no screen for it.",
+            "*The warning was real.* There was just no screen for it.",
             "Three separate causes. All three now fixed.",
             "Alerts have a history. Both AIs can explain them.",
         ],
@@ -492,7 +495,7 @@ SLIDES = [
         "short": [
             "Export the call log. Get back a clean spreadsheet.",
             "Robocalls and junk filtered out.",
-            "Caller ID cleaned up - 'Wireless Caller' is not a name.",
+            "Caller ID cleaned up - *'Wireless Caller' is not a name*.",
             "Runs as a web page or a desktop app.",
         ],
         "detail": [
@@ -525,8 +528,8 @@ SLIDES = [
         "title": "Our version of the claims software",
         "short": [
             "Scan a form. Read it. Check it. Flag anything doubtful.",
-            "It submits nothing. Ever. A person decides.",
-            "It already caught the AI corrupting a diagnosis code.",
+            "*It submits nothing. Ever.* A person decides.",
+            "It already caught *the AI corrupting a diagnosis code*.",
             "The practice bills on paper, by hand, today.",
         ],
         "detail": [
@@ -564,10 +567,10 @@ SLIDES = [
             {"value": "0", "unit": "", "label": "Real patient records, so far", "tone": "neutral"},
         ],
         "short": [
-            "Every record encrypted with its own key.",
+            "Every record encrypted with *its own key*.",
             "Searchable without being decrypted.",
             "Every access logged. Keys can be rotated.",
-            "34 attacks run against it. All 34 pass.",
+            "34 attacks run against it. *All 34 pass.*",
         ],
         "detail": [
             "Each record is encrypted with its own key, and those keys are "
@@ -601,10 +604,10 @@ SLIDES = [
         "section": "Claims",
         "title": "Two things we will not overstate",
         "short": [
-            "No real patient data has ever touched this. Synthetic only.",
-            "Good encryption is not compliance.",
+            "*No real patient data has ever touched this.* Synthetic only.",
+            "*Good encryption is not compliance.*",
             "The technical safeguards are built. The paperwork is not.",
-            "Risk analysis, written policies, training, contracts. Not code.",
+            "Risk analysis, written policies, training, contracts. *Not code.*",
         ],
         "detail": [
             "Everything built so far has been tested on invented patients. No "
@@ -640,8 +643,8 @@ SLIDES = [
         "short": [
             "Files that exist only to be opened by the wrong person.",
             "Named like things worth stealing.",
-            "Touch one and the phone knows immediately.",
-            "Detection, not protection - and that distinction matters.",
+            "Touch one and the phone knows *immediately*.",
+            "*Detection, not protection* - and that distinction matters.",
         ],
         "detail": [
             "Scattered where a snooper would look are files named like the "
@@ -673,8 +676,8 @@ SLIDES = [
         "title": "The honest grade, including what is weak",
         "short": [
             "Strong: the claims vault, the Odris dashboard, the egress lockdown.",
-            "Weak: the network is trusted more than it should be.",
-            "Only one service on the fleet asks for a password.",
+            "Weak: *the network is trusted more than it should be*.",
+            "*Only one service on the fleet asks for a password.*",
             "We know because we went looking, not because it broke.",
         ],
         "detail": [
@@ -708,10 +711,10 @@ SLIDES = [
         "section": "Security",
         "title": "The model itself is a supply chain",
         "short": [
-            "For medical work, the model must be one we can trust completely.",
+            "For medical work, the model must be *one we can trust completely*.",
             "Not Chinese-made. Preferably fully open about its training.",
             "Locked-down network means local weights cannot phone home.",
-            "The real risk is behaviour, not networking. Validation covers it.",
+            "The real risk is *behaviour, not networking*. Validation covers it.",
         ],
         "detail": [
             "For anything touching claims, where the model came from is a "
@@ -757,7 +760,7 @@ SLIDES = [
             "Images in seconds. Editing by description.",
             "Video from a sentence - 5 seconds at 480p in about 4 minutes.",
             "1080p exists and costs about 22 minutes.",
-            "All on our card. No subscription, no watermark, no upload.",
+            "All on our card. *No subscription, no watermark, no upload.*",
         ],
         "detail": [
             "Images generate in seconds, and there is a separate model for "
@@ -787,8 +790,8 @@ SLIDES = [
         "section": "Pictures and video",
         "title": "This deck was made by Thunder",
         "short": [
-            "Written, illustrated and narrated on our own hardware.",
-            "No cloud AI touched it.",
+            "Written, illustrated and narrated *on our own hardware*.",
+            "*No cloud AI touched it.*",
             "Which makes it the demo, not a slideshow about the demo.",
         ],
         "detail": [
@@ -816,8 +819,8 @@ SLIDES = [
         "title": "The business, honestly",
         "short": [
             "The family practice bills by hand and pays for cloud storage.",
-            "Thunder is local, so it needs no patient-data contract.",
-            "That is a real moat, not a pitch.",
+            "Thunder is local, so it needs *no patient-data contract*.",
+            "That is a *real moat*, not a pitch.",
             "First: replace the hand-billing. Then look outward.",
         ],
         "detail": [
@@ -848,10 +851,10 @@ SLIDES = [
         "section": "Where this goes",
         "title": "Our own model - the real version of that goal",
         "short": [
-            "Training a frontier model from scratch is not reachable. Straight up.",
-            "Teaching an open model our specific job is reachable.",
+            "Training a frontier model from scratch is *not reachable*. Straight up.",
+            "Teaching an open model our specific job *is reachable*.",
             "A specialist can beat a giant generalist at one narrow task.",
-            "Nobody else has our data. That is the actual advantage.",
+            "*Nobody else has our data.* That is the actual advantage.",
         ],
         "detail": [
             "The honest version first: training a frontier model from scratch "
@@ -917,10 +920,10 @@ SLIDES = [
         "section": "Working here",
         "title": "How we actually work",
         "short": [
-            "Build it, do not describe it.",
-            "Verify before claiming. Check the log, check the endpoint.",
+            "*Build it, do not describe it.*",
+            "*Verify before claiming.* Check the log, check the endpoint.",
             "Write down anything learned the hard way.",
-            "Baby steps. One thing at a time.",
+            "*Baby steps.* One thing at a time.",
         ],
         "detail": [
             "Build it, do not describe it. Hours have been lost to discussing "
@@ -992,6 +995,14 @@ def validate() -> list[str]:
                 problems.append(f"{where}: term {t!r} has no glossary entry")
         if len(s.get("short", [])) > 6:
             problems.append(f"{where}: {len(s['short'])} short lines, max 6 on a TV")
+        # Highlight markers must pair up. An odd asterisk makes the renderer
+        # highlight everything after it, which on a television is glaring and
+        # is the kind of thing nobody notices until it is projected.
+        for field in ("short", "detail"):
+            for line in s.get(field, []):
+                if line.count("*") % 2:
+                    problems.append(
+                        f"{where}: unbalanced * in {field}: {line[:48]!r}")
         layout = s.get("layout", "bullets")
         if layout not in LAYOUTS:
             problems.append(f"{where}: unknown layout {layout!r}")
