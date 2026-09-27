@@ -87,7 +87,7 @@ class FakeOllama:
             def handle(self):
                 try:
                     super().handle()
-                except BrokenPipeError:
+                except (BrokenPipeError, ConnectionResetError):
                     pass  # the guard hung up mid-stream, which is the point
 
         self.url = serve(H)
@@ -108,6 +108,7 @@ def run_agent(turns, user_text="q", box=None):
 
 # ---- a real gate on loopback, with the internet tools stubbed ---------------
 
+REAL_EXECUTE = odris_gate.execute
 odris_gate.execute = lambda tool, args: (
     {"results": [{"title": "Docs", "snippet": "s", "url": "https://docs.example.org/page"}]}
     if tool == "web_search" else
@@ -161,6 +162,28 @@ print("gate: rate limit")
 odris_gate._calls["system_status"].clear()
 results = [odris_gate.decide("system_status", {}, "127.0.0.1")[0] for _ in range(25)]
 check("a runaway loop is capped", results.count(True) == 20 and not results[-1], str(results.count(True)))
+
+print("gate: cache and prefetch")
+import time as _t  # noqa: E402
+calls = {"search": 0, "fetch": []}
+real_ws, real_fetch = odris_gate.web_search, odris_gate.fetch_url
+odris_gate.web_search = lambda q, n=6: (calls.__setitem__("search", calls["search"] + 1) or [
+    {"title": "a", "snippet": "", "url": "https://1.1.1.1/a"},
+    {"title": "b", "snippet": "", "url": "https://1.1.1.1/b"},
+    {"title": "lan", "snippet": "", "url": "http://10.168.168.10/secret"}])
+odris_gate.fetch_url = lambda u: (calls["fetch"].append(u) or {"url": u, "title": "", "text": "t"})
+odris_gate._cache.clear()
+r1 = REAL_EXECUTE("web_search", {"query": "cache me"})
+r2 = REAL_EXECUTE("web_search", {"query": "cache me"})
+check("a repeated search is served from memory", calls["search"] == 1 and r2.get("cached"), str(calls))
+_t.sleep(0.5)
+check("the top results are fetched before anyone asks",
+      sorted(calls["fetch"]) == ["https://1.1.1.1/a", "https://1.1.1.1/b"], str(calls["fetch"]))
+check("prefetch never touches a LAN address", "http://10.168.168.10/secret" not in calls["fetch"])
+n = len(calls["fetch"])
+r3 = REAL_EXECUTE("fetch_url", {"url": "https://1.1.1.1/a"})
+check("reading a prefetched page costs no fetch", len(calls["fetch"]) == n and r3.get("cached"), str(r3))
+odris_gate.web_search, odris_gate.fetch_url = real_ws, real_fetch
 
 print("tool loop")
 text, status, fake, box = run_agent([

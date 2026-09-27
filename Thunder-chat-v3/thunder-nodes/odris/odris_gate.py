@@ -36,7 +36,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections import deque
+from collections import OrderedDict, deque
 from html.parser import HTMLParser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -90,6 +90,70 @@ PHI_PATTERNS = [
     ("ICD-10 code", re.compile(r"\b[A-TV-Z][0-9][0-9AB](\.[0-9A-TV-Z]{1,4})\b")),
     ("patient", re.compile(r"\bpatient\b.*\b(name|named|called)\b", re.I)),
 ]
+
+# ---- the cache ---------------------------------------------------------------
+# Odris has 30GB of RAM doing almost nothing. Every search and page Thunder
+# reads is kept here, so asking again is instant, and the top results of every
+# search are fetched in the background the moment the search returns - by the
+# time the model decides to read one, it is usually already in memory. Nothing
+# in here is ever patient data: the outbound filter runs before anything is
+# fetched, so nothing medical can reach the cache in the first place.
+CACHE_TTL = {"web_search": 30 * 60, "fetch_url": 6 * 3600, "github": 10 * 60}
+CACHE_MAX = int(os.environ.get("ODRIS_CACHE_MAX", "2000"))
+PREFETCH = int(os.environ.get("ODRIS_PREFETCH", "3"))
+_cache: "OrderedDict[str, tuple[float, dict]]" = OrderedDict()
+_cache_lock = threading.Lock()
+_stats = {"hits": 0, "misses": 0, "prefetched": 0}
+
+
+def _key(tool: str, args: dict) -> str:
+    return tool + "\x00" + json.dumps(args, sort_keys=True)
+
+
+def cache_get(tool: str, args: dict) -> dict | None:
+    k = _key(tool, args)
+    with _cache_lock:
+        hit = _cache.get(k)
+        if hit and time.time() - hit[0] < CACHE_TTL.get(tool, 0):
+            _cache.move_to_end(k)
+            _stats["hits"] += 1
+            return hit[1]
+        if hit:
+            del _cache[k]
+        _stats["misses"] += 1
+        return None
+
+
+def cache_put(tool: str, args: dict, result: dict) -> None:
+    if tool not in CACHE_TTL:
+        return
+    with _cache_lock:
+        _cache[_key(tool, args)] = (time.time(), result)
+        _cache.move_to_end(_key(tool, args))
+        while len(_cache) > CACHE_MAX:
+            _cache.popitem(last=False)
+
+
+def prefetch(results: list[dict]) -> None:
+    def one(url: str):
+        if cache_get_quiet("fetch_url", {"url": url}) is not None or public_http_url(url):
+            return
+        try:
+            cache_put("fetch_url", {"url": url}, fetch_url(url))
+            with _cache_lock:
+                _stats["prefetched"] += 1
+        except Exception:
+            pass
+    for r in results[:PREFETCH]:
+        if r.get("url"):
+            threading.Thread(target=one, args=(r["url"],), daemon=True).start()
+
+
+def cache_get_quiet(tool: str, args: dict) -> dict | None:
+    with _cache_lock:
+        hit = _cache.get(_key(tool, args))
+        return hit[1] if hit and time.time() - hit[0] < CACHE_TTL.get(tool, 0) else None
+
 
 _lock = threading.Lock()
 _calls: dict[str, deque] = {name: deque() for name in TOOLS}
@@ -302,13 +366,20 @@ def github(args: dict) -> dict:
 
 
 def execute(tool: str, args: dict) -> dict:
+    cached = cache_get(tool, args)
+    if cached is not None:
+        return dict(cached, cached=True)
     if tool == "web_search":
-        return {"results": web_search(args["query"], 6)}
-    if tool == "fetch_url":
-        return fetch_url(args["url"])
-    if tool == "github":
-        return github(args)
-    raise ValueError(tool)
+        out = {"results": web_search(args["query"], 6)}
+        prefetch(out["results"])
+    elif tool == "fetch_url":
+        out = fetch_url(args["url"])
+    elif tool == "github":
+        out = github(args)
+    else:
+        raise ValueError(tool)
+    cache_put(tool, args, out)
+    return out
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -323,6 +394,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/health":
             return self._send(200, {"status": "ok", "tools": sorted(TOOLS)})
+        if self.path == "/cache":
+            with _cache_lock:
+                return self._send(200, dict(_stats, entries=len(_cache)))
         if self.path == "/tools":
             return self._send(200, {n: {"runs": t["runs"], "per_min": t["per_min"]} for n, t in TOOLS.items()})
         return self._send(404, {"error": "not found"})
