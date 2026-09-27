@@ -20,21 +20,30 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.thunder.app.MainActivity
 import com.thunder.app.R
-import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 /**
  * Checks in with Thunder periodically and speaks up only when something needs
  * a person.
  *
- * Everything it reports already existed behind an endpoint nobody opens -
- * failing drives, claims waiting to be read, memory wanting approval. A system
- * that only answers when asked is one whose warnings arrive late.
- *
  * The restraint is the feature. It posts nothing when the fleet is fine, and it
- * will not repeat a notification for something already shown - a phone that
- * buzzes every hour about the same 6-year-old disk is a phone that gets its
+ * will not repeat a notification for something already dealt with - a phone that
+ * buzzes every six hours about the same 6-year-old disk is a phone that gets its
  * notifications turned off, and then the real one goes unseen too.
+ *
+ * **It used to ignore acknowledgement entirely, which made "mark as read" a lie.**
+ * This worker read `/digest`, which is computed fresh from live readings and knows
+ * nothing about what has already been seen. So marking the serverus drive as read
+ * silenced nothing: six hours later the same finding came back, because from the
+ * digest's point of view the drive was still six years old. It was.
+ *
+ * So the decision now comes from `/alerts`, which persists acknowledgement, and
+ * only *unacknowledged* findings are allowed to buzz. `/digest` is still called
+ * first, because building the digest is what records new findings into that
+ * history in the first place - the two calls are refresh, then decide.
+ *
+ * A finding that is acknowledged and then goes away and comes back is
+ * un-acknowledged again server-side, so genuinely new trouble still gets through.
  */
 class DigestWorker(
     context: Context,
@@ -47,30 +56,41 @@ class DigestWorker(
         if (server.isBlank()) return Result.success()
 
         val api = ThunderApi(token = prefs.apiToken)
-        val digest = api.digest(server) ?: return Result.retry()
 
-        if (digest.quiet || (digest.critical == 0 && digest.warning == 0)) {
+        // Refresh first: building the digest is what folds new findings into the
+        // persistent history. Skipping this would mean deciding from a stale list.
+        if (!api.refreshFindings(server)) return Result.retry()
+
+        val active = api.alerts(server, includeResolved = false)
+        val unacked = active.filter { !it.acknowledged }
+        if (unacked.isEmpty()) {
+            // Nothing outstanding. Clear anything still sitting in the shade, so
+            // the phone agrees with the app rather than contradicting it.
+            clear(applicationContext)
+            prefs.lastDigestSignature = ""
             return Result.success()
         }
 
-        // Only notify when the situation has actually changed. The headline of
-        // the top item plus the counts is a good enough fingerprint: a new
-        // problem changes it, the same problem sitting there does not.
-        val signature = "${digest.critical}/${digest.warning}/${digest.topHeadline}"
+        // Fingerprint the outstanding findings themselves, not a count and a
+        // headline. Ids are stable across a reworded headline and a changed
+        // count, so the same situation cannot re-notify, and a genuinely new
+        // finding always can.
+        val signature = unacked.sortedBy { it.id }
+            .joinToString(",") { it.id + ":" + it.severity }
         if (signature == prefs.lastDigestSignature) return Result.success()
         prefs.lastDigestSignature = signature
 
-        notify(digest)
+        notify(unacked)
         return Result.success()
     }
 
-    private fun notify(digest: Digest) {
+    private fun notify(items: List<FleetAlert>) {
         val ctx = applicationContext
         if (Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS)
             != PackageManager.PERMISSION_GRANTED
         ) {
-            return  // not granted; the app shows the same thing in Settings
+            return  // not granted; the Odris tab shows the same findings anyway
         }
 
         val manager = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -85,23 +105,31 @@ class DigestWorker(
             )
         }
 
+        // The extra is what gives the notification somewhere to land. It used to
+        // open a bare MainActivity, which is chat - and chat had never been told
+        // the digest existed, so tapping it looked like Thunder making things up.
         val open = PendingIntent.getActivity(
-            ctx, 0, Intent(ctx, MainActivity::class.java),
+            ctx, 0,
+            Intent(ctx, MainActivity::class.java)
+                .putExtra(EXTRA_OPEN_FLEET, true)
+                .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
+        val critical = items.count { it.severity == "critical" }
         val title = when {
-            digest.critical > 0 -> "Thunder: ${digest.critical} needing attention"
-            else -> "Thunder: ${digest.warning} to look at"
+            critical > 0 -> "Thunder: $critical needing attention"
+            items.size == 1 -> "Thunder: 1 to look at"
+            else -> "Thunder: ${items.size} to look at"
         }
-        val body = digest.items.take(3).joinToString("\n") { "• $it" }
+        val body = items.take(3).joinToString("\n") { "• ${it.headline}" }
 
         NotificationManagerCompat.from(ctx).notify(
             NOTIFICATION_ID,
             NotificationCompat.Builder(ctx, CHANNEL)
                 .setSmallIcon(R.mipmap.ic_launcher)
                 .setContentTitle(title)
-                .setContentText(digest.items.firstOrNull() ?: "")
+                .setContentText(items.first().headline)
                 .setStyle(NotificationCompat.BigTextStyle().bigText(body))
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)
                 .setAutoCancel(true)
@@ -111,9 +139,24 @@ class DigestWorker(
     }
 
     companion object {
+        /** Tells MainActivity to open the Odris tab on its alerts. */
+        const val EXTRA_OPEN_FLEET = "com.thunder.app.OPEN_FLEET"
+
         private const val CHANNEL = "thunder_digest"
         private const val NOTIFICATION_ID = 4101
         private const val WORK = "thunder_digest_check"
+
+        /**
+         * Take the notification out of the shade.
+         *
+         * Called when the alerts are actually looked at, and when nothing is
+         * outstanding. Without this, marking a finding as read inside the app
+         * left the notification sitting in the shade saying the opposite - which
+         * is exactly as untrustworthy as the original bug, just quieter.
+         */
+        fun clear(context: Context) {
+            NotificationManagerCompat.from(context).cancel(NOTIFICATION_ID)
+        }
 
         /**
          * Every six hours, and only on a network. Not hourly: nothing in the
@@ -134,49 +177,4 @@ class DigestWorker(
             )
         }
     }
-}
-
-/** What Thunder would say if asked "anything I should know?" */
-data class Digest(
-    val quiet: Boolean,
-    val critical: Int,
-    val warning: Int,
-    val spoken: String,
-    val items: List<String>,
-    val details: List<DigestItem>
-) {
-    val topHeadline: String get() = items.firstOrNull().orEmpty()
-}
-
-data class DigestItem(
-    val kind: String,
-    val headline: String,
-    val detail: String,
-    val action: String,
-    val severity: String
-)
-
-fun parseDigest(o: JSONObject): Digest {
-    val details = mutableListOf<DigestItem>()
-    val arr = o.optJSONArray("items")
-    for (i in 0 until (arr?.length() ?: 0)) {
-        val it = arr!!.getJSONObject(i)
-        details.add(
-            DigestItem(
-                kind = it.optString("kind"),
-                headline = it.optString("headline"),
-                detail = it.optString("detail"),
-                action = it.optString("action"),
-                severity = it.optString("severity", "info")
-            )
-        )
-    }
-    return Digest(
-        quiet = o.optBoolean("quiet", false),
-        critical = o.optInt("critical"),
-        warning = o.optInt("warning"),
-        spoken = o.optString("spoken"),
-        items = details.map { it.headline },
-        details = details
-    )
 }

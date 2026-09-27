@@ -15,6 +15,7 @@
     <string name="menu_cd">Open chats</string>
     <string name="close_menu_cd">Close chats</string>
     <string name="tab_chat">Chat</string>
+    <string name="tab_odris">Odris</string>
     <string name="tab_studio">Studio</string>
     <string name="tab_code">Code</string>
     <string name="studio_photo">Photo</string>
@@ -70,4 +71,8 @@
     <string name="settings_version">Thunder %1$s</string>
     <string name="settings_token">Access token</string>
     <string name="settings_token_hint">Needed once the server requires authentication</string>
+    <string name="settings_odris">Odris dashboard</string>
+    <string name="settings_odris_hint">Odris is a different machine, so it has its own address</string>
+    <string name="settings_odris_pw">Odris password</string>
+    <string name="settings_odris_pw_hint">Odris is the one service that locks its door. On Odris at ~/dashboard_password.txt</string>
 </resources>

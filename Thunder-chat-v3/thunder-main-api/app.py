@@ -24,14 +24,18 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Streamin
 from pydantic import BaseModel
 
 import agent
+import alerts
 import codestore
 import consolidate
 import creative
 import digest
 import forge
 import memory
+import odris_persona
 import tools
 import uploads
+from onboarding import deck as onboarding_deck
+from onboarding import narrate as onboarding_narrate
 
 OLLAMA = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
 MODEL = os.environ.get("THUNDER_MODEL", "dolphin3")  # set on Main; see TOOLS.md before choosing one
@@ -41,6 +45,11 @@ ODRIS = os.environ.get("ODRIS_URL", "http://10.168.168.15:9003")
 WEBSEARCH = os.environ.get("WEBSEARCH_URL", "http://10.168.168.15:9004")
 GENAI = os.environ.get("GENAI_URL", "http://127.0.0.1:9010")
 TTS = os.environ.get("TTS_URL", "http://10.168.168.15:9006")
+# Kokoro on Main is tried first and Piper on Odris catches the failure. Order
+# matters and nothing else does: if Main's GPU is mid-render and the TTS
+# service is slow to answer, the fallback still speaks.
+KOKORO = os.environ.get("KOKORO_URL", "http://127.0.0.1:9012")
+VOICE_BACKENDS = [KOKORO, TTS]
 
 # The model itself never gets internet access (see net-lockdown/) - only Odris
 # does, and only for this one job. An explicit prefix always triggers a
@@ -849,6 +858,13 @@ def build_messages(message: str, recall_text: str, extra_history: list[dict] | N
     past = MEM.exchange_block(recall_text)
     if past and ok(past):
         messages.append({"role": "system", "content": past})
+    # Last, immediately before the question, for the same reason the recalled
+    # notes are: retrieval that is merely present loses to the training prior.
+    # Without this, Thunder sends a notification about a drive and then has no
+    # idea what the notification was when asked about it thirty seconds later.
+    live = alerts.context_block(DATA)
+    if live and ok(live):
+        messages.append({"role": "system", "content": live})
     messages.append({"role": "user", "content": message})
     return messages
 
@@ -1465,13 +1481,258 @@ def daily_digest():
     Stays quiet when nothing needs a person - a digest that speaks every day
     is one that stops being read.
     """
-    release = app_release()
-    return digest.build(
+    built = digest.build(
         data_dir=DATA,
         vault_dir=Path(__file__).parent.parent / "thunder-claims" / "vault",
-        app_version=release.get("apk_version") if isinstance(release, dict) else None,
-        latest_version=release.get("apk_version") if isinstance(release, dict) else None,
     )
+    # Leave a trail. The digest was computed and discarded, so a notification
+    # sent at 3pm had nothing behind it by 9pm - see alerts.py. Recording here
+    # means the phone's existing poll is what maintains the history.
+    try:
+        built["active"] = len(alerts.record(DATA, built.get("items", [])))
+    except Exception as e:
+        log_event("alerts", f"could not record digest: {e}")
+    return built
+
+
+@app.get("/alerts")
+def alert_history(limit: int = 50, include_resolved: bool = True):
+    """Everything the phone has ever been notified about, and what became of it.
+
+    This is what a notification opens onto. `/digest` answers "what is wrong
+    right now"; this answers "what was that buzz six hours ago", which is the
+    question that actually gets asked.
+    """
+    return {
+        "alerts": alerts.history(DATA, limit=limit,
+                                 include_resolved=include_resolved),
+        "counts": alerts.counts(DATA),
+    }
+
+
+class AlertAckIn(BaseModel):
+    alert_id: str
+
+
+@app.post("/alerts/ack")
+def alert_ack(body: AlertAckIn):
+    """Mark a finding as read. It stays active if it is still true - a 6-year-old
+    drive does not get younger for being acknowledged - but the app can stop
+    leading with it."""
+    row = alerts.ack(DATA, body.alert_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="no such alert")
+    return {"ok": True, "alert": row}
+
+
+class OdrisChatIn(BaseModel):
+    message: str = ""
+
+
+@app.post("/chat/odris")
+def chat_odris(body: OdrisChatIn):
+    """Talk to Odris, the ops assistant, from the phone.
+
+    Odris already existed as a distinct assistant, but only inside the dashboard
+    on odris:9005 behind a browser password - so the one thing that could explain
+    a notification was the one thing the phone could not reach. See
+    odris_persona.py for why this is read-only and why it keeps its own history
+    instead of writing to Thunder's memory.
+
+    Everything in the snapshot is gathered in-process. Calling our own HTTP port
+    from inside a handler is how you deadlock a single-worker server.
+    """
+    question = (body.message or "").strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="message is required")
+
+    # Each of these is allowed to fail on its own. A snapshot missing the job
+    # list is still worth answering from; a 500 because Odris's health service
+    # is asleep is not.
+    def _safe(fn, default):
+        try:
+            return fn()
+        except Exception:
+            return default
+
+    context = odris_persona.build_context(
+        question=question,
+        status=_safe(read_status, {}),
+        health=_safe(lambda: fleet_health(refresh=False), {}),
+        alert_block=_safe(lambda: alerts.context_block(DATA), ""),
+        jobs=_safe(lambda: list_jobs(limit=5).get("jobs", []), []),
+        errors=_safe(lambda: list_errors(limit=5).get("errors", []), []),
+    )
+
+    messages = [{"role": "system", "content": odris_persona.SYSTEM_PROMPT}]
+    for turn in odris_persona.load_history(DATA):
+        if turn.get("role") in ("user", "assistant") and turn.get("content"):
+            messages.append({"role": turn["role"], "content": turn["content"]})
+    messages.append({"role": "user", "content": context})
+
+    payload = json.dumps({"model": MODEL, "stream": False,
+                          "messages": messages, "options": CHAT_OPTIONS}).encode()
+    req = urllib.request.Request(
+        f"{OLLAMA}/api/chat", data=payload,
+        headers={"Content-Type": "application/json"}, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=300) as r:
+            out = json.loads(r.read().decode())
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Odris could not reach the model: {e}")
+
+    reply = (out.get("message", {}) or {}).get("content") or ""
+    if reply:
+        odris_persona.append_history(DATA, question, reply)
+    return {"reply": reply, "who": "odris"}
+
+
+@app.get("/deck", response_class=HTMLResponse)
+def deck_audience():
+    """The onboarding deck, audience view. This is the one to cast.
+
+    Deliberately contains no presenter notes. Casting from Android mirrors the
+    whole tab, so anything in this page is on the television - which is why the
+    notes live on a different URL rather than in a hidden panel here.
+    """
+    return HTMLResponse(onboarding_deck.audience_html())
+
+
+@app.get("/deck/presenter", response_class=HTMLResponse)
+def deck_presenter():
+    """The deck's other half: same slide, plus the notes only Blayne sees,
+    tappable definitions, and the contents menu. Open this on the phone."""
+    return HTMLResponse(onboarding_deck.presenter_html())
+
+
+@app.get("/deck/state")
+def deck_state():
+    return onboarding_deck.get_state()
+
+
+LOCAL_APK = (Path(__file__).parent.parent / "thunder-android" / "app" / "build"
+             / "outputs" / "apk" / "debug" / "app-debug.apk")
+
+
+@app.get("/app/apk/local")
+def local_apk():
+    """The APK just built on this machine, for installing before CI publishes.
+
+    A deliberate route rather than `python3 -m http.server` in the build
+    directory, because a stray server sharing a whole folder to the LAN is
+    exactly the thing that had to be hunted down and killed once already. This
+    serves one known file and nothing else.
+
+    Safe to install over the top: the local debug keystore and the CI signing
+    secret are verified to be the same key (identical SHA-256 signer digest), so
+    Android treats this as an update rather than a conflicting app.
+    """
+    if not LOCAL_APK.is_file():
+        raise HTTPException(
+            status_code=404,
+            detail="no local build - run ./gradlew assembleDebug in thunder-android")
+    return FileResponse(LOCAL_APK,
+                        media_type="application/vnd.android.package-archive",
+                        filename="thunder-local.apk")
+
+
+@app.get("/deck/voices")
+def deck_voices():
+    """The narrator shortlist, plus whichever one the deck is currently in.
+
+    A list rather than a decision: the first voice was chosen on the theory that
+    a deep one carries across a room, and it read as flat enough that Blayne
+    thought the audio had cut out. Reputations are not ears.
+    """
+    return {
+        "current": onboarding_narrate.current_voice(),
+        "choices": [{"voice": v, "name": n, "note": d}
+                    for v, n, d in onboarding_narrate.VOICE_CHOICES],
+        "sample_line": onboarding_narrate.SAMPLE_LINE,
+    }
+
+
+@app.get("/deck/voice-sample/{voice}")
+def deck_voice_sample(voice: str):
+    """One fixed sentence in one voice, so they can be compared fairly."""
+    known = {v for v, _, _ in onboarding_narrate.VOICE_CHOICES}
+    if voice not in known:
+        raise HTTPException(status_code=404, detail="not on the shortlist")
+    try:
+        return FileResponse(onboarding_narrate.sample(voice), media_type="audio/wav")
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"could not synthesise: {e}")
+
+
+class DeckNarrateIn(BaseModel):
+    voice: str
+
+
+@app.post("/deck/narrate")
+def deck_narrate(body: DeckNarrateIn):
+    """Re-narrate the whole deck in a chosen voice, in the background.
+
+    Twenty-three slides takes about a minute, which is far too long to hold a
+    request open from a phone, so this starts a thread and the presenter polls
+    /deck/narrate/status.
+    """
+    known = {v for v, _, _ in onboarding_narrate.VOICE_CHOICES}
+    if body.voice not in known:
+        raise HTTPException(status_code=400, detail="not on the shortlist")
+    if onboarding_narrate.PROGRESS.get("running"):
+        return {"ok": False, "message": "already narrating",
+                **onboarding_narrate.PROGRESS}
+    threading.Thread(target=onboarding_narrate.regenerate,
+                     args=(body.voice,), daemon=True).start()
+    return {"ok": True, "started": body.voice}
+
+
+@app.get("/deck/narrate/status")
+def deck_narrate_status():
+    return dict(onboarding_narrate.PROGRESS)
+
+
+@app.get("/deck/audio/{index}")
+def deck_audio(index: int):
+    """Thunder reading a slide aloud, generated by onboarding/narrate.py.
+
+    Kokoro on Main's own card, so the one claim in the deck that could have been
+    hand-waved - "made using Thunder" - is literally true of the audio.
+    """
+    path = DATA / "deck_audio" / f"slide_{index:02d}.wav"
+    if not path.is_file():
+        raise HTTPException(status_code=404,
+                            detail="no narration yet - run python3 -m onboarding.narrate")
+    return FileResponse(path, media_type="audio/wav")
+
+
+class DeckStateIn(BaseModel):
+    slide: int | None = None
+    detail: bool | None = None
+    started: bool | None = None
+
+
+@app.post("/deck/state")
+def deck_state_set(body: DeckStateIn):
+    """The presenter moves, the cast follows. No auth on purpose - this is a
+    slideshow position on the home LAN, and a login prompt between a swipe and
+    the television is the one thing that would make it useless."""
+    return onboarding_deck.set_state(slide=body.slide, detail=body.detail,
+                                     started=body.started)
+
+
+@app.get("/chat/odris/history")
+def chat_odris_history():
+    """Odris's own scrollback, so the app can reopen the conversation."""
+    return {"turns": odris_persona.load_history(DATA)}
+
+
+@app.post("/chat/odris/clear")
+def chat_odris_clear():
+    path = DATA / "odris_chat.json"
+    if path.is_file():
+        path.unlink()
+    return {"ok": True}
 
 
 class YouTubeIn(BaseModel):
@@ -1534,32 +1795,52 @@ def status():
 
 @app.get("/voices")
 def list_voices():
-    """Proxied from Odris so the phone only ever talks to Main."""
-    try:
-        with urllib.request.urlopen(f"{TTS}/voices", timeout=5) as r:
-            return json.loads(r.read().decode())
-    except Exception as e:
-        return {"voices": {}, "error": str(e)}
+    """Kokoro on Main first, Piper on Odris if it is not up.
+
+    Both speak the same shape, and Kokoro advertises the old Piper keys as
+    aliases, so a phone that has had `us_female` saved since June keeps working
+    and simply starts sounding better.
+    """
+    for url in VOICE_BACKENDS:
+        try:
+            with urllib.request.urlopen(f"{url}/voices", timeout=5) as r:
+                data = json.loads(r.read().decode())
+            if data.get("voices"):
+                return data
+        except Exception:
+            continue
+    return {"voices": {}, "error": "no voice service reachable"}
 
 
 @app.post("/speak")
 def speak(body: SpeakIn):
-    """Neural speech from Odris's CPU. Returns wav bytes, or 503 if that node
-    is down - the client falls back to the phone's own TTS rather than going
-    silent."""
+    """Speech for a reply. Kokoro on Main's GPU, Piper on Odris as the fallback.
+
+    Kokoro is the better voice and, measured on the same sentence, no slower:
+    6.5x real time on the 3090 against Piper's 7x on Odris's CPU, but without
+    Piper's fixed ~640ms model reload at the front of every request.
+
+    A 503 here is deliberate rather than a silent failure - the app falls back
+    to the phone's own TTS, which is worse but is not silence.
+    """
     payload = json.dumps({
         "text": body.text, "voice": body.voice, "rate": body.rate,
     }).encode()
-    req = urllib.request.Request(
-        f"{TTS}/speak", data=payload,
-        headers={"Content-Type": "application/json"}, method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=120) as r:
-            audio = r.read()
-    except Exception as e:
-        raise HTTPException(503, f"voice service unavailable: {e}")
-    return Response(content=audio, media_type="audio/wav")
+    last = "no voice service configured"
+    for url in VOICE_BACKENDS:
+        req = urllib.request.Request(
+            f"{url}/speak", data=payload,
+            headers={"Content-Type": "application/json"}, method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=120) as r:
+                audio = r.read()
+            if audio:
+                return Response(content=audio, media_type="audio/wav")
+        except Exception as e:
+            last = f"{url}: {e}"
+            continue
+    raise HTTPException(503, f"voice service unavailable: {last}")
 
 
 @app.post("/auth/token")

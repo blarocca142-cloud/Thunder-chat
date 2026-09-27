@@ -16,6 +16,8 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -45,6 +47,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.AttachFile
 import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.MonitorHeart
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.ContentCopy
@@ -62,6 +65,8 @@ import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
@@ -118,14 +123,17 @@ import kotlinx.coroutines.launch
 
 data class Line(val who: String, val text: String)
 
-private enum class ThunderTab { Chat, Studio, Code }
+private enum class ThunderTab { Chat, Odris, Studio, Code }
 
 // Video and photo are shelved (2026-09-27). The Studio still works on the
 // server; the tab is hidden so chat and code have the room.
 private const val SHOW_STUDIO = false
 
 @Composable
-fun ThunderRoot() {
+fun ThunderRoot(
+    /** True when the app was opened by tapping a digest notification. */
+    startOnFleet: Boolean = false
+) {
     val context = LocalContext.current
     val prefs = remember { ThunderPrefs(context) }
     val api = remember { ThunderApi(token = prefs.apiToken) }
@@ -147,7 +155,15 @@ fun ThunderRoot() {
     var renameChat by remember { mutableStateOf<Chat?>(null) }
     var renameDraft by remember { mutableStateOf("") }
     var deleteChat by remember { mutableStateOf<Chat?>(null) }
-    var tab by remember { mutableStateOf(ThunderTab.Chat) }
+    var tab by remember {
+        mutableStateOf(if (startOnFleet) ThunderTab.Odris else ThunderTab.Chat)
+    }
+    var unackedAlerts by remember { mutableStateOf(0) }
+    // Flipped to re-key the badge poll, so acknowledging a finding updates the
+    // number immediately instead of on the next five-minute tick.
+    var refreshAlertBadge by remember { mutableStateOf(false) }
+    var odrisUrl by remember { mutableStateOf(prefs.odrisUrl) }
+    var odrisPassword by remember { mutableStateOf(prefs.odrisPassword) }
     val lines = remember { mutableStateListOf<Line>() }
     var maintenanceActive by remember { mutableStateOf(false) }
     var maintenanceMessage by remember { mutableStateOf("") }
@@ -308,6 +324,19 @@ fun ThunderRoot() {
             delay(60 * 60 * 1000L)
         }
     }
+    // The badge on the Odris tab. Five minutes, not fifteen seconds: findings are
+    // drives ageing and claims queueing, none of which move that fast, and this
+    // is a background poll on a phone. Keyed on refreshAlertBadge as well, so
+    // acknowledging something restarts it and the number changes on the spot.
+    LaunchedEffect(server, refreshAlertBadge) {
+        while (true) {
+            if (server.isNotBlank()) {
+                unackedAlerts = api.alerts(server, includeResolved = false)
+                    .count { !it.acknowledged }
+            }
+            delay(5 * 60 * 1000L)
+        }
+    }
 
     // Also check whenever the app comes back to the foreground. A periodic
     // timer alone means a resumed app - which Android does not recompose -
@@ -395,7 +424,20 @@ fun ThunderRoot() {
                     }
                 }
 
-                if (tab == ThunderTab.Code) {
+                if (tab == ThunderTab.Odris) {
+                    OdrisScreen(
+                        server = server,
+                        api = api,
+                        odrisUrl = odrisUrl,
+                        odrisPassword = odrisPassword,
+                        modifier = Modifier.weight(1f),
+                        // A notification means a specific finding is waiting, so
+                        // land on it rather than on the dashboard.
+                        startOnAlerts = startOnFleet,
+                        onOpenSettings = { showSettings = true },
+                        onAlertsChanged = { refreshAlertBadge = !refreshAlertBadge }
+                    )
+                } else if (tab == ThunderTab.Code) {
                     CodeVault(
                         server = server,
                         api = api,
@@ -490,6 +532,29 @@ fun ThunderRoot() {
                         label = { Text(stringResource(R.string.tab_chat)) },
                         colors = colors
                     )
+                    NavigationBarItem(
+                        selected = tab == ThunderTab.Odris,
+                        onClick = { tab = ThunderTab.Odris },
+                        icon = {
+                            // The badge is the point: a notification that has
+                            // been read still leaves the finding standing, and
+                            // the tab should say so without being opened.
+                            if (unackedAlerts > 0) {
+                                BadgedBox(badge = {
+                                    Badge(containerColor = ThunderInk.Gold,
+                                          contentColor = ThunderInk.OnGold) {
+                                        Text("$unackedAlerts", fontSize = 10.sp)
+                                    }
+                                }) {
+                                    Icon(Icons.Outlined.MonitorHeart, contentDescription = null)
+                                }
+                            } else {
+                                Icon(Icons.Outlined.MonitorHeart, contentDescription = null)
+                            }
+                        },
+                        label = { Text(stringResource(R.string.tab_odris)) },
+                        colors = colors
+                    )
                     if (SHOW_STUDIO) NavigationBarItem(
                         selected = tab == ThunderTab.Studio,
                         onClick = { tab = ThunderTab.Studio },
@@ -521,6 +586,16 @@ fun ThunderRoot() {
                 apiToken = it
                 prefs.apiToken = it
                 api.token = it
+            },
+            odrisUrl = odrisUrl,
+            onOdrisUrl = {
+                odrisUrl = it
+                prefs.odrisUrl = it
+            },
+            odrisPassword = odrisPassword,
+            onOdrisPassword = {
+                odrisPassword = it
+                prefs.odrisPassword = it
             },
             voice = voice,
             onVoice = {
@@ -1058,6 +1133,10 @@ private fun ServerDialog(
     onDark: (Boolean) -> Unit,
     token: String,
     onToken: (String) -> Unit,
+    odrisUrl: String,
+    onOdrisUrl: (String) -> Unit,
+    odrisPassword: String,
+    onOdrisPassword: (String) -> Unit,
     voice: String,
     onVoice: (String) -> Unit,
     api: ThunderApi,
@@ -1078,7 +1157,10 @@ private fun ServerDialog(
             )
         },
         text = {
-            Column {
+            // Scrollable: two Odris fields were added and an AlertDialog does not
+            // scroll its body by itself, so on a short screen the voice picker and
+            // the buttons underneath it would simply be unreachable.
+            Column(Modifier.verticalScroll(rememberScrollState())) {
                 Text(
                     "Leave empty for shell mode. Paste the Thunder Main URL when that box is running. This stays on the phone.",
                     color = ThunderInk.Mute,
@@ -1152,6 +1234,53 @@ private fun ServerDialog(
                         focusedIndicatorColor = ThunderInk.Gold.copy(alpha = 0.7f),
                         unfocusedIndicatorColor = ThunderInk.Hairline
                     )
+                )
+                Spacer(Modifier.height(14.dp))
+                Text(
+                    stringResource(R.string.settings_odris),
+                    color = ThunderInk.Ink,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    stringResource(R.string.settings_odris_hint),
+                    color = ThunderInk.Mute,
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp
+                )
+                Spacer(Modifier.height(6.dp))
+                TextField(
+                    value = odrisUrl,
+                    onValueChange = onOdrisUrl,
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    placeholder = { Text("http://10.168.168.15:9005", color = ThunderInk.Mute) },
+                    colors = thunderFieldColors()
+                )
+                Spacer(Modifier.height(14.dp))
+                Text(
+                    stringResource(R.string.settings_odris_pw),
+                    color = ThunderInk.Ink,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    stringResource(R.string.settings_odris_pw_hint),
+                    color = ThunderInk.Mute,
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp
+                )
+                Spacer(Modifier.height(6.dp))
+                TextField(
+                    value = odrisPassword,
+                    onValueChange = onOdrisPassword,
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    // Not a password field: this gets pasted once on a phone that
+                    // is already unlocked, and being unable to see whether the
+                    // paste worked is how you end up blaming the dashboard.
+                    placeholder = { Text("not set", color = ThunderInk.Mute) },
+                    colors = thunderFieldColors()
                 )
                 Spacer(Modifier.height(14.dp))
                 Text(
