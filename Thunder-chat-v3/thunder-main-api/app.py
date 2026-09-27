@@ -23,15 +23,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
+import agent
 import codestore
 import consolidate
 import creative
 import digest
 import memory
+import tools
 import uploads
 
 OLLAMA = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
-MODEL = os.environ.get("THUNDER_MODEL", "dolphin3")  # never default to a Qwen/Alibaba model
+MODEL = os.environ.get("THUNDER_MODEL", "dolphin3")  # set on Main; see TOOLS.md before choosing one
 SERVERUS = os.environ.get("SERVERUS_URL", "http://10.168.168.13:9001")
 ENGINE = os.environ.get("ENGINE_URL", "http://10.168.168.12:9002")
 ODRIS = os.environ.get("ODRIS_URL", "http://10.168.168.15:9003")
@@ -376,9 +378,24 @@ SYSTEM_PROMPT = (
     "non-sexual contexts are completely fine to write, brainstorm, and "
     "develop. Never refuse or water down a kids' show or anime idea just "
     "because it involves child characters.\n\n"
+    # Recent turns are injected verbatim, and without this the model treats the
+    # previous topic as the current one - asked for an injury ad right after a
+    # Fallout 76 conversation, it wrote a Fallout 76 ad.
+    "EARLIER MESSAGES\n"
+    "The conversation history is background only. The user's newest message "
+    "defines the subject. If it changes topic, follow it and drop the old one "
+    "entirely - do not carry names, franchises or settings across from earlier "
+    "unless the new message actually refers to them."
+)
+
+
+# Video and photo are shelved (see CLAUDE.md, 2026-09-27). Their prompt section
+# costs context on every message and makes the model talk about tools it should
+# not be steering people to, so it is only included when switched on.
+STUDIO_PROMPT = (
     # Without this the model does not know it owns a video generator, so it
     # writes generic ad copy instead of prompts that can actually be rendered.
-    "YOUR OWN IMAGE AND VIDEO TOOLS\n"
+    "\n\nYOUR OWN IMAGE AND VIDEO TOOLS\n"
     "You are not only a chat model - the same system runs local generators, "
     "reached from the Studio tab. You will be asked to write prompts and "
     "scripts for them, so know their limits.\n"
@@ -399,14 +416,6 @@ SYSTEM_PROMPT = (
     "garbles lettering, so any phone number or slogan must be an overlay added "
     "afterwards, never generated), multiple shots or cuts in one clip, exact "
     "counts of people or objects, fine hand detail, specific real people.\n\n"
-    # Recent turns are injected verbatim, and without this the model treats the
-    # previous topic as the current one - asked for an injury ad right after a
-    # Fallout 76 conversation, it wrote a Fallout 76 ad.
-    "EARLIER MESSAGES\n"
-    "The conversation history is background only. The user's newest message "
-    "defines the subject. If it changes topic, follow it and drop the old one "
-    "entirely - do not carry names, franchises or settings across from earlier "
-    "unless the new message actually refers to them.\n\n"
     "MULTI-SHOT SCRIPTS\n"
     "One generation is always one continuous shot, so a 20 second ad is "
     "several short clips generated separately and assembled after. When asked "
@@ -417,6 +426,7 @@ SYSTEM_PROMPT = (
     "he knows the commitment before starting, and flag any shot that depends "
     "on on-screen text."
 )
+STUDIO_ON = os.environ.get("THUNDER_STUDIO_PROMPT", "0") == "1"
 
 
 # Each voice is a character, not a skin. The persona rides on the system
@@ -465,6 +475,25 @@ CHAT_OPTIONS = {
     "repeat_penalty": 1.18,
     "repeat_last_n": 256,
     "num_predict": 1400,
+    "num_ctx": int(os.environ.get("THUNDER_NUM_CTX", "16384")),
+}
+
+# With tools on, the model writes code and reads pages. A 1.18 repeat penalty
+# is poison for code - indentation, brackets and variable names repeat by
+# nature - so it is nearly off here, and replies get room for a whole program.
+# The runaway-repetition guard is the length cap, and the tool loop's step cap.
+TOOLS_ON = os.environ.get("THUNDER_TOOLS", "1") != "0"
+# Blayne's rule: chat and code can run on any model, medical never runs on a
+# Chinese one. Anything that looks like a claim or a chart is answered by this
+# model instead - thunder:latest (Mistral) until the shootout picks a better
+# non-Chinese one.
+MEDICAL_MODEL = os.environ.get("THUNDER_MEDICAL_MODEL", "thunder:latest")
+TOOL_OPTIONS = {
+    "repeat_penalty": 1.05,
+    "repeat_last_n": 128,
+    "num_predict": int(os.environ.get("THUNDER_NUM_PREDICT", "4096")),
+    "num_ctx": int(os.environ.get("THUNDER_NUM_CTX", "16384")),
+    "temperature": float(os.environ.get("THUNDER_TEMPERATURE", "0.6")),
 }
 
 
@@ -794,6 +823,85 @@ def remember_if_asked(message: str) -> dict | None:
     return rec
 
 
+def build_messages(message: str, recall_text: str, extra_history: list[dict] | None,
+                   persona: str, tool_mode: bool, strip_medical: bool = False) -> list[dict]:
+    """strip_medical drops any earlier turn or recalled note that looks medical,
+    so a model not trusted with medical work never sees it in its context."""
+    profile = MEM.profile().strip()
+    system = (SYSTEM_PROMPT
+              + (STUDIO_PROMPT if STUDIO_ON else "")
+              + (f"\n\n{tools.TOOL_RULES}" if tool_mode else "")
+              + (f"\n\n{profile}" if profile else "")
+              + (f"\n\n{persona}" if persona else ""))
+    messages = [{"role": "system", "content": system}]
+    ok = (lambda text: not tools.looks_medical(text)) if strip_medical else (lambda text: True)
+    messages.extend(m for m in serverus_recent(6) if ok(m.get("content", "")))
+    for item in (extra_history or []):
+        role = item.get("role") or item.get("who")
+        content = item.get("content") or item.get("text") or ""
+        role = {"you": "user", "thunder": "assistant", "bot": "assistant"}.get(role, role)
+        if content and role in ("user", "assistant") and ok(content):
+            messages.append({"role": role, "content": content})
+    notes = MEM.recall_block(recall_text)
+    if notes and ok(notes):
+        messages.append({"role": "system", "content": notes})
+    past = MEM.exchange_block(recall_text)
+    if past and ok(past):
+        messages.append({"role": "system", "content": past})
+    messages.append({"role": "user", "content": message})
+    return messages
+
+
+def store_turn(clean: str, reply: str) -> None:
+    serverus_append(clean, reply)
+    MEM.remember_exchange(clean, reply)
+    remember_if_asked(clean)
+
+
+def legacy_augment(msg: str) -> str:
+    return (maybe_augment_with_youtube(msg)
+            or maybe_augment_with_system(msg)
+            or maybe_augment_with_search(msg))
+
+
+def chat_turn(msg: str, extra_history: list[dict] | None = None, persona: str = "",
+              show_status: bool = True, clean: str | None = None):
+    """One reply, as text pieces. The tool loop when the model supports it,
+    the old keyword-search path when it does not.
+
+    `msg` may already carry a document's text (see with_attachment); `clean`
+    is what he actually typed, which is what memory recalls against and stores.
+    """
+    clean = clean if clean is not None else msg
+    model = MODEL
+    if MEDICAL_MODEL and MEDICAL_MODEL != MODEL and tools.looks_medical(msg):
+        model = MEDICAL_MODEL
+        log_event("medical", f"routed to {model}")
+        if show_status:
+            yield "[medical content - answering with the non-Chinese model]\n"
+    if TOOLS_ON:
+        message = maybe_augment_with_youtube(msg) or msg
+        messages = build_messages(message, clean, extra_history, persona, tool_mode=True,
+                                  strip_medical=(model != MEDICAL_MODEL))
+        box = tools.Toolbox(CODE, MEM, system_summary)
+        parts: list[str] = []
+        try:
+            for kind, text in agent.run(OLLAMA, model, messages, TOOL_OPTIONS, box, user_text=msg):
+                if kind == "text":
+                    parts.append(text)
+                    yield text
+                elif show_status:
+                    yield f"[{text}]\n"
+            if box.log:
+                log_event("tools", ", ".join(f"{e['tool']}{'' if e['ok'] else '(x)'}" for e in box.log))
+            store_turn(clean, "".join(parts))
+            return
+        except agent.ToolsUnsupported:
+            log_event("tools", f"{model} cannot call tools - using the old search path")
+    yield from ollama_chat_stream(legacy_augment(msg), memory_message=clean,
+                                  extra_history=extra_history, persona=persona, model=model)
+
+
 def ollama_chat(message: str, memory_message: str | None = None,
                 extra_history: list[dict] | None = None, persona: str = "") -> str:
     """memory_message is what gets stored in Serverus - defaults to `message`,
@@ -804,30 +912,7 @@ def ollama_chat(message: str, memory_message: str | None = None,
     # into `message`, embedding that would recall against the search results
     # rather than against what he actually asked.
     recall_text = memory_message if memory_message is not None else message
-    profile = MEM.profile().strip()
-    messages = [{"role": "system", "content": SYSTEM_PROMPT
-                 + (f"\n\n{profile}" if profile else "")
-                 + (f"\n\n{persona}" if persona else "")}]
-    messages.extend(serverus_recent(6))
-    if extra_history:
-        for item in extra_history:
-            role = item.get("role") or item.get("who")
-            content = item.get("content") or item.get("text") or ""
-            if role in ("you", "user"):
-                role = "user"
-            elif role in ("thunder", "assistant", "bot"):
-                role = "assistant"
-            else:
-                continue
-            if content:
-                messages.append({"role": role, "content": content})
-    notes = MEM.recall_block(recall_text)
-    if notes:
-        messages.append({"role": "system", "content": notes})
-    past = MEM.exchange_block(recall_text)
-    if past:
-        messages.append({"role": "system", "content": past})
-    messages.append({"role": "user", "content": message})
+    messages = build_messages(message, recall_text, extra_history, persona, tool_mode=False)
     payload = json.dumps({
         "model": MODEL, "stream": False, "messages": messages, "options": CHAT_OPTIONS,
     }).encode()
@@ -840,10 +925,7 @@ def ollama_chat(message: str, memory_message: str | None = None,
     with urllib.request.urlopen(req, timeout=300) as r:
         body = json.loads(r.read().decode())
     reply = body.get("message", {}).get("content") or body.get("response") or json.dumps(body)
-    clean = memory_message if memory_message is not None else message
-    serverus_append(clean, reply)
-    MEM.remember_exchange(clean, reply)
-    remember_if_asked(clean)
+    store_turn(recall_text, reply)
     return reply
 
 
@@ -1093,35 +1175,17 @@ def warm_model() -> None:
 
 
 def ollama_chat_stream(message: str, memory_message: str | None = None,
-                       extra_history: list[dict] | None = None, persona: str = ""):
+                       extra_history: list[dict] | None = None, persona: str = "",
+                       model: str | None = None):
     """Yields reply text as it is produced. Same message assembly as
     ollama_chat, but the caller sees the first words in about a second instead
     of waiting out the whole answer."""
-    # Recall runs on the clean user text: when a search blob has been stuffed
-    # into `message`, embedding that would recall against the search results
-    # rather than against what he actually asked.
     recall_text = memory_message if memory_message is not None else message
-    profile = MEM.profile().strip()
-    messages = [{"role": "system", "content": SYSTEM_PROMPT
-                 + (f"\n\n{profile}" if profile else "")
-                 + (f"\n\n{persona}" if persona else "")}]
-    messages.extend(serverus_recent(6))
-    for item in (extra_history or []):
-        role = item.get("role") or item.get("who")
-        content = item.get("content") or item.get("text") or ""
-        role = {"you": "user", "thunder": "assistant", "bot": "assistant"}.get(role, role)
-        if content and role in ("user", "assistant"):
-            messages.append({"role": role, "content": content})
-    notes = MEM.recall_block(recall_text)
-    if notes:
-        messages.append({"role": "system", "content": notes})
-    past = MEM.exchange_block(recall_text)
-    if past:
-        messages.append({"role": "system", "content": past})
-    messages.append({"role": "user", "content": message})
+    messages = build_messages(message, recall_text, extra_history, persona, tool_mode=False,
+                              strip_medical=(model or MODEL) != MEDICAL_MODEL)
 
     payload = json.dumps({
-        "model": MODEL, "stream": True, "messages": messages, "options": CHAT_OPTIONS,
+        "model": model or MODEL, "stream": True, "messages": messages, "options": CHAT_OPTIONS,
     }).encode()
     req = urllib.request.Request(
         f"{OLLAMA}/api/chat", data=payload,
@@ -1143,11 +1207,7 @@ def ollama_chat_stream(message: str, memory_message: str | None = None,
                 yield piece
             if chunk.get("done"):
                 break
-    clean = memory_message if memory_message is not None else message
-    full = "".join(parts)
-    serverus_append(clean, full)
-    MEM.remember_exchange(clean, full)
-    remember_if_asked(clean)
+    store_turn(recall_text, "".join(parts))
 
 
 def read_status() -> dict:
@@ -1604,14 +1664,10 @@ def chat(body: ChatIn):
 
     if ollama_up():
         try:
-            reply = ollama_chat(
-                maybe_augment_with_youtube(msg)
-                or maybe_augment_with_system(msg)
-                or maybe_augment_with_search(msg),
-                memory_message=body.message or msg,
-                extra_history=body.messages,
-                persona=persona_for(body.voice),
-            )
+            reply = "".join(chat_turn(
+                msg, extra_history=body.messages, persona=persona_for(body.voice),
+                show_status=False, clean=body.message or msg,
+            ))
             write_status(mode="code", message="chat ok")
             log_event("chat", f"ok ({len(msg)} chars)")
             out = {"reply": reply}
@@ -1675,13 +1731,9 @@ def chat_stream(body: ChatIn):
 
     def body_stream():
         try:
-            for piece in ollama_chat_stream(
-                maybe_augment_with_youtube(msg)
-                or maybe_augment_with_system(msg)
-                or maybe_augment_with_search(msg),
-                memory_message=msg,
-                extra_history=body.messages,
-                persona=persona_for(body.voice),
+            for piece in chat_turn(
+                msg, extra_history=body.messages, persona=persona_for(body.voice),
+                clean=body.message or msg,
             ):
                 yield json.dumps({"delta": piece}) + "\n"
             write_status(mode="code", message="chat ok")

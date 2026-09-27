@@ -32,6 +32,6 @@ Studio hooks (optional): `THUNDER_IMAGE_URL`, `THUNDER_VIDEO_URL`. Unset = stub 
 ## First test (no towers needed)
 
 1. Install Ollama on the laptop or Main.
-2. `ollama pull mistral-small:24b` (or whatever `THUNDER_MODEL` you've set — no Qwen/Alibaba models)
+2. `ollama pull mistral-small:24b` (or whatever `THUNDER_MODEL` you've set). Any origin is allowed since 2026-09-27, because the model is egress-locked and every reply goes through the checks in `thunder-main-api/TOOLS.md`; claims/medical work stays on a non-Chinese model.
 3. Run the API.
 4. Open the web UI, send "hello".
