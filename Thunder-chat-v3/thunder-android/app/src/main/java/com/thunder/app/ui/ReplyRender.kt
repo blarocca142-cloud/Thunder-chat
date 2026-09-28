@@ -21,6 +21,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Build
+import androidx.compose.material.icons.outlined.Code
+import androidx.compose.material.icons.outlined.FactCheck
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.ExpandLess
@@ -176,11 +178,13 @@ private fun stepIcon(step: String): ImageVector {
     val s = step.lowercase()
     return when {
         s.startsWith("searching") -> Icons.Outlined.Search
+        s.startsWith("reading github") -> Icons.Outlined.Code
         s.startsWith("reading http") -> Icons.Outlined.Language
         s.startsWith("reading") -> Icons.Outlined.Description
         s.startsWith("running") -> Icons.Outlined.PlayArrow
         s.startsWith("saving") -> Icons.Outlined.Save
         s.startsWith("checking memory") -> Icons.Outlined.Memory
+        s.startsWith("checking the official code list") -> Icons.Outlined.FactCheck
         s.startsWith("medical") -> Icons.Outlined.Shield
         else -> Icons.Outlined.Build
     }
@@ -192,11 +196,13 @@ private fun stepsSummary(steps: List<String>): String {
         val l = s.lowercase()
         val k = when {
             l.startsWith("searching") -> "searched"
+            l.startsWith("reading github") -> "read GitHub"
             l.startsWith("reading http") -> "read pages"
             l.startsWith("reading") -> "read files"
             l.startsWith("running") -> "ran code"
             l.startsWith("saving") -> "saved files"
             l.startsWith("checking memory") -> "checked memory"
+            l.startsWith("checking the official code list") -> "checked codes"
             l.startsWith("checking") -> "checked hardware"
             l.startsWith("medical") -> "medical model"
             else -> "tools"

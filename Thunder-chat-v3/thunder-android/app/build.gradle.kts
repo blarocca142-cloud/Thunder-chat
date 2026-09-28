@@ -2,6 +2,7 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("app.cash.paparazzi")
 }
 
 android {
@@ -11,8 +12,8 @@ android {
         applicationId = "com.thunder.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 47
-        versionName = "1.8.0"
+        versionCode = 48
+        versionName = "1.9.0"
     }
     signingConfigs {
         getByName("debug") {
