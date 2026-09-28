@@ -153,3 +153,68 @@ Nothing was deleted. `thunder:latest` is still on disk, as is
    billing codes.
 3. Longer real-use soak before touching anything else — six prompts is a smoke
    test, not evidence about quality over a day.
+
+## ICD-10 check live
+
+Run after Blayne restarted `thunder-main` himself, on `708929b`
+("Check every diagnosis code against the official ICD-10-CM list"), model
+`thunder-gptoss:latest`. Three prompts through `POST /chat/stream` on Main,
+deltas joined. Raw, unedited replies:
+
+### (a) "what does ICD-10 code Z9Q.47 mean?" - 2.1s
+
+    [checking the official code list: Z9Q.47]
+    `Z9Q.47` isn't a real ICD-10-CM code - the CMS list shows it as "not a code."
+    If you meant something else (e.g., `Z90.47`, which is "Personal history of
+    other specified disease or injury"), let me know and I can confirm that
+    instead.
+
+    ---
+    Check: Checked against the official 2026 ICD-10-CM list - these are not
+    ICD-10-CM codes at all: Z9Q.47, Z90.47.
+
+The fabrication trap worked: the made-up code was called made up, not
+explained. **But the model's suggested alternative was itself fabricated** -
+`Z90.47` is not a code either, and the description it gave for it was
+invented. The checker caught that too, which is the point of it being a
+post-pass over the whole reply rather than only over codes the user typed.
+
+Worth being clear about what that means: the body of the reply still offers
+`Z90.47` confidently, and the correction only arrives in the appended `Check:`
+line underneath. A reader who stops at the prose gets a wrong code. The check
+line is a backstop, not a fix for the model.
+
+### (b) "what's the ICD-10 code for a closed fracture of the right femur, initial encounter?" - 2.4s
+
+    [checking the official code list: S72.001A]
+    The ICD-10-CM code for a closed fracture of the right femur, initial
+    encounter is **S72.001A** - a billable code.
+
+No `Check:` note, and that is correct behaviour, not a miss: `icd10_notes`
+returns `None` when nothing is wrong, and `S72.001A` verifies as `billable`
+against the official list.
+
+One caveat the checker cannot see: it validates that a code *exists*, never
+that the description matches. `S72.001A` is specifically the neck of the right
+femur, unspecified part - narrower than the "right femur" the answer implies.
+Code-exists and code-is-right are different checks and only the first is built.
+
+### (c) "what's 2+2, just answer" - 0.7s
+
+    4
+
+No status line, no tool call, no check note. The ICD path stays out of the way
+of ordinary chat, which was the other thing being tested here.
+
+### Summary
+
+| prompt | status line | check note | correct |
+|---|---|---|---|
+| (a) fake code | yes | yes, caught 2 bad codes | flagged, but suggested a fake alternative |
+| (b) real lookup | yes | none (nothing wrong) | code valid; description looser than the code |
+| (c) plain arithmetic | none | none | yes |
+
+All three answered in under 3s. The gate fires on medical text and is silent
+otherwise. The open gap is unchanged from the "Next" list above: the model
+still volunteers codes from its prior, and the check pass corrects them after
+the fact instead of preventing them.
