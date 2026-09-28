@@ -313,10 +313,10 @@ check("a failed forge result says FAILED to the model", out.get("verdict", "").s
 check("...and to Blayne under the reply", "could not get this code to pass" in text, text)
 
 print("ICD-10 codes (live on Main 2026-09-28: gpt-oss invented Z90.47)")
-text, *_ = run_agent([{"content": "Z9Q.47 isn't real. The closest real code is **Z90.47**, personal history."}],
-                     user_text="what does ICD-10 code Z9Q.47 mean?")
-check("an invented diagnosis code is flagged against the official list",
-      "not ICD-10-CM codes at all" in text and "Z90.47" in text.split("---")[-1], text)
+note = tools.icd10_notes("Z9Q.47 isn't real. The closest real code is **Z90.47**, personal history.",
+                         "what does ICD-10 code Z9Q.47 mean?")
+check("an invented diagnosis code is named in the note against the official list",
+      note and "not ICD-10-CM codes at all" in note and "Z90.47" in note, str(note))
 text, *_ = run_agent([{"content": "S72.001A is the right code here."}], user_text="which code?")
 check("a real billable code is not flagged", "Check:" not in text, text)
 text, *_ = run_agent([{"content": "Z90.4 covers that."}], user_text="icd code?")
@@ -330,6 +330,20 @@ tools.GATE = gate_url
 check("code lookup works with Odris down - it never leaves Main",
       [c["status"] for c in out.get("codes", [])] == ["category", "billable"], str(out))
 check("...and lists the real codes under a category", "Z90.410" in str(out), str(out))
+
+print("invented codes stopped before they are shown (live 2026-09-28)")
+text, _, fake, _ = run_agent([
+    {"content": "`Z9Q.47` isn't a real ICD-10-CM code. If you meant Z90.47, which is personal history, say so."},
+    {"content": "`Z9Q.47` isn't a real ICD-10-CM code, and I can't confirm an alternative without looking it up."},
+], user_text="what does ICD-10 code Z9Q.47 mean?")
+shown = text.split("---")[0]
+check("the invented Z90.47 never reaches the screen", "Z90.47" not in shown, text)
+check("...the user's own fake code can still be named as fake", "Z9Q.47" in shown, text)
+check("...and the model is told to verify before suggesting",
+      any("icd10_lookup" in m.get("content", "") for m in fake.requests[1]["messages"]), "")
+text, *_ = run_agent([{"content": "The code is S72.001A, closed fracture of the right femoral neck."}],
+                     user_text="femur fracture code?")
+check("a real code streams through untouched", "S72.001A" in text and "Check:" not in text, text)
 
 print("medical routing")
 for t in ["claim number 7781 for PT eval", "DOB 01/02/1960", "ICD-10 S72.001A", "fill in the CMS-1500",

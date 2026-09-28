@@ -150,7 +150,7 @@ def _stream_openai(base: str, model: str, messages: list[dict], options: dict, w
 
 
 def _one_round(base: str, model: str, messages: list[dict], options: dict,
-               with_tools: bool, emitted: list[str], backend: str = "ollama"):
+               with_tools: bool, emitted: list[str], backend: str = "ollama", user_text: str = ""):
     """Stream one model turn through the guard.
 
     Yields text that has passed. Returns (calls, violation) via
@@ -167,7 +167,8 @@ def _one_round(base: str, model: str, messages: list[dict], options: dict,
                 calls.append(value)
                 continue
             pending += value
-            problem = tools.needs_regeneration("".join(emitted)[-200:] + pending)
+            tail = "".join(emitted)[-200:]
+            problem = tools.needs_regeneration(tail + pending, user_text, len(tail))
             if problem:
                 return calls, problem
             if len(pending) >= FLUSH_AT or "\n" in pending:
@@ -177,7 +178,8 @@ def _one_round(base: str, model: str, messages: list[dict], options: dict,
     finally:
         stream.close()
     if pending:
-        problem = tools.needs_regeneration("".join(emitted)[-200:] + pending)
+        tail = "".join(emitted)[-200:]
+        problem = tools.needs_regeneration(tail + pending, user_text, len(tail))
         if problem:
             return calls, problem
         emitted.append(pending)
@@ -217,7 +219,7 @@ def run(base: str, model: str, messages: list[dict], options: dict, box: tools.T
                              "You have used your tool budget. Answer now with what you have, and say "
                              "plainly what you could not confirm."})
         start = len(emitted)
-        gen = _one_round(base, model, messages, options, allow_tools, emitted, backend)
+        gen = _one_round(base, model, messages, options, allow_tools, emitted, backend, user_text)
         while True:
             try:
                 piece = next(gen)
@@ -274,7 +276,7 @@ def run(base: str, model: str, messages: list[dict], options: dict, box: tools.T
                          "Stop using tools. Write your answer now, in plain words, from the tool results "
                          "above. If they did not settle it, say what you found and what you could not "
                          "confirm."})
-        gen = _one_round(base, model, messages, options, False, emitted, backend)
+        gen = _one_round(base, model, messages, options, False, emitted, backend, user_text)
         while True:
             try:
                 piece = next(gen)

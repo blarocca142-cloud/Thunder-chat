@@ -492,8 +492,42 @@ def follow_through(reply: str, user_text: str, box: "Toolbox") -> str | None:
     return None
 
 
-def needs_regeneration(text: str) -> str | None:
-    """A reason to throw the reply away, or None."""
+def invented_codes(text: str, user_text: str = "", start: int = 0) -> list[str]:
+    """Diagnosis codes in text[start:] that are not in the official list and
+    that the user did not type themselves (repeating his fake code back to
+    him, to say it is fake, is fine)."""
+    if not _icd_list():
+        return []
+    typed = {re.sub(r"[^A-Z0-9]", "", m.group(0).upper()) for m in ICD_SHAPE.finditer(user_text or "")}
+    considered = ICD_CONTEXT.search(text) or ICD_CONTEXT.search(user_text or "")
+    out = []
+    for m in ICD_SHAPE.finditer(text):
+        if m.end() <= start:
+            continue
+        if not m.group(2) and not considered:
+            continue
+        code = m.group(0)
+        if re.sub(r"[^A-Z0-9]", "", code.upper()) in typed:
+            continue
+        if icd10_status(code)[0] == "not a code":
+            out.append(code)
+    return out
+
+
+def needs_regeneration(text: str, user_text: str = "", start: int = 0) -> str | None:
+    """A reason to stop the reply before it is shown, or None.
+
+    `start` marks where the not-yet-shown text begins; codes wholly in the
+    part already shown are not re-judged, so a correction can't loop."""
+    bad = invented_codes(text, user_text, start)
+    if bad:
+        # Live on Main 2026-09-28: gpt-oss correctly called Z9Q.47 fake, then
+        # suggested "Z90.47" with an invented meaning. Stopped before it is
+        # shown now, rather than corrected in a note underneath.
+        return (f"{', '.join(dict.fromkeys(bad))} is not a real ICD-10-CM code (checked against the "
+                "official 2026 list). Do not mention it. If you want to suggest a code, call "
+                "icd10_lookup first and only name codes it confirms; otherwise say you can't "
+                "confirm one.")
     if FOREIGN_SCRIPT.search(text):
         return "Your reply contained non-English text. Rewrite the whole answer in English only."
     if LAB_CLAIM.search(text):
