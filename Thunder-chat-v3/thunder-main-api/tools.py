@@ -492,6 +492,25 @@ def follow_through(reply: str, user_text: str, box: "Toolbox") -> str | None:
     return None
 
 
+ICD_CUT = "ICD_CUT:"
+
+
+def code_facts(user_text: str) -> str:
+    """Plain statements, from the official list, about the codes the user asked about."""
+    lines = []
+    for m in ICD_SHAPE.finditer((user_text or "").upper()):
+        code = m.group(0)
+        status, kids = icd10_status(code)
+        if status == "not a code":
+            lines.append(f"{code} is not in the official 2026 ICD-10-CM list, so it is not a valid code.")
+        elif status == "category":
+            lines.append(f"{code} is a category, not a billable code; the codes under it are "
+                         + ", ".join(_dotted(k) for k in kids[:10]) + (" and more." if len(kids) > 10 else "."))
+        elif status == "billable":
+            lines.append(f"{code} is a valid, billable ICD-10-CM code.")
+    return " ".join(dict.fromkeys(lines))
+
+
 def invented_codes(text: str, user_text: str = "", start: int = 0) -> list[str]:
     """Diagnosis codes in text[start:] that are not in the official list and
     that the user did not type themselves (repeating his fake code back to
@@ -522,12 +541,10 @@ def needs_regeneration(text: str, user_text: str = "", start: int = 0) -> str | 
     bad = invented_codes(text, user_text, start)
     if bad:
         # Live on Main 2026-09-28: gpt-oss correctly called Z9Q.47 fake, then
-        # suggested "Z90.47" with an invented meaning. Stopped before it is
-        # shown now, rather than corrected in a note underneath.
-        return (f"{', '.join(dict.fromkeys(bad))} is not a real ICD-10-CM code (checked against the "
-                "official 2026 list). Do not mention it. If you want to suggest a code, call "
-                "icd10_lookup first and only name codes it confirms; otherwise say you can't "
-                "confirm one.")
+        # suggested "Z90.47" with an invented meaning. Asking it to retry did
+        # not work - it went back to Z90.47 three times running - so this is
+        # not a retry: the reply is cut before that sentence (see agent.py).
+        return ICD_CUT + ", ".join(dict.fromkeys(bad))
     if FOREIGN_SCRIPT.search(text):
         return "Your reply contained non-English text. Rewrite the whole answer in English only."
     if LAB_CLAIM.search(text):

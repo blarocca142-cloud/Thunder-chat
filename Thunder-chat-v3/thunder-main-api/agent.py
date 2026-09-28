@@ -170,6 +170,11 @@ def _one_round(base: str, model: str, messages: list[dict], options: dict,
             tail = "".join(emitted)[-200:]
             problem = tools.needs_regeneration(tail + pending, user_text, len(tail))
             if problem:
+                if problem.startswith(tools.ICD_CUT):
+                    keep = _before_sentence_with(pending, problem[len(tools.ICD_CUT):])
+                    if keep:
+                        emitted.append(keep)
+                        yield keep
                 return calls, problem
             if len(pending) >= FLUSH_AT or "\n" in pending:
                 emitted.append(pending)
@@ -181,10 +186,24 @@ def _one_round(base: str, model: str, messages: list[dict], options: dict,
         tail = "".join(emitted)[-200:]
         problem = tools.needs_regeneration(tail + pending, user_text, len(tail))
         if problem:
+            if problem.startswith(tools.ICD_CUT):
+                keep = _before_sentence_with(pending, problem[len(tools.ICD_CUT):])
+                if keep:
+                    emitted.append(keep)
+                    yield keep
             return calls, problem
         emitted.append(pending)
         yield pending
     return calls, None
+
+
+def _before_sentence_with(text: str, codes: str) -> str:
+    """The part of `text` before the sentence that names any of `codes`."""
+    first = min((i for i in (text.find(c.strip()) for c in codes.split(",")) if i >= 0), default=-1)
+    if first < 0:
+        return ""
+    cut = max(text.rfind(sep, 0, first) for sep in (". ", "! ", "? ", "\n", ": "))
+    return text[:cut + 1].rstrip() if cut >= 0 else ""
 
 
 def _record_calls(messages: list[dict], text: str, calls: list[dict], backend: str) -> None:
@@ -228,9 +247,23 @@ def run(base: str, model: str, messages: list[dict], options: dict, box: tools.T
                 break
             yield "text", piece
 
+        if violation and violation.startswith(tools.ICD_CUT):
+            # No retry: it goes straight back to the same invented code. End
+            # on facts from the official list instead.
+            facts = tools.code_facts(user_text)
+            closing = ("I started to name another code but it is not in the official ICD-10-CM list, "
+                       "so I left it out.")
+            text = ("\n\n" if "".join(emitted).strip() else "") + (facts + " " if facts else "") + closing
+            emitted.append(text)
+            yield "text", text
+            break
         if violation:
             if repairs >= MAX_REPAIRS:
-                yield "text", "\n\n(Stopped: the model kept drifting out of English. Ask again.)"
+                reason = ("the model kept drifting out of English" if "non-English" in violation
+                          else "the model kept claiming to be another company's model")
+                stop = f"\n\n(Stopped: {reason}. Ask again.)"
+                emitted.append(stop)
+                yield "text", stop
                 break
             repairs += 1
             shown = "".join(emitted)

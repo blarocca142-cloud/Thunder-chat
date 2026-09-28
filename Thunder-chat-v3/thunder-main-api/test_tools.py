@@ -334,13 +334,22 @@ check("...and lists the real codes under a category", "Z90.410" in str(out), str
 print("invented codes stopped before they are shown (live 2026-09-28)")
 text, _, fake, _ = run_agent([
     {"content": "`Z9Q.47` isn't a real ICD-10-CM code. If you meant Z90.47, which is personal history, say so."},
-    {"content": "`Z9Q.47` isn't a real ICD-10-CM code, and I can't confirm an alternative without looking it up."},
+    {"content": "(a retry must never be asked for)"},
 ], user_text="what does ICD-10 code Z9Q.47 mean?")
 shown = text.split("---")[0]
 check("the invented Z90.47 never reaches the screen", "Z90.47" not in shown, text)
-check("...the user's own fake code can still be named as fake", "Z9Q.47" in shown, text)
-check("...and the model is told to verify before suggesting",
-      any("icd10_lookup" in m.get("content", "") for m in fake.requests[1]["messages"]), "")
+check("...the part before it is kept", "isn't a real ICD-10-CM code." in shown, text)
+check("...the reply ends on a fact from the official list",
+      "Z9Q.47 is not in the official 2026 ICD-10-CM list" in shown and "left it out" in shown, text)
+check("...with no retry loop (live: three retries, three times the same fake code)",
+      len(fake.requests) == 1, str(len(fake.requests)))
+check("...and no misleading 'drifting out of English' stop", "English" not in text, text)
+
+text, _, fake, _ = run_agent([{"content": "It is probably Z90.47, personal history."}],
+                             user_text="what does ICD-10 code Z9Q.47 mean?")
+check("a reply that opens with an invented code still ends on facts, not on nothing",
+      "Z90.47" not in text.split("---")[0] and "not in the official 2026" in text
+      and "could not put together" not in text, text)
 text, *_ = run_agent([{"content": "The code is S72.001A, closed fracture of the right femoral neck."}],
                      user_text="femur fracture code?")
 check("a real code streams through untouched", "S72.001A" in text and "Check:" not in text, text)
