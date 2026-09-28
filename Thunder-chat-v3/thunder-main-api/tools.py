@@ -255,6 +255,7 @@ class Toolbox:
         self.system_summary = system_summary
         self.seen_urls: set[str] = set()
         self.ran_code = False
+        self.forge_failed = False
         self.log: list[dict] = []
 
     def call(self, name: str, args: dict) -> dict:
@@ -284,7 +285,15 @@ class Toolbox:
             if not self.forge:
                 return {"error": "forge is not available"}
             self.ran_code = True
-            return self.forge(args["task"])
+            out = self.forge(args["task"])
+            if out.get("status") != "passed":
+                # The model has shipped forge's failed best attempt as working
+                # code before (shootout 2026-09-28). Say so in the result, and
+                # the honesty note says it again under the reply.
+                self.forge_failed = True
+                out = dict(out, verdict="FAILED: this code did not pass its tests. Say so plainly; "
+                                        "do not present it as working.")
+            return out
         if name == "read_file":
             return read_file(self.workspace, args["path"])
         if name == "write_file":
@@ -342,7 +351,9 @@ LAB_CLAIM = re.compile(
     rf"|\bI was (?:created|made|built|developed|trained)\s+by\s+{_LABS}\b"
     rf"|\bmy (?:creators?|developers?|makers?)\s+(?:is|are|was|were)\s+{_LABS}\b",
     re.I)
-URL = re.compile(r"https?://[^\s)\]>\"'`]+")
+# Excludes markdown emphasis too: "**https://x/y**" must compare equal to the
+# page that was actually fetched (shootout 2026-09-28, gpt-oss-20b T2).
+URL = re.compile(r"https?://[^\s)\]>\"'`*]+")
 RAN_CLAIM = re.compile(
     r"\b(?:I (?:ran|tested|executed|verified)|I've (?:run|tested|executed|verified)|"
     r"I have (?:run|tested|executed|verified))\b"
@@ -351,7 +362,16 @@ RAN_CLAIM = re.compile(
     r"|(?:^|[.!\n]\s*|,\s*|\band\s+)(?:ran|tested|executed|verified|checked)\s+"
     r"(?:it|this|that|the (?:code|tests?|script|function|program))\b"
     r"|\b(?:all )?(?:the )?tests? (?:pass(?:ed)?|ran)\s+(?:fine|successfully|clean(?:ly)?|without)"
-    r"|\boutput (?:is|was)\s*:?\s*`?\d", re.I | re.M)
+    r"|\boutput (?:is|was)\s*:?\s*`?\d"
+    # Shootout 2026-09-28: "The code ran successfully", "It ran:", "And it
+    # passed with output:", "I already did that. It printed 396."
+    r"|\b(?:the (?:code|script|function|program|tests?)|it|this|that)\s+(?:ran|passed|executed|printed|was run)\b(?!\s+(?:in|at|for|on|under|within)\b)"
+    r"|\bpassed with output\b|\bI already (?:did|ran|tested|checked)\b", re.I | re.M)
+
+# Something shaped like a tool's own output - a search result, a run result -
+# written into a reply when no tool ran. thunder-bare fabricated a JSON search
+# result in the shootout.
+FAKE_TOOL_OUTPUT = re.compile(r'"(?:results|snippet|stdout|stderr|exit_code)"\s*:')
 
 # A reply that promises a tool call and doesn't make one - "I will search for
 # it." - leaves the user with nothing. Seen on Main 2026-09-28.
@@ -393,13 +413,19 @@ def honesty_notes(reply: str, box: Toolbox, user_text: str) -> str:
     given = set(URL.findall(user_text or ""))
     unverified = []
     for u in URL.findall(reply):
-        u = u.rstrip(".,;:")
+        u = u.rstrip(".,;:!?_~")
         if u in given or any(u.rstrip("/") == s.rstrip("/") for s in box.seen_urls):
             continue
         unverified.append(u)
     if unverified:
         notes.append("Links I did not actually open this turn, so treat them as unverified: "
                      + ", ".join(sorted(set(unverified))[:5]))
+    if FAKE_TOOL_OUTPUT.search(reply) and not box.log:
+        notes.append("This reply shows what looks like search or run output, but no tool was used "
+                     "this turn - that output is made up.")
+    if box.forge_failed:
+        notes.append("Forge could not get this code to pass its own tests. Treat it as unverified, "
+                     "whatever the reply says.")
     if RAN_CLAIM.search(reply) and not box.ran_code:
         notes.append("I did not actually run any code this turn - any claim above that it was "
                      "run or tested is wrong.")

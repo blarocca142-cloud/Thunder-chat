@@ -242,9 +242,6 @@ def run(base: str, model: str, messages: list[dict], options: dict, box: tools.T
         if calls and not allow_tools:
             # Out of budget and still asking. Its tools were not offered, so
             # these calls are not honoured - stop rather than loop.
-            if not "".join(emitted[start:]).strip():
-                yield "text", ("I ran out of tool steps before finishing. Here is where it stands: "
-                               "I could not confirm an answer. Ask me to continue.")
             break
         if not calls and allow_tools and nudges < 2:
             nudge = tools.follow_through("".join(emitted[start:]), user_text, box)
@@ -265,6 +262,27 @@ def run(base: str, model: str, messages: list[dict], options: dict, box: tools.T
                 _record_result(messages, call, result, backend)
             continue
         break
+
+    # Never end on nothing. gpt-oss-20b searched ten times in the shootout, ran
+    # out of steps and came back empty; the phone got status lines and a
+    # sources footer and no answer. One last round without tools, told to
+    # write up what it found; a plain statement if even that is empty.
+    if not "".join(emitted).strip() and box.log:
+        messages.append({"role": "system", "content":
+                         "Stop using tools. Write your answer now, in plain words, from the tool results "
+                         "above. If they did not settle it, say what you found and what you could not "
+                         "confirm."})
+        gen = _one_round(base, model, messages, options, False, emitted, backend)
+        while True:
+            try:
+                piece = next(gen)
+            except StopIteration:
+                break
+            yield "text", piece
+    if not "".join(emitted).strip():
+        yield "text", ("I looked into this but could not put together an answer I can stand behind. "
+                       "Ask me again, or narrow the question.")
+        emitted.append("(no answer)")
 
     reply = "".join(emitted)
     tail = tools.honesty_notes(reply, box, user_text) + tools.sources_footer(box, reply)

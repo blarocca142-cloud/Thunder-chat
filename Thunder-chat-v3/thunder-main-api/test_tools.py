@@ -276,6 +276,42 @@ check("a plain answer is not nudged", text == "Four", text)
 text, *_ = run_agent([{"content": "Ran that and got the same answer."}])
 check("a subjectless claim of running code is flagged", "did not actually run" in text, text)
 
+print("shootout 2026-09-28 fixes")
+for phrase in ["The code ran successfully and it printed 396", "It ran:", "And it passed with output:",
+               "I already did that. It printed **396**."]:
+    text, *_ = run_agent([{"content": phrase}])
+    check(f"false run claim flagged: {phrase!r}", "did not actually run" in text, text)
+text, *_ = run_agent([{"content": "The function ran in O(n) time."}])
+check("'ran in O(n)' is not a run claim", "Check:" not in text, text)
+
+for q in odris_gate._calls.values():
+    q.clear()  # the suite makes more calls a minute than the gate's real limits allow
+text, status, fake, box = run_agent([
+    {"tool_calls": [call("fetch_url", url="https://1.1.1.1/page")]},
+    {"content": "Here: **https://1.1.1.1/page**"},
+])
+check("a fetched link wrapped in bold is not flagged", "unverified" not in text, text)
+
+text, *_ = run_agent([{"content": 'Search said: {"results": [{"title": "x", "url": "https://a.example/b"}]}'}])
+check("tool output written with no tool run is flagged as made up", "that output is made up" in text, text)
+
+for q in odris_gate._calls.values():
+    q.clear()
+text, status, fake, box = run_agent([{"tool_calls": [call("system_status")]}] * agent.MAX_STEPS
+                                    + [{"content": ""}, {"content": "From what I found: nothing is wrong."}])
+check("out of steps and empty still ends with an answer", "nothing is wrong" in text, text)
+check("...written in a final round without tools", "tools" not in fake.requests[-1], "")
+
+text, status, fake, box = run_agent([{"content": ""}])
+check("an empty reply is never sent as nothing", "could not put together an answer" in text, text)
+
+box = tools.Toolbox(Path(tempfile.mkdtemp()))
+box.forge = lambda task: {"status": "failed", "solution": "x", "tests": "y", "attempts": 4}
+out = box.call("forge_code", {"task": "t"})
+text = tools.honesty_notes("Here is working code.", box, "")
+check("a failed forge result says FAILED to the model", out.get("verdict", "").startswith("FAILED"), str(out))
+check("...and to Blayne under the reply", "could not get this code to pass" in text, text)
+
 print("medical routing")
 for t in ["claim number 7781 for PT eval", "DOB 01/02/1960", "ICD-10 S72.001A", "fill in the CMS-1500",
           "who is the billing provider", "ssn 123-45-6789"]:
@@ -406,7 +442,8 @@ except agent.ToolsUnsupported:
     check("a model without tool support is reported", True)
 
 text, status, fake, _ = run_agent([{"tool_calls": [call("system_status")]}] * 20 + [{"content": "done"}])
-check("the tool loop stops at its step cap", len(status) == agent.MAX_STEPS and "ran out of tool steps" in text,
+check("the tool loop stops at its step cap and still answers",
+      len(status) == agent.MAX_STEPS and text.strip() != "",
       f"{len(status)} steps")
 
 print(f"\n{PASS} passed, {FAIL} failed")
