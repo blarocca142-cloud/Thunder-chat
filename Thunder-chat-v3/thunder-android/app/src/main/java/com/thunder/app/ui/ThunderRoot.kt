@@ -45,6 +45,10 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.LocalHospital
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Bolt
+import androidx.compose.material.icons.outlined.ArrowUpward
 import androidx.compose.material.icons.outlined.AttachFile
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.MonitorHeart
@@ -132,7 +136,10 @@ private const val SHOW_STUDIO = false
 @Composable
 fun ThunderRoot(
     /** True when the app was opened by tapping a digest notification. */
-    startOnFleet: Boolean = false
+    startOnFleet: Boolean = false,
+    /** Screenshot tests only: a conversation to show, and a forced theme. */
+    previewLines: List<Line> = emptyList(),
+    previewDark: Boolean? = null
 ) {
     val context = LocalContext.current
     val prefs = remember { ThunderPrefs(context) }
@@ -144,7 +151,7 @@ fun ThunderRoot(
     val listState = rememberLazyListState()
 
     var server by remember { mutableStateOf(prefs.serverUrl) }
-    var dark by remember { mutableStateOf(prefs.darkMode) }
+    var dark by remember { mutableStateOf(previewDark ?: prefs.darkMode) }
     var draft by remember { mutableStateOf("") }
     var showSettings by remember { mutableStateOf(false) }
     var waiting by remember { mutableStateOf(false) }
@@ -164,7 +171,7 @@ fun ThunderRoot(
     var refreshAlertBadge by remember { mutableStateOf(false) }
     var odrisUrl by remember { mutableStateOf(prefs.odrisUrl) }
     var odrisPassword by remember { mutableStateOf(prefs.odrisPassword) }
-    val lines = remember { mutableStateListOf<Line>() }
+    val lines = remember { mutableStateListOf<Line>().apply { addAll(previewLines) } }
     var maintenanceActive by remember { mutableStateOf(false) }
     var maintenanceMessage by remember { mutableStateOf("") }
     var maintenanceUntil by remember { mutableStateOf<Long?>(null) }
@@ -405,9 +412,9 @@ fun ThunderRoot(
                     updateReady = update != null,
                     onMenu = { scope.launch { drawerState.open() } },
                     onSettings = { showSettings = true },
-                    onUpdate = { showUpdate = true }
+                    onUpdate = { showUpdate = true },
+                    onNewChat = { startNewChat() }
                 )
-                Hairline()
 
                 if (maintenanceActive) {
                     val countdown = maintenanceUntil?.let { until ->
@@ -453,7 +460,13 @@ fun ThunderRoot(
                         modifier = Modifier.weight(1f)
                     )
                 } else {
-                    LazyColumn(
+                    if (lines.isEmpty() && !waiting) WelcomePane(
+                        modifier = Modifier.weight(1f),
+                        onPick = { prompt ->
+                            draft = prompt
+                            send()
+                        }
+                    ) else LazyColumn(
                         state = listState,
                         modifier = Modifier.weight(1f).fillMaxWidth(),
                         contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
@@ -487,7 +500,6 @@ fun ThunderRoot(
                         }
                         if (waiting) item { ThunderThinking() }
                     }
-                    Hairline(dim = true)
                     ThunderComposer(
                         draft = draft,
                         waiting = waiting,
@@ -514,14 +526,15 @@ fun ThunderRoot(
                 }
 
                 NavigationBar(
-                    containerColor = ThunderInk.Drawer,
+                    containerColor = ThunderInk.SlateMid,
+                    tonalElevation = 0.dp,
                     contentColor = ThunderInk.Ink,
                     modifier = Modifier.navigationBarsPadding()
                 ) {
                     val colors = NavigationBarItemDefaults.colors(
                         selectedIconColor = ThunderInk.Gold,
                         selectedTextColor = ThunderInk.Gold,
-                        indicatorColor = ThunderInk.Surface,
+                        indicatorColor = ThunderInk.GoldSoft,
                         unselectedIconColor = ThunderInk.Mute,
                         unselectedTextColor = ThunderInk.Mute
                     )
@@ -777,53 +790,116 @@ private fun ThunderTopBar(
     updateReady: Boolean,
     onMenu: () -> Unit,
     onSettings: () -> Unit,
-    onUpdate: () -> Unit
+    onUpdate: () -> Unit,
+    onNewChat: () -> Unit = {}
 ) {
     Row(
         Modifier
             .fillMaxWidth()
-            .padding(start = 4.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+            .padding(start = 4.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         IconButton(onClick = onMenu) {
-            Icon(
-                Icons.Outlined.Menu,
-                contentDescription = stringResource(R.string.menu_cd),
-                tint = ThunderInk.Ink
-            )
+            Icon(Icons.Outlined.Menu, contentDescription = stringResource(R.string.menu_cd), tint = ThunderInk.Ink)
         }
-        if (inChat && !chatTitle.isNullOrBlank() && chatTitle != "New chat") {
+        Column(Modifier.weight(1f).padding(start = 2.dp)) {
+            val titled = inChat && !chatTitle.isNullOrBlank() && chatTitle != "New chat"
             Text(
-                chatTitle,
+                if (titled) chatTitle!! else "Thunder",
                 color = ThunderInk.Ink,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Medium,
-                letterSpacing = 0.3.sp,
+                fontSize = 17.sp,
+                fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
+                overflow = TextOverflow.Ellipsis
             )
-        } else {
-            ThunderWordmark(Modifier.weight(1f))
-        }
-        Text(
-            if (serverBlank) "shell" else "main",
-            color = if (serverBlank) ThunderInk.Mute else ThunderInk.Live,
-            fontSize = 11.sp,
-            letterSpacing = 0.6.sp,
-            modifier = Modifier.padding(end = 2.dp)
-        )
-        if (updateReady) {
-            IconButton(onClick = onUpdate) {
-                Icon(
-                    Icons.Outlined.FileDownload,
-                    contentDescription = stringResource(R.string.update_available),
-                    tint = ThunderInk.Gold
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier
+                        .size(6.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(if (serverBlank) ThunderInk.Mute else ThunderInk.Live)
+                )
+                Spacer(Modifier.width(5.dp))
+                Text(
+                    if (serverBlank) "not connected" else "on your 3090 · private",
+                    color = ThunderInk.Mute,
+                    fontSize = 11.5.sp
                 )
             }
         }
+        if (updateReady) {
+            IconButton(onClick = onUpdate) {
+                Icon(Icons.Outlined.FileDownload, contentDescription = stringResource(R.string.update_available),
+                     tint = ThunderInk.Gold)
+            }
+        }
+        IconButton(onClick = onNewChat) {
+            Icon(Icons.Outlined.Edit, contentDescription = "New chat", tint = ThunderInk.Ink)
+        }
         IconButton(onClick = onSettings) {
             Icon(Icons.Outlined.Settings, contentDescription = "settings", tint = ThunderInk.Mute)
+        }
+    }
+}
+
+/** What an empty chat shows: a greeting and a few things worth asking. */
+@Composable
+private fun WelcomePane(modifier: Modifier = Modifier, onPick: (String) -> Unit) {
+    val hour = remember { java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY) }
+    val greeting = when (hour) {
+        in 5..11 -> "Good morning, Blayne"
+        in 12..16 -> "Good afternoon, Blayne"
+        in 17..21 -> "Good evening, Blayne"
+        else -> "Up late, Blayne?"
+    }
+    val ideas = listOf(
+        Triple(Icons.Outlined.Code, "Write and test code", "Write a Python script that renames my photos by date, and test it"),
+        Triple(Icons.Outlined.Search, "Look something up", "What's new in the latest Python release? Look it up"),
+        Triple(Icons.Outlined.MonitorHeart, "Check the fleet", "How is the fleet doing right now?"),
+        Triple(Icons.Outlined.LocalHospital, "Check a diagnosis code", "Is S72.001A a valid ICD-10 code?")
+    )
+    Column(
+        modifier
+            .fillMaxWidth()
+            .padding(horizontal = 22.dp),
+        verticalArrangement = Arrangement.Center
+    ) {
+        Box(
+            Modifier
+                .size(44.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(ThunderInk.GoldSoft),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Outlined.Bolt, contentDescription = null, tint = ThunderInk.Gold, modifier = Modifier.size(26.dp))
+        }
+        Spacer(Modifier.height(16.dp))
+        Text(greeting, color = ThunderInk.Ink, fontSize = 26.sp, fontWeight = FontWeight.SemiBold, lineHeight = 32.sp)
+        Spacer(Modifier.height(6.dp))
+        Text("What are we working on?", color = ThunderInk.Mute, fontSize = 16.sp)
+        Spacer(Modifier.height(24.dp))
+        ideas.chunked(2).forEach { pair ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                pair.forEach { (icon, title, prompt) ->
+                    Column(
+                        Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(ThunderInk.Surface)
+                            .border(1.dp, ThunderInk.Hairline, RoundedCornerShape(16.dp))
+                            .clickable { onPick(prompt) }
+                            .padding(14.dp)
+                    ) {
+                        Icon(icon, contentDescription = null, tint = ThunderInk.Gold, modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.height(10.dp))
+                        Text(title, color = ThunderInk.Ink, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                        Spacer(Modifier.height(3.dp))
+                        Text(prompt, color = ThunderInk.Mute, fontSize = 12.sp, lineHeight = 16.sp, maxLines = 2,
+                             overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
+            Spacer(Modifier.height(10.dp))
         }
     }
 }
@@ -1024,83 +1100,86 @@ private fun ThunderComposer(
             }
         }
     }
-    Row(
+    // One rounded card, text on top and the controls along the bottom - the
+    // layout every current chat app has converged on.
+    val ready = (draft.isNotBlank() || attachment != null) && !waiting
+    Column(
         Modifier
             .fillMaxWidth()
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.Bottom
+            .padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 10.dp)
+            .clip(RoundedCornerShape(26.dp))
+            .background(ThunderInk.Surface)
+            .border(1.dp, ThunderInk.Hairline, RoundedCornerShape(26.dp))
+            .padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 6.dp)
     ) {
-        IconButton(
-            onClick = { runCatching { picker.launch(arrayOf("*/*")) } },
-            modifier = Modifier.size(44.dp)
-        ) {
-            Icon(Icons.Outlined.AttachFile, contentDescription = "Attach a file",
-                 tint = ThunderInk.Mute)
-        }
+        BasicTextField(
+            value = draft,
+            onValueChange = onDraft,
+            modifier = Modifier.fillMaxWidth().padding(end = 8.dp),
+            textStyle = TextStyle(color = ThunderInk.Ink, fontSize = 16.sp, lineHeight = 22.sp),
+            cursorBrush = SolidColor(ThunderInk.Gold),
+            maxLines = 6,
+            decorationBox = { inner ->
+                if (draft.isEmpty()) {
+                    Text("Message Thunder", color = ThunderInk.Mute, fontSize = 16.sp)
+                }
+                inner()
+            }
+        )
         Row(
-            Modifier
-                .weight(1f)
-                .clip(RoundedCornerShape(12.dp))
-                .background(ThunderInk.Surface.copy(alpha = 0.94f))
-                .border(1.dp, ThunderInk.Hairline, RoundedCornerShape(12.dp))
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+            Modifier.fillMaxWidth().padding(top = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            BasicTextField(
-                value = draft,
-                onValueChange = onDraft,
-                modifier = Modifier.fillMaxWidth(),
-                textStyle = TextStyle(color = ThunderInk.Ink, fontSize = 15.sp, lineHeight = 21.sp),
-                cursorBrush = SolidColor(ThunderInk.Gold),
-                maxLines = 6,
-                decorationBox = { inner ->
-                    if (draft.isEmpty()) {
-                        Text(
-                            stringResource(R.string.composer_hint),
-                            color = ThunderInk.Mute,
-                            fontSize = 15.sp,
-                            letterSpacing = 0.15.sp
-                        )
+            // Plain clickable circles rather than IconButton: IconButton
+            // forces a 48dp touch target, which spilled out of the card.
+            Box(
+                Modifier
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(50))
+                    .border(1.dp, ThunderInk.Hairline, RoundedCornerShape(50))
+                    .clickable { runCatching { picker.launch(arrayOf("*/*")) } },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Outlined.Add, contentDescription = "Attach a file", tint = ThunderInk.Ink,
+                     modifier = Modifier.size(20.dp))
+            }
+            Spacer(Modifier.width(8.dp))
+            Text("tools on", color = ThunderInk.Mute, fontSize = 12.sp, modifier = Modifier.weight(1f))
+            Box(
+                Modifier
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(50))
+                    .clickable {
+                    val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                        putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                        putExtra(RecognizerIntent.EXTRA_PROMPT, context.getString(R.string.voice_prompt))
                     }
-                    inner()
-                }
-            )
-        }
-        Spacer(Modifier.size(6.dp))
-        IconButton(
-            onClick = {
-                val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                    putExtra(
-                        RecognizerIntent.EXTRA_LANGUAGE_MODEL,
-                        RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
-                    )
-                    putExtra(RecognizerIntent.EXTRA_PROMPT, context.getString(R.string.voice_prompt))
-                }
-                runCatching { speech.launch(intent) }.onFailure {
-                    Toast.makeText(context, context.getString(R.string.voice_unavailable), Toast.LENGTH_SHORT).show()
-                }
-            },
-            modifier = Modifier.size(44.dp)
-        ) {
-            Icon(Icons.Outlined.Mic, contentDescription = stringResource(R.string.voice_cd), tint = ThunderInk.Mute)
-        }
-        Spacer(Modifier.size(4.dp))
-        // A photo with no words is a valid message - "what is this" is implied.
-        val ready = (draft.isNotBlank() || attachment != null) && !waiting
-        IconButton(
-            onClick = onSend,
-            enabled = ready,
-            modifier = Modifier
-                .size(44.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(if (ready) ThunderInk.Gold else ThunderInk.Surface)
-        ) {
-            Icon(
-                Icons.AutoMirrored.Filled.Send,
-                contentDescription = "send",
-                tint = if (ready) ThunderInk.OnGold else ThunderInk.Mute,
-                modifier = Modifier.size(18.dp)
-            )
+                    runCatching { speech.launch(intent) }.onFailure {
+                        Toast.makeText(context, context.getString(R.string.voice_unavailable), Toast.LENGTH_SHORT).show()
+                    }
+                },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Outlined.Mic, contentDescription = stringResource(R.string.voice_cd), tint = ThunderInk.Mute,
+                     modifier = Modifier.size(20.dp))
+            }
+            Spacer(Modifier.width(6.dp))
+            // A photo with no words is a valid message - "what is this" is implied.
+            Box(
+                Modifier
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(if (ready) ThunderInk.Ink else ThunderInk.Hairline)
+                    .clickable(enabled = ready, onClick = onSend),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Outlined.ArrowUpward,
+                    contentDescription = "send",
+                    tint = if (ready) ThunderInk.SlateMid else ThunderInk.Mute,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
         }
     }
     }

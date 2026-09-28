@@ -36,39 +36,41 @@ data class ThunderPalette(
     val maintInk: Color
 ) {
     companion object {
+        // 1.9 redesign: crisp neutrals like the frontier apps, gold kept as
+        // Thunder's one accent. The parchment tint is gone.
         val Light = ThunderPalette(
             isDark = false,
-            slateTop = Color(0xFFF7F2EA),
-            slateMid = Color(0xFFF1EBE2),
-            slateDeep = Color(0xFFE7E0D4),
-            surface = Color(0xFFFAF6EF),
-            drawer = Color(0xFFF3EEE6),
-            youBubble = Color(0xFFE8DFD0),
-            hairline = Color(0xFFD4CBBB),
-            ink = Color(0xFF2A261F),
-            mute = Color(0xFF6F685C),
-            gold = Color(0xFFB8923A),
-            goldSoft = Color(0xFFC4A35A),
-            live = Color(0xFF2F7A4A),
-            onGold = Color(0xFF2A261F),
-            maintBg = Color(0xFFF3E6C8),
+            slateTop = Color(0xFFFFFFFF),
+            slateMid = Color(0xFFFCFCFB),
+            slateDeep = Color(0xFFF7F7F5),
+            surface = Color(0xFFFFFFFF),
+            drawer = Color(0xFFF7F7F5),
+            youBubble = Color(0xFFF1F0EC),
+            hairline = Color(0xFFE7E5E0),
+            ink = Color(0xFF1B1B1A),
+            mute = Color(0xFF6E6C67),
+            gold = Color(0xFFB07A1E),
+            goldSoft = Color(0xFFF6EEDD),
+            live = Color(0xFF1F8A4C),
+            onGold = Color(0xFFFFFFFF),
+            maintBg = Color(0xFFFBF1DC),
             maintInk = Color(0xFF6B4E12)
         )
         val Dark = ThunderPalette(
             isDark = true,
-            slateTop = Color(0xFF2C3340),
-            slateMid = Color(0xFF1E232B),
-            slateDeep = Color(0xFF16191F),
-            surface = Color(0xFF252A33),
-            drawer = Color(0xFF1A1E26),
-            youBubble = Color(0xFF2E3440),
-            hairline = Color(0xFF3A414D),
-            ink = Color(0xFFEDE8DF),
-            mute = Color(0xFF9A948A),
-            gold = Color(0xFFC4A35A),
-            goldSoft = Color(0xFFB8924A),
-            live = Color(0xFF8FCB9B),
-            onGold = Color(0xFF16191F),
+            slateTop = Color(0xFF0F1012),
+            slateMid = Color(0xFF0F1012),
+            slateDeep = Color(0xFF15171A),
+            surface = Color(0xFF1A1C20),
+            drawer = Color(0xFF131417),
+            youBubble = Color(0xFF24272C),
+            hairline = Color(0xFF2B2E34),
+            ink = Color(0xFFECECEA),
+            mute = Color(0xFF8F939B),
+            gold = Color(0xFFE2B04E),
+            goldSoft = Color(0xFF2A2417),
+            live = Color(0xFF6FCF97),
+            onGold = Color(0xFF15171A),
             maintBg = Color(0xFF3A2F1B),
             maintInk = Color(0xFFE3B341)
         )
@@ -121,41 +123,9 @@ fun ThunderAtmosphere(
 ) {
     val pal = LocalThunderPalette.current
     Box(modifier.fillMaxSize()) {
-        Canvas(Modifier.fillMaxSize()) {
-            drawRect(
-                Brush.verticalGradient(
-                    0f to pal.slateTop,
-                    0.38f to pal.slateMid,
-                    1f to pal.slateDeep
-                )
-            )
-            val bloom = size.minDimension * 0.72f
-            val goldAlpha = if (pal.isDark) 0.16f else 0.22f
-            val goldSoft = if (pal.isDark) 0.05f else 0.08f
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colors = listOf(
-                        pal.gold.copy(alpha = goldAlpha),
-                        pal.gold.copy(alpha = goldSoft),
-                        Color.Transparent
-                    ),
-                    center = Offset(size.width * 0.5f, size.height * bloomY),
-                    radius = bloom
-                ),
-                radius = bloom,
-                center = Offset(size.width * 0.5f, size.height * bloomY)
-            )
-            val haze = if (pal.isDark) Color(0xFF3A4554).copy(alpha = 0.28f) else Color(0xFFFFF8EE).copy(alpha = 0.55f)
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colors = listOf(haze, Color.Transparent),
-                    center = Offset(size.width * 0.18f, size.height * 0.08f),
-                    radius = size.minDimension * 0.55f
-                ),
-                radius = size.minDimension * 0.55f,
-                center = Offset(size.width * 0.18f, size.height * 0.08f)
-            )
-        }
+        // Flat, like the apps it is measured against. The gold bloom read as
+        // decoration and competed with the conversation.
+        Canvas(Modifier.fillMaxSize()) { drawRect(pal.slateMid) }
         content()
     }
 }
