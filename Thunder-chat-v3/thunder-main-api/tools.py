@@ -345,7 +345,36 @@ LAB_CLAIM = re.compile(
 URL = re.compile(r"https?://[^\s)\]>\"'`]+")
 RAN_CLAIM = re.compile(
     r"\b(?:I (?:ran|tested|executed|verified)|I've (?:run|tested|executed|verified)|"
-    r"I have (?:run|tested|executed|verified))\b", re.I)
+    r"I have (?:run|tested|executed|verified))\b"
+    # Measured on Main 2026-09-28: models drop the subject - "ran that and got
+    # the same answer" - so claims without an "I" count too.
+    r"|(?:^|[.!\n]\s*|,\s*|\band\s+)(?:ran|tested|executed|verified|checked)\s+"
+    r"(?:it|this|that|the (?:code|tests?|script|function|program))\b"
+    r"|\b(?:all )?(?:the )?tests? (?:pass(?:ed)?|ran)\s+(?:fine|successfully|clean(?:ly)?|without)"
+    r"|\boutput (?:is|was)\s*:?\s*`?\d", re.I | re.M)
+
+# A reply that promises a tool call and doesn't make one - "I will search for
+# it." - leaves the user with nothing. Seen on Main 2026-09-28.
+PROMISE = re.compile(
+    r"\b(?:I(?:'ll| will| am going to|'m going to)|let me|I can)\s+"
+    r"(?:now\s+)?(?:search|look (?:it |that |this )?up|check|verify|run|test|find|fetch|read)\b", re.I)
+ASKED_TO_RUN = re.compile(
+    r"\b(?:check|test|verify|run|execute|confirm)\b[^.?!\n]{0,40}\b(?:code|python|it|this|that)\b"
+    r"|\bwith code\b|\band test it\b", re.I)
+ASKED_TO_LOOK_UP = re.compile(r"\b(?:link|url|search|look (?:it )?up|latest|current|docs?|documentation)\b", re.I)
+
+
+def follow_through(reply: str, user_text: str, box: "Toolbox") -> str | None:
+    """A nudge when the reply says or implies a tool call that never happened."""
+    if PROMISE.search(reply) and not box.log:
+        return ("You said you would do that, but you did not call a tool. Call the right tool now "
+                "(web_search, fetch_url, run_python or forge_code) instead of describing it.")
+    if "```" in reply and ASKED_TO_RUN.search(user_text or "") and not box.ran_code:
+        return ("Blayne asked for this to be checked by running it. Call run_python with the code now "
+                "and report what it actually printed.")
+    if ASKED_TO_LOOK_UP.search(user_text or "") and not box.log and "http" not in reply:
+        return None  # a plain "I don't know" is honest; not forcing a search on every mention of docs
+    return None
 
 
 def needs_regeneration(text: str) -> str | None:

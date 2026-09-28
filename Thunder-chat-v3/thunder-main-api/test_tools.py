@@ -251,6 +251,31 @@ check("ordinary accents are not foreign script", not tools.FOREIGN_SCRIPT.search
 check("talking about a company is not an identity claim",
       not tools.LAB_CLAIM.search("Android was made by Google, and I'm going to search Google"))
 
+print("follow-through (seen on Main 2026-09-28)")
+text, status, fake, box = run_agent([
+    {"content": "I do not know where they are. I will search for it."},
+    {"tool_calls": [call("web_search", query="fastapi lifespan docs")]},
+    {"content": "Found it."},
+])
+check("'I will search' with no search gets sent back to actually search",
+      [e["tool"] for e in box.log] == ["web_search"] and "Found it." in text, str(box.log))
+
+text, status, fake, box = run_agent([
+    {"content": "I can check the arithmetic for you.\n```python\nprint(17 * 23 + 5)\n```"},
+    {"tool_calls": [call("run_python", code="print(17 * 23 + 5)")]},
+    {"content": "It printed 396."},
+], user_text="what is 17*23+5? check it with code")
+check("code shown instead of run, when asked to check with code, gets run", box.ran_code and "396" in text, text)
+
+text, status, fake, box = run_agent([{"content": "I will search."}] * 5)
+check("a model that only ever promises is stopped after two nudges", len(fake.requests) == 3, str(len(fake.requests)))
+
+text, *_ = run_agent([{"content": "Four"}], user_text="what's 2+2, just answer")
+check("a plain answer is not nudged", text == "Four", text)
+
+text, *_ = run_agent([{"content": "Ran that and got the same answer."}])
+check("a subjectless claim of running code is flagged", "did not actually run" in text, text)
+
 print("medical routing")
 for t in ["claim number 7781 for PT eval", "DOB 01/02/1960", "ICD-10 S72.001A", "fill in the CMS-1500",
           "who is the billing provider", "ssn 123-45-6789"]:

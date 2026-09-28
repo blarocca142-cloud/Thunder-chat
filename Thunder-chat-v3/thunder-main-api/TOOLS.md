@@ -6,7 +6,7 @@ check memory or check the hardware. Every call is asked of **Odris** first.
     phone -> Main /chat/stream -> agent.py loop -> model asks for a tool
                                         |
                                         v
-                        Odris :9007 (odris_gate.py): allowed? log it.
+                        Odris :9009 (odris_gate.py): allowed? log it.
                           internet tools: Odris does the fetch itself
                           local tools:    Odris approves, Main runs them
 
@@ -38,12 +38,16 @@ Every decision is one JSON line in `~/thunder-gate/gate.log` on Odris.
 
 ## Deploy
 
-**Odris** (user unit, no root - same as TTS):
+**Odris** (user unit, no root - same as TTS). Deployed 2026-09-28: code lives
+flat in `/home/blayne-odris/` beside the other Odris services, and it listens on
+**9009** because `odris_health.py` has held 9007 since 2026-09-16 (and answers
+`/health` with 200, so a status-code check is fooled). The live unit sets
+`ODRIS_GATE_PORT=9009`; Main has `ODRIS_GATE_URL` in
+`/etc/systemd/system/thunder-main.service.d/gate.conf`.
 
-    scp thunder-nodes/odris/odris_gate.py thunder-nodes/odris/odris_websearch.py odris:~/thunder-nodes/odris/
-    scp thunder-nodes/odris/odris-gate.service odris:~/.config/systemd/user/
-    ssh odris 'systemctl --user daemon-reload && systemctl --user enable --now odris-gate'
-    curl -s http://10.168.168.15:9007/health
+    scp thunder-nodes/odris/odris_gate.py thunder-nodes/odris/odris_websearch.py odris:~/
+    ssh odris 'systemctl --user restart odris-gate'
+    curl -s http://10.168.168.15:9009/health     # must list the tools, not "fleet health"
 
 **Main**: the new code is `agent.py`, `tools.py` and changes in `app.py`.
 Restart `thunder-main`. Settings (env):
@@ -51,7 +55,7 @@ Restart `thunder-main`. Settings (env):
 | Var | Default | |
 |---|---|---|
 | `THUNDER_TOOLS` | `1` | `0` = old keyword-search path |
-| `ODRIS_GATE_URL` | `http://10.168.168.15:9007` | |
+| `ODRIS_GATE_URL` | `http://10.168.168.15:9007` | **set to :9009 on Main** - 9007 is odris_health.py, which also answers /health with 200 |
 | `THUNDER_NUM_CTX` | `16384` | raise with the new model |
 | `THUNDER_NUM_PREDICT` | `4096` | reply length cap in tool mode |
 | `THUNDER_TOOL_STEPS` | `10` | tool calls per reply |

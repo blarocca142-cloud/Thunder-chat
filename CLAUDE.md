@@ -14,14 +14,16 @@ you don't burn Blayne's usage rediscovering the fleet.
 | thunder-cache | .11 | idle | i5-3470, 22GB |
 | thunder-engine | .12 | safety yes/no (9002) | i7-3770, 30GB |
 | serverus | .13 | memory (9001) | **Xeon E3-1230 v5** — best CPU in the fleet, barely used |
-| odris | .15 | heartbeat 9003, websearch 9004, admin 9005, **TTS 9006** | Radeon 550 **4GB**, 30GB RAM |
+| odris | .15 | heartbeat 9003, websearch 9004, admin 9005, **TTS 9006**, health 9007, youtube 9008, **tool gate 9009** | Radeon 550 **4GB**, 30GB RAM. Code in `/home/blayne-odris/` |
 
 SSH works to all of them from Main via the aliases in `~/.ssh/config`
 (`odris`, `serverus`, `thunder-cache`, `thunder-engine`). **Use the aliases** —
 raw IPs default to the wrong username and look like an auth failure.
 
 Odris services are system units needing root Blayne doesn't have the password
-for. Deploy by copying the file and `pkill`ing the process — `Restart=always`
+for. **That is Odris only:** on thunder-main `blayne` has passwordless sudo
+(`(ALL) NOPASSWD: ALL`, found 2026-09-28) - a standing security decision for
+the box that will hold claims data. Deploy by copying the file and `pkill`ing the process — `Restart=always`
 brings it back on the new code in 3s. The TTS service is a **systemd user**
 unit with lingering enabled, so `systemctl --user restart thunder-tts` works.
 

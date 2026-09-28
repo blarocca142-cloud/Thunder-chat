@@ -206,6 +206,7 @@ def run(base: str, model: str, messages: list[dict], options: dict, box: tools.T
     messages = list(messages)
     steps = 0
     repairs = 0
+    nudges = 0
     emitted: list[str] = []        # answer text shown this turn
     while True:
         allow_tools = steps < MAX_STEPS
@@ -245,6 +246,16 @@ def run(base: str, model: str, messages: list[dict], options: dict, box: tools.T
                 yield "text", ("I ran out of tool steps before finishing. Here is where it stands: "
                                "I could not confirm an answer. Ask me to continue.")
             break
+        if not calls and allow_tools and nudges < 2:
+            nudge = tools.follow_through("".join(emitted[start:]), user_text, box)
+            if nudge:
+                nudges += 1
+                messages.append({"role": "assistant", "content": "".join(emitted[start:])})
+                messages.append({"role": "system", "content": nudge})
+                if emitted and not emitted[-1].endswith("\n"):
+                    emitted.append("\n")
+                    yield "text", "\n"
+                continue
         if calls:
             steps += 1
             _record_calls(messages, "".join(emitted[start:]), calls, backend)
