@@ -10,6 +10,7 @@ import re
 import shutil
 import subprocess
 import threading
+import time
 import traceback
 import urllib.error
 import urllib.request
@@ -17,25 +18,29 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from collections import deque
+from concurrent.futures import Future, ThreadPoolExecutor
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
+import agent
 import alerts
 import codestore
 import consolidate
 import creative
 import digest
+import forge
 import memory
 import odris_persona
+import tools
 import uploads
 from onboarding import deck as onboarding_deck
 from onboarding import narrate as onboarding_narrate
 
 OLLAMA = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
-MODEL = os.environ.get("THUNDER_MODEL", "dolphin3")  # never default to a Qwen/Alibaba model
+MODEL = os.environ.get("THUNDER_MODEL", "dolphin3")  # set on Main; see TOOLS.md before choosing one
 SERVERUS = os.environ.get("SERVERUS_URL", "http://10.168.168.13:9001")
 ENGINE = os.environ.get("ENGINE_URL", "http://10.168.168.12:9002")
 ODRIS = os.environ.get("ODRIS_URL", "http://10.168.168.15:9003")
@@ -84,6 +89,33 @@ ODRIS_YOUTUBE = "http://10.168.168.15:9008/youtube"
 YOUTUBE_URL = re.compile(
     r"https?://(?:www\.|m\.)?(?:youtube\.com/watch\?\S*v=|youtu\.be/)([\w-]{11})")
 MEM = memory.Memory(DATA / "memory")
+
+# ---- who is talking ------------------------------------------------------------
+# Thunder was built for one person, and everything assumed it: one history on
+# serverus, one memory, one profile injected into every prompt. A second user
+# would have been told they were Blayne and had their conversations mixed into
+# his. Each user now gets their own history, memory, profile and code
+# workspace. Blayne is the owner and keeps everything that exists today.
+OWNER = "owner"
+_USER_MEM: dict[str, memory.Memory] = {}
+
+
+def safe_user(name: str) -> str:
+    return re.sub(r"[^a-z0-9_-]", "", (name or "").lower())[:32] or OWNER
+
+
+def mem_for(user: str) -> memory.Memory:
+    user = safe_user(user)
+    if user == OWNER:
+        return MEM
+    if user not in _USER_MEM:
+        _USER_MEM[user] = memory.Memory(DATA / "memory" / "users" / user)
+    return _USER_MEM[user]
+
+
+def workspace_for(user: str) -> Path:
+    user = safe_user(user)
+    return CODE if user == OWNER else CODE / "_users" / user
 if not MEM.profile().strip():
     MEM.set_profile(memory.DEFAULT_PROFILE)
 WEB = Path(__file__).resolve().parent.parent / "thunder-web"
@@ -128,12 +160,12 @@ def save_tokens(tokens: dict) -> None:
     TOKENS_FILE.chmod(0o600)
 
 
-def mint_token(name: str) -> str:
+def mint_token(name: str, user: str = OWNER) -> str:
     import secrets
 
     token = secrets.token_urlsafe(32)
     tokens = load_tokens()
-    tokens[token] = {"name": name, "created": utc_ts(), "last_seen": None}
+    tokens[token] = {"name": name, "user": safe_user(user), "created": utc_ts(), "last_seen": None}
     save_tokens(tokens)
     return token
 
@@ -173,8 +205,12 @@ async def authenticate(request: Request, call_next):
             return JSONResponse(status_code=401,
                                 content={"error": "a bearer token is required"})
         who = record.get("name", "unknown")
-        record["last_seen"] = utc_ts()
-        save_tokens(tokens)
+        request.state.user = safe_user(record.get("user") or OWNER)
+        # Every request used to rewrite the token file; once a minute is plenty
+        # for "last seen", and the phone polls /status every 15 seconds.
+        if utc_ts() - (record.get("last_seen") or 0) > 60:
+            record["last_seen"] = utc_ts()
+            save_tokens(tokens)
     response = await call_next(request)
     # Status polling would otherwise drown the log in noise.
     if path not in ("/status", "/health"):
@@ -271,6 +307,9 @@ class VideoIn(BaseModel):
 class TokenIn(BaseModel):
     admin_secret: str = ""
     name: str = ""
+    # Which person this device belongs to. Empty = the owner (Blayne). A new
+    # name gets its own history, memory, profile and code workspace.
+    user: str = ""
 
 
 class UploadIn(BaseModel):
@@ -385,9 +424,24 @@ SYSTEM_PROMPT = (
     "non-sexual contexts are completely fine to write, brainstorm, and "
     "develop. Never refuse or water down a kids' show or anime idea just "
     "because it involves child characters.\n\n"
+    # Recent turns are injected verbatim, and without this the model treats the
+    # previous topic as the current one - asked for an injury ad right after a
+    # Fallout 76 conversation, it wrote a Fallout 76 ad.
+    "EARLIER MESSAGES\n"
+    "The conversation history is background only. The user's newest message "
+    "defines the subject. If it changes topic, follow it and drop the old one "
+    "entirely - do not carry names, franchises or settings across from earlier "
+    "unless the new message actually refers to them."
+)
+
+
+# Video and photo are shelved (see CLAUDE.md, 2026-09-27). Their prompt section
+# costs context on every message and makes the model talk about tools it should
+# not be steering people to, so it is only included when switched on.
+STUDIO_PROMPT = (
     # Without this the model does not know it owns a video generator, so it
     # writes generic ad copy instead of prompts that can actually be rendered.
-    "YOUR OWN IMAGE AND VIDEO TOOLS\n"
+    "\n\nYOUR OWN IMAGE AND VIDEO TOOLS\n"
     "You are not only a chat model - the same system runs local generators, "
     "reached from the Studio tab. You will be asked to write prompts and "
     "scripts for them, so know their limits.\n"
@@ -408,14 +462,6 @@ SYSTEM_PROMPT = (
     "garbles lettering, so any phone number or slogan must be an overlay added "
     "afterwards, never generated), multiple shots or cuts in one clip, exact "
     "counts of people or objects, fine hand detail, specific real people.\n\n"
-    # Recent turns are injected verbatim, and without this the model treats the
-    # previous topic as the current one - asked for an injury ad right after a
-    # Fallout 76 conversation, it wrote a Fallout 76 ad.
-    "EARLIER MESSAGES\n"
-    "The conversation history is background only. The user's newest message "
-    "defines the subject. If it changes topic, follow it and drop the old one "
-    "entirely - do not carry names, franchises or settings across from earlier "
-    "unless the new message actually refers to them.\n\n"
     "MULTI-SHOT SCRIPTS\n"
     "One generation is always one continuous shot, so a 20 second ad is "
     "several short clips generated separately and assembled after. When asked "
@@ -426,6 +472,7 @@ SYSTEM_PROMPT = (
     "he knows the commitment before starting, and flag any shot that depends "
     "on on-screen text."
 )
+STUDIO_ON = os.environ.get("THUNDER_STUDIO_PROMPT", "0") == "1"
 
 
 # Each voice is a character, not a skin. The persona rides on the system
@@ -474,6 +521,42 @@ CHAT_OPTIONS = {
     "repeat_penalty": 1.18,
     "repeat_last_n": 256,
     "num_predict": 1400,
+    "num_ctx": int(os.environ.get("THUNDER_NUM_CTX", "16384")),
+}
+
+# With tools on, the model writes code and reads pages. A 1.18 repeat penalty
+# is poison for code - indentation, brackets and variable names repeat by
+# nature - so it is nearly off here, and replies get room for a whole program.
+# The runaway-repetition guard is the length cap, and the tool loop's step cap.
+TOOLS_ON = os.environ.get("THUNDER_TOOLS", "1") != "0"
+# Blayne's rule: chat and code can run on any model, medical never runs on a
+# Chinese one. Anything that looks like a claim or a chart is answered by this
+# model instead - thunder:latest (Mistral) until the shootout picks a better
+# non-Chinese one.
+MEDICAL_MODEL = os.environ.get("THUNDER_MEDICAL_MODEL", "thunder:latest")
+
+# Turbo: llama.cpp's llama-server, which can do what Ollama cannot - speculative
+# decoding (a small draft model proposes, the big one verifies several tokens
+# per pass) and prompt-cache reuse. Used for the main model when it is up;
+# Ollama stays for the medical model and as the fallback. See thunder-turbo/.
+BACKEND = os.environ.get("THUNDER_BACKEND", "ollama")
+LLAMACPP = os.environ.get("THUNDER_LLAMACPP_URL", "http://127.0.0.1:8081")
+
+
+def turbo_up() -> bool:
+    if BACKEND != "llamacpp":
+        return False
+    try:
+        with urllib.request.urlopen(f"{LLAMACPP}/health", timeout=1) as r:
+            return r.status == 200
+    except Exception:
+        return False
+TOOL_OPTIONS = {
+    "repeat_penalty": 1.05,
+    "repeat_last_n": 128,
+    "num_predict": int(os.environ.get("THUNDER_NUM_PREDICT", "4096")),
+    "num_ctx": int(os.environ.get("THUNDER_NUM_CTX", "16384")),
+    "temperature": float(os.environ.get("THUNDER_TEMPERATURE", "0.6")),
 }
 
 
@@ -481,17 +564,17 @@ def persona_for(voice: str | None) -> str:
     return VOICE_PERSONAS.get((voice or "").strip(), "")
 
 
-def serverus_recent(limit: int = 10) -> list[dict]:
+def serverus_recent(limit: int = 10, who: str = OWNER) -> list[dict]:
     try:
-        with urllib.request.urlopen(f"{SERVERUS}/recent?limit={limit}", timeout=2) as r:
+        with urllib.request.urlopen(f"{SERVERUS}/recent?limit={limit}&who={who}", timeout=2) as r:
             return json.loads(r.read().decode()).get("turns", [])
     except Exception:
         return []  # Serverus down - chat still works, just without memory
 
 
-def serverus_append(user_msg: str, reply: str) -> None:
+def serverus_append(user_msg: str, reply: str, who: str = OWNER) -> None:
     try:
-        payload = json.dumps({"user": user_msg, "reply": reply}).encode()
+        payload = json.dumps({"user": user_msg, "reply": reply, "who": who}).encode()
         req = urllib.request.Request(
             f"{SERVERUS}/append",
             data=payload,
@@ -788,7 +871,7 @@ def maybe_augment_with_youtube(message: str) -> str | None:
     return f"{message}\n\n{header}\n{text}\n--- end of transcript ---"
 
 
-def remember_if_asked(message: str) -> dict | None:
+def remember_if_asked(message: str, mem: "memory.Memory | None" = None) -> dict | None:
     """Store a fact only when actually told to.
 
     Inferring what is worth keeping fills memory with rubbish, and rubbish in
@@ -797,10 +880,145 @@ def remember_if_asked(message: str) -> dict | None:
     fact = memory.extract_instruction(message)
     if not fact:
         return None
-    rec = MEM.remember(fact, source="asked")
+    rec = (mem or MEM).remember(fact, source="asked")
     if rec:
         log_event("memory", f"remembered: {fact[:80]}")
     return rec
+
+
+_POOL = ThreadPoolExecutor(max_workers=16, thread_name_prefix="ctx")
+
+
+def gather_context(recall_text: str, user: str = OWNER) -> dict:
+    """Everything a reply needs from the fleet, fetched at the same time.
+
+    These were five sequential round trips before a word was generated -
+    serverus history, memory recall, exchange recall (which embedded the same
+    text a second time), alerts. Now they run in parallel and the embedding
+    is computed once; the slowest one sets the wait instead of the sum.
+    """
+    mem = mem_for(user)
+    jobs = {
+        "profile": _POOL.submit(lambda: mem.profile().strip()),
+        "recent": _POOL.submit(serverus_recent, 6, safe_user(user)),
+        "notes": _POOL.submit(mem.recall_block, recall_text),
+        "past": _POOL.submit(mem.exchange_block, recall_text),
+    }
+    if safe_user(user) == OWNER:
+        # Fleet alerts are about Blayne's machines; other users don't get them.
+        jobs["live"] = _POOL.submit(alerts.context_block, DATA)
+    out = {}
+    for k, f in jobs.items():
+        try:
+            out[k] = f.result(timeout=12)
+        except Exception:
+            out[k] = [] if k == "recent" else ""
+    return out
+
+
+def build_messages(message: str, recall_text: str, extra_history: list[dict] | None,
+                   persona: str, tool_mode: bool, strip_medical: bool = False,
+                   user: str = OWNER, ctx: dict | None = None) -> list[dict]:
+    """strip_medical drops any earlier turn or recalled note that looks medical,
+    so a model not trusted with medical work never sees it in its context."""
+    ctx = ctx if ctx is not None else gather_context(recall_text, user)
+    profile = ctx.get("profile", "")
+    system = (SYSTEM_PROMPT
+              + (STUDIO_PROMPT if STUDIO_ON else "")
+              + (f"\n\n{tools.TOOL_RULES}" if tool_mode else "")
+              + (f"\n\n{profile}" if profile else "")
+              + (f"\n\n{persona}" if persona else ""))
+    messages = [{"role": "system", "content": system}]
+    ok = (lambda text: not tools.looks_medical(text)) if strip_medical else (lambda text: True)
+    messages.extend(m for m in ctx.get("recent", []) if ok(m.get("content", "")))
+    for item in (extra_history or []):
+        role = item.get("role") or item.get("who")
+        content = item.get("content") or item.get("text") or ""
+        role = {"you": "user", "thunder": "assistant", "bot": "assistant"}.get(role, role)
+        if content and role in ("user", "assistant") and ok(content):
+            messages.append({"role": role, "content": content})
+    notes = ctx.get("notes", "")
+    if notes and ok(notes):
+        messages.append({"role": "system", "content": notes})
+    past = ctx.get("past", "")
+    if past and ok(past):
+        messages.append({"role": "system", "content": past})
+    # Last, immediately before the question, for the same reason the recalled
+    # notes are: retrieval that is merely present loses to the training prior.
+    # Without this, Thunder sends a notification about a drive and then has no
+    # idea what the notification was when asked about it thirty seconds later.
+    live = ctx.get("live", "")
+    if live and ok(live):
+        messages.append({"role": "system", "content": live})
+    messages.append({"role": "user", "content": message})
+    return messages
+
+
+def store_turn(clean: str, reply: str, user: str = OWNER, background: bool = True) -> None:
+    """Save the exchange. In the background by default: it embeds the
+    exchange and writes to serverus, and the phone used to wait for both
+    before it was told the reply was done."""
+    def work():
+        mem = mem_for(user)
+        serverus_append(clean, reply, safe_user(user))
+        mem.remember_exchange(clean, reply)
+        remember_if_asked(clean, mem)
+    if background:
+        _POOL.submit(work)
+    else:
+        work()
+
+
+def legacy_augment(msg: str) -> str:
+    return (maybe_augment_with_youtube(msg)
+            or maybe_augment_with_system(msg)
+            or maybe_augment_with_search(msg))
+
+
+def chat_turn(msg: str, extra_history: list[dict] | None = None, persona: str = "",
+              show_status: bool = True, clean: str | None = None, user: str = OWNER,
+              ctx: "Future | None" = None):
+    """One reply, as text pieces. The tool loop when the model supports it,
+    the old keyword-search path when it does not.
+
+    `msg` may already carry a document's text (see with_attachment); `clean`
+    is what he actually typed, which is what memory recalls against and stores.
+    """
+    clean = clean if clean is not None else msg
+    model = MODEL
+    if MEDICAL_MODEL and MEDICAL_MODEL != MODEL and tools.looks_medical(msg):
+        model = MEDICAL_MODEL
+        log_event("medical", f"routed to {model}")
+        if show_status:
+            yield "[medical content - answering with the non-Chinese model]\n"
+    if TOOLS_ON:
+        message = maybe_augment_with_youtube(msg) or msg
+        messages = build_messages(message, clean, extra_history, persona, tool_mode=True,
+                                  strip_medical=(model != MEDICAL_MODEL), user=user,
+                                  ctx=ctx.result() if ctx is not None else None)
+        box = tools.Toolbox(workspace_for(user), mem_for(user),
+                            system_summary if safe_user(user) == OWNER else None,
+                            forge=lambda task: forge.forge(task, OLLAMA, model))
+        parts: list[str] = []
+        try:
+            turbo = model != MEDICAL_MODEL and turbo_up()
+            base, backend = (LLAMACPP, "openai") if turbo else (OLLAMA, "ollama")
+            for kind, text in agent.run(base, model, messages, TOOL_OPTIONS, box, user_text=msg,
+                                        backend=backend):
+                if kind == "text":
+                    parts.append(text)
+                    yield text
+                elif show_status:
+                    yield f"[{text}]\n"
+            if box.log:
+                log_event("tools", ", ".join(f"{e['tool']}{'' if e['ok'] else '(x)'}" for e in box.log))
+            store_turn(clean, "".join(parts), user)
+            return
+        except agent.ToolsUnsupported:
+            log_event("tools", f"{model} cannot call tools - using the old search path")
+    yield from ollama_chat_stream(legacy_augment(msg), memory_message=clean,
+                                  extra_history=extra_history, persona=persona, model=model,
+                                  user=user, ctx=ctx.result() if ctx is not None else None)
 
 
 def ollama_chat(message: str, memory_message: str | None = None,
@@ -813,37 +1031,7 @@ def ollama_chat(message: str, memory_message: str | None = None,
     # into `message`, embedding that would recall against the search results
     # rather than against what he actually asked.
     recall_text = memory_message if memory_message is not None else message
-    profile = MEM.profile().strip()
-    messages = [{"role": "system", "content": SYSTEM_PROMPT
-                 + (f"\n\n{profile}" if profile else "")
-                 + (f"\n\n{persona}" if persona else "")}]
-    messages.extend(serverus_recent(6))
-    if extra_history:
-        for item in extra_history:
-            role = item.get("role") or item.get("who")
-            content = item.get("content") or item.get("text") or ""
-            if role in ("you", "user"):
-                role = "user"
-            elif role in ("thunder", "assistant", "bot"):
-                role = "assistant"
-            else:
-                continue
-            if content:
-                messages.append({"role": role, "content": content})
-    notes = MEM.recall_block(recall_text)
-    if notes:
-        messages.append({"role": "system", "content": notes})
-    past = MEM.exchange_block(recall_text)
-    if past:
-        messages.append({"role": "system", "content": past})
-    # Last, immediately before the question, for the same reason the recalled
-    # notes are: retrieval that is merely present loses to the training prior.
-    # Without this, Thunder sends a notification about a drive and then has no
-    # idea what the notification was when asked about it thirty seconds later.
-    live = alerts.context_block(DATA)
-    if live:
-        messages.append({"role": "system", "content": live})
-    messages.append({"role": "user", "content": message})
+    messages = build_messages(message, recall_text, extra_history, persona, tool_mode=False)
     payload = json.dumps({
         "model": MODEL, "stream": False, "messages": messages, "options": CHAT_OPTIONS,
     }).encode()
@@ -856,10 +1044,7 @@ def ollama_chat(message: str, memory_message: str | None = None,
     with urllib.request.urlopen(req, timeout=300) as r:
         body = json.loads(r.read().decode())
     reply = body.get("message", {}).get("content") or body.get("response") or json.dumps(body)
-    clean = memory_message if memory_message is not None else message
-    serverus_append(clean, reply)
-    MEM.remember_exchange(clean, reply)
-    remember_if_asked(clean)
+    store_turn(recall_text, reply)
     return reply
 
 
@@ -1097,7 +1282,8 @@ def release_chat_model() -> None:
 def warm_model() -> None:
     """Ask Ollama to load the chat model without generating anything, so it is
     resident by the time the user finishes reading the greeting."""
-    payload = json.dumps({"model": MODEL, "prompt": "", "keep_alive": "5m"}).encode()
+    payload = json.dumps({"model": MODEL, "prompt": "",
+                          "keep_alive": os.environ.get("THUNDER_KEEP_ALIVE", "24h")}).encode()
     req = urllib.request.Request(
         f"{OLLAMA}/api/generate", data=payload, headers={"Content-Type": "application/json"}
     )
@@ -1109,38 +1295,17 @@ def warm_model() -> None:
 
 
 def ollama_chat_stream(message: str, memory_message: str | None = None,
-                       extra_history: list[dict] | None = None, persona: str = ""):
+                       extra_history: list[dict] | None = None, persona: str = "",
+                       model: str | None = None, user: str = OWNER, ctx: dict | None = None):
     """Yields reply text as it is produced. Same message assembly as
     ollama_chat, but the caller sees the first words in about a second instead
     of waiting out the whole answer."""
-    # Recall runs on the clean user text: when a search blob has been stuffed
-    # into `message`, embedding that would recall against the search results
-    # rather than against what he actually asked.
     recall_text = memory_message if memory_message is not None else message
-    profile = MEM.profile().strip()
-    messages = [{"role": "system", "content": SYSTEM_PROMPT
-                 + (f"\n\n{profile}" if profile else "")
-                 + (f"\n\n{persona}" if persona else "")}]
-    messages.extend(serverus_recent(6))
-    for item in (extra_history or []):
-        role = item.get("role") or item.get("who")
-        content = item.get("content") or item.get("text") or ""
-        role = {"you": "user", "thunder": "assistant", "bot": "assistant"}.get(role, role)
-        if content and role in ("user", "assistant"):
-            messages.append({"role": role, "content": content})
-    notes = MEM.recall_block(recall_text)
-    if notes:
-        messages.append({"role": "system", "content": notes})
-    past = MEM.exchange_block(recall_text)
-    if past:
-        messages.append({"role": "system", "content": past})
-    live = alerts.context_block(DATA)   # see the note in ollama_chat
-    if live:
-        messages.append({"role": "system", "content": live})
-    messages.append({"role": "user", "content": message})
+    messages = build_messages(message, recall_text, extra_history, persona, tool_mode=False,
+                              strip_medical=(model or MODEL) != MEDICAL_MODEL, user=user, ctx=ctx)
 
     payload = json.dumps({
-        "model": MODEL, "stream": True, "messages": messages, "options": CHAT_OPTIONS,
+        "model": model or MODEL, "stream": True, "messages": messages, "options": CHAT_OPTIONS,
     }).encode()
     req = urllib.request.Request(
         f"{OLLAMA}/api/chat", data=payload,
@@ -1162,19 +1327,44 @@ def ollama_chat_stream(message: str, memory_message: str | None = None,
                 yield piece
             if chunk.get("done"):
                 break
-    clean = memory_message if memory_message is not None else message
-    full = "".join(parts)
-    serverus_append(clean, full)
-    MEM.remember_exchange(clean, full)
-    remember_if_asked(clean)
+    store_turn(recall_text, "".join(parts), user)
+
+
+_STATUS_CACHE: dict = {"at": 0.0, "probes": None}
+_STATUS_LOCK = threading.Lock()
+
+
+def _probes() -> dict:
+    """The live checks behind /status, run in parallel and reused for three
+    seconds. They used to run one after another, each with its own timeout,
+    on every /status poll and after every single chat reply - a reply could
+    wait two seconds on the Odris heartbeat just to write "chat ok"."""
+    with _STATUS_LOCK:
+        if _STATUS_CACHE["probes"] is not None and time.time() - _STATUS_CACHE["at"] < 3:
+            return _STATUS_CACHE["probes"]
+    jobs = {"ollama": _POOL.submit(ollama_up), "heartbeat": _POOL.submit(odris_heartbeat),
+            "egress": _POOL.submit(recent_blocked_egress), "canary": _POOL.submit(canary_hits),
+            "gpu": _POOL.submit(genai_state)}
+    fallback = {"ollama": False, "heartbeat": None, "egress": [], "canary": [],
+                "gpu": {"up": False, "loaded": [], "loading": None, "busy": False}}
+    out = {}
+    for k, f in jobs.items():
+        try:
+            out[k] = f.result(timeout=6)
+        except Exception:
+            out[k] = fallback[k]
+    with _STATUS_LOCK:
+        _STATUS_CACHE.update(at=time.time(), probes=out)
+    return out
 
 
 def read_status() -> dict:
+    p = _probes()
     base = {
         "mode": "idle",
         "odriss": "no_heartbeat",
         "cache": "idle",
-        "ollama": ollama_up(),
+        "ollama": p["ollama"],
         "model": MODEL,
         "job_id": None,
         "job_title": None,
@@ -1188,9 +1378,9 @@ def read_status() -> dict:
             base.update(json.loads(STATUS.read_text()))
         except json.JSONDecodeError:
             pass
-    base["ollama"] = ollama_up()
+    base["ollama"] = p["ollama"]
     base["model"] = MODEL
-    heartbeat = odris_heartbeat()
+    heartbeat = p["heartbeat"]
     if heartbeat:
         base["odriss"] = "ok"
         base["odris_nodes"] = heartbeat.get("nodes", {})
@@ -1201,24 +1391,34 @@ def read_status() -> dict:
     base["maintenance"] = get_maintenance()
     if base["maintenance"]["active"]:
         base["state"] = "maintenance"
-    base["blocked_egress"] = recent_blocked_egress()
+    base["blocked_egress"] = p["egress"]
     if base["blocked_egress"]:
         base["state"] = "security_alert"
-    base["canary"] = canary_hits()
+    base["canary"] = p["canary"]
     if base["canary"]:
         base["state"] = "security_alert"
     base["app_version"] = BACKEND_VERSION
-    base["gpu"] = genai_state()
+    base["gpu"] = p["gpu"]
     base["image_hook"] = bool(creative.IMAGE_HOOK)
     base["video_hook"] = bool(creative.VIDEO_HOOK)
     return base
 
 
+_STATUS_WRITE = threading.Lock()
+
+
 def write_status(**extra) -> dict:
-    cur = read_status()
-    cur.update({k: v for k, v in extra.items() if v is not None})
-    cur["last_write_unix"] = utc_ts()
-    STATUS.write_text(json.dumps(cur, indent=2))
+    """Record what Thunder is doing. Only the file - no fleet probes."""
+    with _STATUS_WRITE:
+        cur = {}
+        if STATUS.exists():
+            try:
+                cur = json.loads(STATUS.read_text())
+            except json.JSONDecodeError:
+                cur = {}
+        cur.update({k: v for k, v in extra.items() if v is not None})
+        cur["last_write_unix"] = utc_ts()
+        STATUS.write_text(json.dumps(cur, indent=2))
     return cur
 
 
@@ -1790,9 +1990,10 @@ def create_token(body: TokenIn):
     if body.admin_secret != get_admin_secret():
         raise HTTPException(403, "admin secret required")
     name = (body.name or "").strip() or "unnamed client"
-    token = mint_token(name)
-    log_event("auth", f"token issued for {name}")
-    return {"token": token, "name": name,
+    user = safe_user(body.user) if body.user.strip() else OWNER
+    token = mint_token(name, user)
+    log_event("auth", f"token issued for {name} ({user})")
+    return {"token": token, "name": name, "user": user,
             "note": "Store this now - it is not recoverable."}
 
 
@@ -1858,11 +2059,18 @@ def warm():
     return {"ok": True, "model": MODEL}
 
 
+def request_user(request: Request) -> str:
+    return getattr(request.state, "user", OWNER)
+
+
 @app.post("/chat")
-def chat(body: ChatIn):
+def chat(body: ChatIn, request: Request):
     msg = (body.message or "").strip()
     if not msg:
         return {"reply": "Say something."}
+    user = request_user(request)
+    # Start fetching history and memory now, while the safety check runs.
+    ctx = _POOL.submit(gather_context, msg, user)
     maint = get_maintenance()
     if maint["active"]:
         return {
@@ -1878,7 +2086,7 @@ def chat(body: ChatIn):
         # this through it would produce a confident answer about nothing.
         try:
             reply = ollama_vision(body.message or "", image_b64)
-            serverus_append(body.message or f"[image: {attached['name']}]", reply)
+            serverus_append(body.message or f"[image: {attached['name']}]", reply, user)
             write_status(mode="code", message="vision ok")
             log_event("vision", f"{attached['name']} -> {len(reply)} chars")
             return {"reply": reply, "read_as": "image", "file": attached["name"]}
@@ -1888,14 +2096,11 @@ def chat(body: ChatIn):
 
     if ollama_up():
         try:
-            reply = ollama_chat(
-                maybe_augment_with_youtube(msg)
-                or maybe_augment_with_system(msg)
-                or maybe_augment_with_search(msg),
-                memory_message=body.message or msg,
-                extra_history=body.messages,
-                persona=persona_for(body.voice),
-            )
+            reply = "".join(chat_turn(
+                msg, extra_history=body.messages, persona=persona_for(body.voice),
+                show_status=False, clean=body.message or msg, user=user,
+                ctx=ctx if msg == (body.message or "").strip() else None,
+            ))
             write_status(mode="code", message="chat ok")
             log_event("chat", f"ok ({len(msg)} chars)")
             out = {"reply": reply}
@@ -1913,7 +2118,7 @@ def chat(body: ChatIn):
 
 
 @app.post("/chat/stream")
-def chat_stream(body: ChatIn):
+def chat_stream(body: ChatIn, request: Request):
     """Newline-delimited JSON, one {"delta": "..."} per chunk, then
     {"done": true}. Chosen over SSE because the Android client already parses
     JSON lines and this needs no extra dependency on either end.
@@ -1930,6 +2135,8 @@ def chat_stream(body: ChatIn):
 
     if not msg:
         return StreamingResponse(emit("Say something."), media_type="application/x-ndjson")
+    user = request_user(request)
+    ctx = _POOL.submit(gather_context, msg, user)
     maint = get_maintenance()
     if maint["active"]:
         return StreamingResponse(
@@ -1949,7 +2156,7 @@ def chat_stream(body: ChatIn):
     if image_b64:
         try:
             reply = ollama_vision(body.message or "", image_b64)
-            serverus_append(body.message or f"[image: {attached['name']}]", reply)
+            serverus_append(body.message or f"[image: {attached['name']}]", reply, user)
             log_event("vision", f"{attached['name']} -> {len(reply)} chars")
             return StreamingResponse(emit(reply), media_type="application/x-ndjson")
         except Exception as e:
@@ -1959,13 +2166,10 @@ def chat_stream(body: ChatIn):
 
     def body_stream():
         try:
-            for piece in ollama_chat_stream(
-                maybe_augment_with_youtube(msg)
-                or maybe_augment_with_system(msg)
-                or maybe_augment_with_search(msg),
-                memory_message=msg,
-                extra_history=body.messages,
-                persona=persona_for(body.voice),
+            for piece in chat_turn(
+                msg, extra_history=body.messages, persona=persona_for(body.voice),
+                clean=body.message or msg, user=user,
+                ctx=ctx if msg == (body.message or "").strip() else None,
             ):
                 yield json.dumps({"delta": piece}) + "\n"
             write_status(mode="code", message="chat ok")
@@ -2105,7 +2309,8 @@ def apply_job(body: ApplyIn):
 def cancel(body: CancelIn):
     job_id = body.job_id or body.id or ""
     CANCEL.write_text(json.dumps({"job_id": job_id, "at": utc_ts()}))
-    st = write_status(job_id=None, job_title=None, cache="idle", mode="idle", progress=None, message="Cancel requested")
+    write_status(job_id=None, job_title=None, cache="idle", mode="idle", progress=None, message="Cancel requested")
+    st = read_status()
     st.update({"status": "cancelled", "cancelled": True, "id": job_id, "job_id": job_id})
     return st
 

@@ -11,8 +11,8 @@ android {
         applicationId = "com.thunder.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 46
-        versionName = "1.7.2"
+        versionCode = 47
+        versionName = "1.8.0"
     }
     signingConfigs {
         getByName("debug") {
@@ -67,4 +67,5 @@ dependencies {
     // it survives reboots and respects doze, which a service would fight.
     implementation("androidx.work:work-runtime-ktx:2.9.1")
     debugImplementation("androidx.compose.ui:ui-tooling")
+    testImplementation("junit:junit:4.13.2")
 }

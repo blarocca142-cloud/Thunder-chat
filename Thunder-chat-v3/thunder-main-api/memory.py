@@ -71,6 +71,7 @@ class Memory:
         self.root.mkdir(parents=True, exist_ok=True)
         self.profile_path = root / "profile.md"
         self.facts_path = root / "facts.json"
+        self._embed_cache: dict[str, list[float]] = {}
 
     # ---- profile ---------------------------------------------------------
 
@@ -101,7 +102,11 @@ class Memory:
         Every caller treats None as "no recall this time" rather than an error:
         memory going quiet should degrade the reply, never break the chat.
         """
-        payload = json.dumps({"model": EMBED_MODEL, "prompt": text[:2000]}).encode()
+        key = text[:2000]
+        cached = self._embed_cache.get(key)
+        if cached is not None:
+            return cached
+        payload = json.dumps({"model": EMBED_MODEL, "prompt": key}).encode()
         for host in EMBED_HOSTS:
             try:
                 req = urllib.request.Request(
@@ -112,6 +117,11 @@ class Memory:
                 with urllib.request.urlopen(req, timeout=8) as r:
                     vec = json.loads(r.read().decode()).get("embedding")
                 if vec:
+                    # Recall and exchange recall embed the same message; one
+                    # network round trip serves both.
+                    self._embed_cache[key] = vec
+                    if len(self._embed_cache) > 256:
+                        self._embed_cache.pop(next(iter(self._embed_cache)))
                     return vec
             except Exception:
                 continue

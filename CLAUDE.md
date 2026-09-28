@@ -14,14 +14,16 @@ you don't burn Blayne's usage rediscovering the fleet.
 | thunder-cache | .11 | idle | i5-3470, 22GB |
 | thunder-engine | .12 | safety yes/no (9002) | i7-3770, 30GB |
 | serverus | .13 | memory (9001) | **Xeon E3-1230 v5** — best CPU in the fleet, barely used |
-| odris | .15 | heartbeat 9003, websearch 9004, admin 9005, **TTS 9006** | Radeon 550 **4GB**, 30GB RAM |
+| odris | .15 | heartbeat 9003, websearch 9004, admin 9005, **TTS 9006**, health 9007, youtube 9008, **tool gate 9009** | Radeon 550 **4GB**, 30GB RAM. Code in `/home/blayne-odris/` |
 
 SSH works to all of them from Main via the aliases in `~/.ssh/config`
 (`odris`, `serverus`, `thunder-cache`, `thunder-engine`). **Use the aliases** —
 raw IPs default to the wrong username and look like an auth failure.
 
 Odris services are system units needing root Blayne doesn't have the password
-for. Deploy by copying the file and `pkill`ing the process — `Restart=always`
+for. **That is Odris only:** on thunder-main `blayne` has passwordless sudo
+(`(ALL) NOPASSWD: ALL`, found 2026-09-28) - a standing security decision for
+the box that will hold claims data. Deploy by copying the file and `pkill`ing the process — `Restart=always`
 brings it back on the new code in 3s. The TTS service is a **systemd user**
 unit with lingering enabled, so `systemctl --user restart thunder-tts` works.
 
@@ -150,6 +152,34 @@ Duration caps (VRAM, enforced server-side): 480p 25s, 720p 12s, 1080p 6s.
 ## Measured timings (3090, A14B, 4 steps, 16fps)
 
 5s@480p ~4min · 5s@720p ~8min · 5s@1080p ~22min. Scales with length.
+
+## Priorities (set by Blayne 2026-09-27) — read this first
+
+**Best model and real tools come before everything else.** Months were spent
+building on top of `thunder:latest` without ever asking whether it was still the
+best model for the card. That must not happen again: at the start of any
+substantial work, ask whether the model or the tool layer is the real bottleneck.
+
+1. **Model**: the smartest, fastest, best-at-coding model that fits the 3090,
+   chosen by a measured shootout (coding tests that are executed, fabrication
+   traps, speed, VRAM) — never by reputation. The abliterated base may be part
+   of why Thunder fabricates; measure it.
+2. **Real tool calling.** As of this date Thunder has none: web search is
+   keyword-triggered and pasted into the prompt (`maybe_augment_with_search` in
+   `thunder-main-api/app.py`); the model never decides to use a tool. Build real
+   tool calling: search, page reading, sandboxed code execution, files, claims
+   pipeline, memory, fleet status.
+3. **Odris is the gatekeeper for every tool call.** Allowlist, input checks,
+   logging, refusal. It is the only box with internet; Main and claims data stay
+   off it.
+4. **Honesty enforced in code, not the prompt**: if it didn't look it up and
+   doesn't know, it says so.
+
+**Video and image generation are shelved.** They work; don't spend effort there.
+The whole 3090 goes to chat. Weights/config are to be archived on serverus
+(copy first, verify, delete from Main only when Blayne says).
+
+Dad and one more user come later, not now.
 
 ## Where this is going
 

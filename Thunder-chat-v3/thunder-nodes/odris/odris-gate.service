@@ -1,0 +1,16 @@
+# Odris tool gate - systemd USER unit, like thunder-tts (no root needed).
+#   mkdir -p ~/.config/systemd/user && cp odris-gate.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now odris-gate
+[Unit]
+Description=Thunder tool gate on Odris (:9007)
+After=network-online.target
+
+[Service]
+WorkingDirectory=%h/thunder-nodes/odris
+ExecStart=/usr/bin/python3 %h/thunder-nodes/odris/odris_gate.py
+Environment=ODRIS_GATE_CALLERS=10.168.168.10,127.0.0.1
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target

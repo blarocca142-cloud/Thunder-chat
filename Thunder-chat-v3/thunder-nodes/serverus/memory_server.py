@@ -3,6 +3,7 @@ import json
 import sqlite3
 import threading
 import time
+import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -20,7 +21,24 @@ def get_conn():
         "id INTEGER PRIMARY KEY AUTOINCREMENT, "
         "ts INTEGER, role TEXT, content TEXT)"
     )
+    # One history per person. Rows from before this existed are Blayne's,
+    # because he was the only user; 'owner' is how Main names him.
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(turns)")}
+    if "who" not in cols:
+        conn.execute("ALTER TABLE turns ADD COLUMN who TEXT NOT NULL DEFAULT 'owner'")
+        conn.execute("CREATE INDEX IF NOT EXISTS turns_who ON turns (who, id)")
+        conn.commit()
     return conn
+
+
+def _query(path: str) -> dict:
+    out = {}
+    if "?" in path:
+        for part in path.split("?", 1)[1].split("&"):
+            if "=" in part:
+                k, v = part.split("=", 1)
+                out[k] = urllib.parse.unquote(v)
+    return out
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -36,20 +54,17 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/health":
             return self._send(200, {"status": "ok"})
         if self.path.startswith("/recent"):
-            limit = 10
-            if "?" in self.path:
-                q = self.path.split("?", 1)[1]
-                for part in q.split("&"):
-                    if part.startswith("limit="):
-                        try:
-                            limit = int(part.split("=", 1)[1])
-                        except ValueError:
-                            pass
+            q = _query(self.path)
+            try:
+                limit = int(q.get("limit", 10))
+            except ValueError:
+                limit = 10
+            who = q.get("who") or "owner"
             with _lock:
                 conn = get_conn()
                 rows = conn.execute(
-                    "SELECT role, content FROM turns ORDER BY id DESC LIMIT ?",
-                    (limit,),
+                    "SELECT role, content FROM turns WHERE who = ? ORDER BY id DESC LIMIT ?",
+                    (who, limit),
                 ).fetchall()
                 conn.close()
             rows.reverse()
@@ -65,19 +80,20 @@ class Handler(BaseHTTPRequestHandler):
         except json.JSONDecodeError:
             return self._send(400, {"error": "bad json"})
         user_msg = (body.get("user") or "").strip()
+        who = (body.get("who") or "owner").strip() or "owner"
         reply = (body.get("reply") or "").strip()
         now = int(time.time())
         with _lock:
             conn = get_conn()
             if user_msg:
                 conn.execute(
-                    "INSERT INTO turns (ts, role, content) VALUES (?, 'user', ?)",
-                    (now, user_msg),
+                    "INSERT INTO turns (ts, role, content, who) VALUES (?, 'user', ?, ?)",
+                    (now, user_msg, who),
                 )
             if reply:
                 conn.execute(
-                    "INSERT INTO turns (ts, role, content) VALUES (?, 'assistant', ?)",
-                    (now, reply),
+                    "INSERT INTO turns (ts, role, content, who) VALUES (?, 'assistant', ?, ?)",
+                    (now, reply, who),
                 )
             conn.commit()
             conn.close()
