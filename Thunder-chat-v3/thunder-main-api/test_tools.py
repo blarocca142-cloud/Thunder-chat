@@ -312,6 +312,25 @@ text = tools.honesty_notes("Here is working code.", box, "")
 check("a failed forge result says FAILED to the model", out.get("verdict", "").startswith("FAILED"), str(out))
 check("...and to Blayne under the reply", "could not get this code to pass" in text, text)
 
+print("ICD-10 codes (live on Main 2026-09-28: gpt-oss invented Z90.47)")
+text, *_ = run_agent([{"content": "Z9Q.47 isn't real. The closest real code is **Z90.47**, personal history."}],
+                     user_text="what does ICD-10 code Z9Q.47 mean?")
+check("an invented diagnosis code is flagged against the official list",
+      "not ICD-10-CM codes at all" in text and "Z90.47" in text.split("---")[-1], text)
+text, *_ = run_agent([{"content": "S72.001A is the right code here."}], user_text="which code?")
+check("a real billable code is not flagged", "Check:" not in text, text)
+text, *_ = run_agent([{"content": "Z90.4 covers that."}], user_text="icd code?")
+check("a category is flagged as not billable on its own", "categories, not billable" in text, text)
+text, *_ = run_agent([{"content": "Take vitamin B12 and print on A4 paper."}], user_text="tips?")
+check("ordinary B12 / A4 are left alone", "Check:" not in text, text)
+tools.GATE = "http://127.0.0.1:1"   # Odris down
+box = tools.Toolbox(Path(tempfile.mkdtemp()))
+out = box.call("icd10_lookup", {"codes": "Z90.4, S72.001A"})
+tools.GATE = gate_url
+check("code lookup works with Odris down - it never leaves Main",
+      [c["status"] for c in out.get("codes", [])] == ["category", "billable"], str(out))
+check("...and lists the real codes under a category", "Z90.410" in str(out), str(out))
+
 print("medical routing")
 for t in ["claim number 7781 for PT eval", "DOB 01/02/1960", "ICD-10 S72.001A", "fill in the CMS-1500",
           "who is the billing provider", "ssn 123-45-6789"]:

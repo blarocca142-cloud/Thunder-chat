@@ -59,6 +59,8 @@ def _status_line(name: str, args: dict) -> str:
         return f"reading github: {args.get('op', '')} {what}".strip()
     if name == "memory_search":
         return "checking memory"
+    if name == "icd10_lookup":
+        return f"checking the official code list: {args.get('codes', '')}"
     if name == "system_status":
         return "checking the hardware"
     return name
