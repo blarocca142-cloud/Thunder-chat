@@ -54,4 +54,29 @@ class ReplyParseTest {
         assertEquals(1, parts.size)
         assertTrue(parts[0] is Part.Markdown)
     }
+
+    // Every bullet used to render twice: once as a bullet, then again as a
+    // plain "- ..." paragraph (seen on the phone, 2026-09-29).
+    @Test fun eachMarkdownLineRendersOnce() {
+        val md = "**Atlantic Dance Hall**\n" +
+            "- Closing at the end of September.\n" +
+            "- Final weekend Sep 25-27.\n" +
+            "1. First\n" +
+            "## Heading\n" +
+            "---\n" +
+            "Plain text."
+        val out = blocks(md)
+        assertEquals(
+            listOf(
+                MdBlock.Para("**Atlantic Dance Hall**"),
+                MdBlock.Item("•", "Closing at the end of September.", 0),
+                MdBlock.Item("•", "Final weekend Sep 25-27.", 0),
+                MdBlock.Item("1.", "First", 0),
+                MdBlock.Heading(2, "Heading"),
+                MdBlock.Rule,
+                MdBlock.Para("Plain text.")
+            ),
+            out
+        )
+    }
 }
