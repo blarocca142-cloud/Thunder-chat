@@ -12,8 +12,8 @@ android {
         applicationId = "com.thunder.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 48
-        versionName = "1.9.0"
+        versionCode = 49
+        versionName = "1.10.0"
     }
     signingConfigs {
         getByName("debug") {
@@ -67,6 +67,8 @@ dependencies {
     // Background check-ins for the digest. WorkManager rather than a service:
     // it survives reboots and respects doze, which a service would fight.
     implementation("androidx.work:work-runtime-ktx:2.9.1")
+    // Fingerprint unlock. Brings androidx.fragment, which BiometricPrompt needs.
+    implementation("androidx.biometric:biometric:1.1.0")
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")
 }

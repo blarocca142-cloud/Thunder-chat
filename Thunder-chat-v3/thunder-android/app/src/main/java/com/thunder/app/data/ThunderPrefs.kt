@@ -32,10 +32,8 @@ class ThunderPrefs(context: Context) {
 
     /** Bearer token for Main. Empty until one is pasted in Settings. */
     var apiToken: String
-        get() = prefs.getString(KEY_TOKEN, "").orEmpty()
-        set(value) {
-            prefs.edit().putString(KEY_TOKEN, value.trim()).apply()
-        }
+        get() = secret(KEY_TOKEN)
+        set(value) = setSecret(KEY_TOKEN, value)
 
     /** Where the Odris admin dashboard lives. Odris is a separate machine with
      *  its own service, so this is not derived from the Main server URL. */
@@ -56,10 +54,36 @@ class ThunderPrefs(context: Context) {
      *  Generated on Odris at ~/dashboard_password.txt. Delete that file to
      *  rotate it; the service writes a fresh one. */
     var odrisPassword: String
-        get() = prefs.getString(KEY_ODRIS_PW, "").orEmpty()
+        get() = secret(KEY_ODRIS_PW)
+        set(value) = setSecret(KEY_ODRIS_PW, value)
+
+    /** Ask for a fingerprint (or the phone's own PIN) before the Odris tab
+     *  opens. On by default: that dashboard can deploy code to the fleet. Chat
+     *  is deliberately not locked (Blayne, 2026-09-29). */
+    var fingerprintLock: Boolean
+        get() = prefs.getBoolean(KEY_FINGERPRINT, true)
         set(value) {
-            prefs.edit().putString(KEY_ODRIS_PW, value.trim()).apply()
+            prefs.edit().putBoolean(KEY_FINGERPRINT, value).apply()
         }
+
+    /** Secrets are stored sealed by [SecretBox]. A value saved in plain text by
+     *  an older build is sealed the first time it is read. */
+    private fun secret(key: String): String {
+        val stored = prefs.getString(key, "").orEmpty()
+        if (stored.isEmpty()) return ""
+        if (SecretBox.isSealed(stored)) return SecretBox.open(stored)
+        runCatching { SecretBox.seal(stored.trim()) }.getOrNull()?.let {
+            prefs.edit().putString(key, it).apply()
+        }
+        return stored.trim()
+    }
+
+    private fun setSecret(key: String, value: String) {
+        // If the keystore refuses, keep nothing rather than fall back to plain
+        // text; the value still works for this session from memory.
+        val sealed = runCatching { SecretBox.seal(value.trim()) }.getOrNull() ?: ""
+        prefs.edit().putString(key, sealed).apply()
+    }
 
     /** Fingerprint of the last digest shown, so the same finding does not
      *  notify twice. A phone that buzzes every six hours about one six-year-old
@@ -80,5 +104,6 @@ class ThunderPrefs(context: Context) {
         private const val KEY_TOKEN = "api_token"
         private const val KEY_ODRIS_URL = "odris_url"
         private const val KEY_ODRIS_PW = "odris_password"
+        private const val KEY_FINGERPRINT = "fingerprint_lock"
     }
 }

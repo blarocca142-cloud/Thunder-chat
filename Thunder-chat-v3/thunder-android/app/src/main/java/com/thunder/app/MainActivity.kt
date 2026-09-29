@@ -7,13 +7,16 @@ import android.os.Build
 import android.os.Bundle
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.fragment.app.FragmentActivity
 import com.thunder.app.data.DigestWorker
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import com.thunder.app.ui.ThunderRoot
 
-class MainActivity : ComponentActivity() {
+// FragmentActivity rather than ComponentActivity: the Odris fingerprint
+// prompt (BiometricPrompt) hosts its dialog in a fragment. It is a
+// ComponentActivity underneath, so Compose is unaffected.
+class MainActivity : FragmentActivity() {
     /** Set by the digest notification so the app opens on the finding that
      *  caused the buzz instead of on a chat that knows nothing about it. */
     private var openFleet = false

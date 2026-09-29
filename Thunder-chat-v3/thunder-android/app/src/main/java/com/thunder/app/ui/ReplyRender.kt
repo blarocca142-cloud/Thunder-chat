@@ -445,7 +445,7 @@ private fun inline(text: String, base: SpanStyle = SpanStyle()): AnnotatedString
     }
 }
 
-private sealed interface MdBlock {
+internal sealed interface MdBlock {
     data class Heading(val level: Int, val text: String) : MdBlock
     data class Para(val text: String) : MdBlock
     data class Item(val marker: String, val text: String, val indent: Int) : MdBlock
@@ -457,7 +457,7 @@ private val HEADING = Regex("""^(#{1,6})\s+(.*)$""")
 private val BULLET = Regex("""^(\s*)([-*+•])\s+(.*)$""")
 private val NUMBERED = Regex("""^(\s*)(\d+[.)])\s+(.*)$""")
 
-private fun blocks(md: String): List<MdBlock> {
+internal fun blocks(md: String): List<MdBlock> {
     val out = mutableListOf<MdBlock>()
     val para = StringBuilder()
     fun flush() {
@@ -466,18 +466,23 @@ private fun blocks(md: String): List<MdBlock> {
     }
     for (raw in md.lines()) {
         val line = raw.trimEnd()
-        HEADING.matchEntire(line.trim())?.let { flush(); out.add(MdBlock.Heading(it.groupValues[1].length, it.groupValues[2])); null }
-            ?: BULLET.matchEntire(line)?.let { flush(); out.add(MdBlock.Item("•", it.groupValues[3], it.groupValues[1].length / 2)); null }
-            ?: NUMBERED.matchEntire(line)?.let { flush(); out.add(MdBlock.Item(it.groupValues[2], it.groupValues[3], it.groupValues[1].length / 2)); null }
-            ?: run {
-                val t = line.trim()
-                when {
-                    t.startsWith(">") -> { flush(); out.add(MdBlock.Quote(t.removePrefix(">").trim())) }
-                    t == "---" || t == "***" || t == "___" -> { flush(); out.add(MdBlock.Rule) }
-                    t.isEmpty() -> flush()
-                    else -> { if (para.isNotEmpty()) para.append(' '); para.append(t) }
-                }
-            }
+        val t = line.trim()
+        // One branch per line. This was an elvis chain whose lets returned
+        // null, so every heading, bullet and numbered line fell through and
+        // was added a second time as plain paragraph text.
+        val heading = HEADING.matchEntire(t)
+        val bullet = BULLET.matchEntire(line)
+        val numbered = NUMBERED.matchEntire(line)
+        when {
+            heading != null -> { flush(); out.add(MdBlock.Heading(heading.groupValues[1].length, heading.groupValues[2])) }
+            // Checked before bullets: "---" also matches the bullet pattern.
+            t == "---" || t == "***" || t == "___" -> { flush(); out.add(MdBlock.Rule) }
+            bullet != null -> { flush(); out.add(MdBlock.Item("•", bullet.groupValues[3], bullet.groupValues[1].length / 2)) }
+            numbered != null -> { flush(); out.add(MdBlock.Item(numbered.groupValues[2], numbered.groupValues[3], numbered.groupValues[1].length / 2)) }
+            t.startsWith(">") -> { flush(); out.add(MdBlock.Quote(t.removePrefix(">").trim())) }
+            t.isEmpty() -> flush()
+            else -> { if (para.isNotEmpty()) para.append(' '); para.append(t) }
+        }
     }
     flush()
     return out

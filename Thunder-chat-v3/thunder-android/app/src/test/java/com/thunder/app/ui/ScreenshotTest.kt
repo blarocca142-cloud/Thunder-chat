@@ -67,4 +67,14 @@ class ScreenshotTest {
     fun chat_dark() {
         paparazzi.snapshot { Host { ThunderRoot(previewLines = sample, previewDark = true) } }
     }
+
+    @Test
+    fun lock_light() {
+        paparazzi.snapshot { ThunderTheme(dark = false) { LockScreen("Odris is locked", null, {}) } }
+    }
+
+    @Test
+    fun lock_dark() {
+        paparazzi.snapshot { ThunderTheme(dark = true) { LockScreen("Odris is locked", null, {}) } }
+    }
 }
