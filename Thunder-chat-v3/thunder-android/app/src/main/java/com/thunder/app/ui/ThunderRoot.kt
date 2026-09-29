@@ -190,6 +190,7 @@ fun ThunderRoot(
     var apiToken by remember { mutableStateOf(prefs.apiToken) }
     var speakReplies by remember { mutableStateOf(prefs.speakReplies) }
     var fingerprintLock by remember { mutableStateOf(prefs.fingerprintLock) }
+    val odrisLock = rememberOdrisLock()
     var voice by remember { mutableStateOf(prefs.voice) }
     // Android's on-device engine - no server, no model to ship.
     val tts = remember { TextToSpeech(context) { } }
@@ -433,6 +434,11 @@ fun ThunderRoot(
                 }
 
                 if (tab == ThunderTab.Odris) {
+                    OdrisGate(
+                        enabled = fingerprintLock && previewLines.isEmpty() && previewDark == null,
+                        state = odrisLock,
+                        modifier = Modifier.weight(1f)
+                    ) {
                     OdrisScreen(
                         server = server,
                         api = api,
@@ -445,6 +451,7 @@ fun ThunderRoot(
                         onOpenSettings = { showSettings = true },
                         onAlertsChanged = { refreshAlertBadge = !refreshAlertBadge }
                     )
+                    }
                 } else if (tab == ThunderTab.Code) {
                     CodeVault(
                         server = server,
@@ -607,6 +614,9 @@ fun ThunderRoot(
                 prefs.odrisUrl = it
             },
             odrisPassword = odrisPassword,
+            // Behind the same fingerprint as the tab: the field shows the
+            // password in the clear, so an open Settings would hand it over.
+            odrisPasswordLocked = fingerprintLock && !odrisLock.unlocked && canLock(context),
             onOdrisPassword = {
                 odrisPassword = it
                 prefs.odrisPassword = it
@@ -1221,6 +1231,7 @@ private fun ServerDialog(
     odrisUrl: String,
     onOdrisUrl: (String) -> Unit,
     odrisPassword: String,
+    odrisPasswordLocked: Boolean,
     onOdrisPassword: (String) -> Unit,
     voice: String,
     onVoice: (String) -> Unit,
@@ -1388,6 +1399,15 @@ private fun ServerDialog(
                     lineHeight = 16.sp
                 )
                 Spacer(Modifier.height(6.dp))
+                if (odrisPasswordLocked) {
+                    Text(
+                        if (odrisPassword.isBlank()) "Not set. Open the Odris tab and unlock it to add it."
+                        else "Saved and locked. Open the Odris tab and unlock it to see or change it.",
+                        color = ThunderInk.Mute,
+                        fontSize = 13.sp,
+                        lineHeight = 18.sp
+                    )
+                } else {
                 TextField(
                     value = odrisPassword,
                     onValueChange = onOdrisPassword,
@@ -1399,6 +1419,7 @@ private fun ServerDialog(
                     placeholder = { Text("not set", color = ThunderInk.Mute) },
                     colors = thunderFieldColors()
                 )
+                }
                 Spacer(Modifier.height(14.dp))
                 Text(
                     stringResource(R.string.settings_voice),

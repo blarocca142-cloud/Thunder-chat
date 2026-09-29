@@ -70,11 +70,11 @@ class ScreenshotTest {
 
     @Test
     fun lock_light() {
-        paparazzi.snapshot { LockScreen(dark = false, message = null, onUnlock = {}) }
+        paparazzi.snapshot { ThunderTheme(dark = false) { LockScreen("Odris is locked", null, {}) } }
     }
 
     @Test
     fun lock_dark() {
-        paparazzi.snapshot { LockScreen(dark = true, message = null, onUnlock = {}) }
+        paparazzi.snapshot { ThunderTheme(dark = true) { LockScreen("Odris is locked", null, {}) } }
     }
 }

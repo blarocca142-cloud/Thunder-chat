@@ -57,8 +57,9 @@ class ThunderPrefs(context: Context) {
         get() = secret(KEY_ODRIS_PW)
         set(value) = setSecret(KEY_ODRIS_PW, value)
 
-    /** Ask for a fingerprint (or the phone's own PIN) to open the app. On by
-     *  default: the app holds the token for Main and the key to Odris. */
+    /** Ask for a fingerprint (or the phone's own PIN) before the Odris tab
+     *  opens. On by default: that dashboard can deploy code to the fleet. Chat
+     *  is deliberately not locked (Blayne, 2026-09-29). */
     var fingerprintLock: Boolean
         get() = prefs.getBoolean(KEY_FINGERPRINT, true)
         set(value) {

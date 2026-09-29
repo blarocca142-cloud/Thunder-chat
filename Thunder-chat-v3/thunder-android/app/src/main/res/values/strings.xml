@@ -69,8 +69,8 @@
     <string name="settings_voice">Voice</string>
     <string name="settings_voice_hint">Each voice has its own personality</string>
     <string name="settings_version">Thunder %1$s</string>
-    <string name="settings_fingerprint">Fingerprint lock</string>
-    <string name="settings_fingerprint_hint">Asks for your fingerprint, or the phone\'s PIN, when Thunder opens or after a minute away. Only works if the phone has a screen lock set up.</string>
+    <string name="settings_fingerprint">Fingerprint for Odris</string>
+    <string name="settings_fingerprint_hint">Asks for your fingerprint, or the phone\'s PIN, before the Odris tab opens, and again after a minute away from the app. Chat is not locked. Only works if the phone has a screen lock set up.</string>
     <string name="settings_token">Access token</string>
     <string name="settings_token_hint">Needed once the server requires authentication</string>
     <string name="settings_odris">Odris dashboard</string>
