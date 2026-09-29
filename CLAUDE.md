@@ -11,7 +11,7 @@ you don't burn Blayne's usage rediscovering the fleet.
 | Host | Address | Role | Notes |
 |---|---|---|---|
 | thunder-main | 10.168.168.10 | API, Ollama, generation | RTX 3090 24GB, 30GB RAM (maxed) |
-| thunder-cache | .11 | idle | i5-3470, 22GB |
+| thunder-cache | .11 | **Jellyfin :8096** | i5-3470, 22GB. `thunder-nodes/cache/jellyfin/` |
 | thunder-engine | .12 | safety yes/no (9002) | i7-3770, 30GB |
 | serverus | .13 | memory (9001) | **Xeon E3-1230 v5** — best CPU in the fleet, barely used |
 | odris | .15 | heartbeat 9003, websearch 9004, admin 9005, **TTS 9006**, health 9007, youtube 9008, **tool gate 9009** | Radeon 550 **4GB**, 30GB RAM. Code in `/home/blayne-odris/` |
