@@ -63,11 +63,7 @@
     <string name="voice_prompt">Talk to Thunder</string>
     <string name="voice_cd">voice input</string>
     <string name="voice_unavailable">No speech recogniser on this device</string>
-    <string name="speak_replies">Speak replies</string>
-    <string name="speak_replies_hint">Read Thunder\'s answers aloud using your phone\'s voice</string>
     <string name="update_signature_mismatch">This build was signed with a different key, so it cannot install over the current app. Reinstall once from the releases page.</string>
-    <string name="settings_voice">Voice</string>
-    <string name="settings_voice_hint">Each voice has its own personality</string>
     <string name="settings_version">Thunder %1$s</string>
     <string name="settings_fingerprint">Fingerprint for Odris</string>
     <string name="settings_fingerprint_hint">Asks for your fingerprint, or the phone\'s PIN, before the Odris tab opens, and again after a minute away from the app. Chat is not locked. Only works if the phone has a screen lock set up.</string>

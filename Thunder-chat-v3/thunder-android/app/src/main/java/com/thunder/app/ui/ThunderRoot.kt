@@ -2,7 +2,6 @@ package com.thunder.app.ui
 
 import android.widget.Toast
 import android.speech.RecognizerIntent
-import android.speech.tts.TextToSpeech
 import android.content.Intent
 import androidx.activity.compose.BackHandler
 import androidx.activity.result.contract.ActivityResultContracts
@@ -188,16 +187,8 @@ fun ThunderRoot(
         chats.firstOrNull { it.id == activeId }?.title?.takeIf { it.isNotBlank() } ?: "scratch"
     }
     var apiToken by remember { mutableStateOf(prefs.apiToken) }
-    var speakReplies by remember { mutableStateOf(prefs.speakReplies) }
     var fingerprintLock by remember { mutableStateOf(prefs.fingerprintLock) }
     val odrisLock = rememberOdrisLock()
-    var voice by remember { mutableStateOf(prefs.voice) }
-    // Android's on-device engine - no server, no model to ship.
-    val tts = remember { TextToSpeech(context) { } }
-    var replyPlayer by remember { mutableStateOf<android.media.MediaPlayer?>(null) }
-    DisposableEffect(Unit) {
-        onDispose { tts.stop(); tts.shutdown(); replyPlayer?.release() }
-    }
     val installedVersion = remember {
         runCatching {
             context.packageManager.getPackageInfo(context.packageName, 0).versionName
@@ -263,7 +254,7 @@ fun ThunderRoot(
             lines.add(Line("thunder", ""))
             streamingSlot = slot
             var first = true
-            val full = api.chatStream(server, msg, voice, sending?.id) { delta ->
+            val full = api.chatStream(server, msg, attachment = sending?.id) { delta ->
                 if (first) {
                     waiting = false
                     first = false
@@ -274,26 +265,6 @@ fun ThunderRoot(
             streamingSlot = -1
             waiting = false
             persistActive()
-            if (speakReplies && full.isNotBlank()) {
-                // Prose only - reading a generation prompt aloud is noise.
-                val spoken = spokenText(full)
-                val audio = api.speak(server, spoken, voice)
-                if (audio != null) {
-                    // Odris's neural voice.
-                    runCatching {
-                        val f = java.io.File(context.cacheDir, "reply.wav")
-                        f.writeBytes(audio)
-                        replyPlayer?.release()
-                        replyPlayer = android.media.MediaPlayer().apply {
-                            setDataSource(f.absolutePath); prepare(); start()
-                        }
-                    }
-                } else {
-                    // Voice node unreachable - the phone's own engine rather
-                    // than silence.
-                    tts.speak(spoken, TextToSpeech.QUEUE_FLUSH, null, "thunder-reply")
-                }
-            }
         }
     }
 
@@ -621,18 +592,7 @@ fun ThunderRoot(
                 odrisPassword = it
                 prefs.odrisPassword = it
             },
-            voice = voice,
-            onVoice = {
-                voice = it
-                prefs.voice = it
-            },
             api = api,
-            speak = speakReplies,
-            onSpeak = {
-                speakReplies = it
-                prefs.speakReplies = it
-                if (!it) tts.stop()
-            },
             dark = dark,
             onDark = {
                 dark = it
@@ -1233,11 +1193,7 @@ private fun ServerDialog(
     odrisPassword: String,
     odrisPasswordLocked: Boolean,
     onOdrisPassword: (String) -> Unit,
-    voice: String,
-    onVoice: (String) -> Unit,
     api: ThunderApi,
-    speak: Boolean,
-    onSpeak: (Boolean) -> Unit,
     fingerprint: Boolean,
     onFingerprint: (Boolean) -> Unit,
     onDismiss: () -> Unit
@@ -1256,7 +1212,7 @@ private fun ServerDialog(
         },
         text = {
             // Scrollable: two Odris fields were added and an AlertDialog does not
-            // scroll its body by itself, so on a short screen the voice picker and
+            // scroll its body by itself, so on a short screen the settings further down and
             // the buttons underneath it would simply be unreachable.
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 Text(
@@ -1419,53 +1375,6 @@ private fun ServerDialog(
                     placeholder = { Text("not set", color = ThunderInk.Mute) },
                     colors = thunderFieldColors()
                 )
-                }
-                Spacer(Modifier.height(14.dp))
-                Text(
-                    stringResource(R.string.settings_voice),
-                    color = ThunderInk.Ink,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Medium
-                )
-                Text(
-                    stringResource(R.string.settings_voice_hint),
-                    color = ThunderInk.Mute,
-                    fontSize = 12.sp,
-                    lineHeight = 16.sp
-                )
-                VoicePicker(
-                    server = server,
-                    api = api,
-                    selected = voice,
-                    onSelect = onVoice,
-                    cacheDir = LocalContext.current.cacheDir
-                )
-                Spacer(Modifier.height(14.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            stringResource(R.string.speak_replies),
-                            color = ThunderInk.Ink,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Text(
-                            stringResource(R.string.speak_replies_hint),
-                            color = ThunderInk.Mute,
-                            fontSize = 12.sp,
-                            lineHeight = 16.sp
-                        )
-                    }
-                    Switch(
-                        checked = speak,
-                        onCheckedChange = onSpeak,
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = ThunderInk.OnGold,
-                            checkedTrackColor = ThunderInk.Gold,
-                            uncheckedThumbColor = ThunderInk.Surface,
-                            uncheckedTrackColor = ThunderInk.Hairline
-                        )
-                    )
                 }
                 Spacer(Modifier.height(16.dp))
                 // Shown so "which build am I on" never means digging through

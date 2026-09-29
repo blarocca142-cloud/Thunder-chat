@@ -17,19 +17,6 @@ class ThunderPrefs(context: Context) {
             prefs.edit().putBoolean(KEY_DARK, value).apply()
         }
 
-    var speakReplies: Boolean
-        get() = prefs.getBoolean(KEY_SPEAK, false)
-        set(value) {
-            prefs.edit().putBoolean(KEY_SPEAK, value).apply()
-        }
-
-    /** Empty means use the phone's built-in TTS. */
-    var voice: String
-        get() = prefs.getString(KEY_VOICE, "us_male").orEmpty()
-        set(value) {
-            prefs.edit().putString(KEY_VOICE, value).apply()
-        }
-
     /** Bearer token for Main. Empty until one is pasted in Settings. */
     var apiToken: String
         get() = secret(KEY_TOKEN)
@@ -99,8 +86,6 @@ class ThunderPrefs(context: Context) {
         private const val KEY_DIGEST_SIG = "last_digest_sig"
         private const val KEY_SERVER = "server_url"
         private const val KEY_DARK = "dark_mode"
-        private const val KEY_SPEAK = "speak_replies"
-        private const val KEY_VOICE = "voice"
         private const val KEY_TOKEN = "api_token"
         private const val KEY_ODRIS_URL = "odris_url"
         private const val KEY_ODRIS_PW = "odris_password"

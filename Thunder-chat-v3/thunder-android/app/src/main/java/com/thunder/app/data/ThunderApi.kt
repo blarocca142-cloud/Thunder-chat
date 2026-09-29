@@ -49,7 +49,6 @@ data class GpuState(
     fun fraction(): Float = if (totalSteps > 0) step.toFloat() / totalSteps else 0f
 }
 
-data class ThunderVoice(val key: String, val label: String)
 
 /**
  * One finding from the fleet, with its whole life attached.
@@ -229,14 +228,14 @@ class ThunderApi(
     suspend fun chatStream(
         server: String,
         message: String,
-        voice: String = "",
         attachment: String? = null,
         onDelta: (String) -> Unit
     ): String = withContext(Dispatchers.IO) {
         if (server.isBlank()) return@withContext chat(server, message, attachment)
         // History comes from Serverus server-side, same as the blocking path.
-        // The voice selects a persona on the server, not just a sound.
-        val payload = JSONObject().put("message", message).put("voice", voice)
+        // No "voice": spoken replies were removed (2026-09-29), and without it
+        // the server uses the default Thunder persona.
+        val payload = JSONObject().put("message", message)
             .apply { if (!attachment.isNullOrBlank()) put("attachment", attachment) }
         val built = StringBuilder()
         try {
@@ -287,41 +286,6 @@ class ThunderApi(
             .put("duration", duration)
             .put("quality", quality))
     }
-
-    suspend fun voices(server: String): List<ThunderVoice> = withContext(Dispatchers.IO) {
-        if (server.isBlank()) return@withContext emptyList()
-        try {
-            val req = Request.Builder().url("${base(server)}/voices").get().build()
-            client.newCall(req).execute().use { res ->
-                if (!res.isSuccessful) return@use emptyList()
-                val o = JSONObject(res.body?.string().orEmpty()).optJSONObject("voices")
-                    ?: return@use emptyList()
-                o.keys().asSequence().map { k ->
-                    ThunderVoice(k, o.optJSONObject(k)?.optString("label") ?: k)
-                }.toList()
-            }
-        } catch (_: Exception) {
-            emptyList()
-        }
-    }
-
-    /** Neural speech from Odris. Null means fall back to the phone's own TTS. */
-    suspend fun speak(server: String, text: String, voice: String): ByteArray? =
-        withContext(Dispatchers.IO) {
-            if (server.isBlank() || text.isBlank()) return@withContext null
-            try {
-                val payload = JSONObject().put("text", text).put("voice", voice)
-                val req = Request.Builder()
-                    .url("${base(server)}/speak")
-                    .post(payload.toString().toRequestBody(jsonType))
-                    .build()
-                streamClient.newCall(req).execute().use { res ->
-                    if (!res.isSuccessful) null else res.body?.bytes()
-                }
-            } catch (_: Exception) {
-                null
-            }
-        }
 
     suspend fun appRelease(server: String): AppRelease? = withContext(Dispatchers.IO) {
         if (server.isBlank()) return@withContext null

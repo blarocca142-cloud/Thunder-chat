@@ -36,7 +36,9 @@ unit with lingering enabled, so `systemctl --user restart thunder-tts` works.
 - Video: **Wan 2.2 T2V-A14B NF4 + LightX2V LoRAs**, 4 steps.
   `GENAI_VIDEO_MODEL=5b|a14b|a14b_nf4`
 - Photo: FLUX.1-schnell. Edit: FLUX.1 Kontext.
-- Voice: **Kokoro is wired in and is what `/voices` now serves** — 64 voices,
+- Voice: **removed from the app 2026-09-29 (Blayne: "wasn't a good idea, wastes more
+  than it is useful").** Do not re-add spoken replies or the voice picker. The
+  mic button (dictation *to* Thunder) stays. Server side still has: Kokoro is wired in and is what `/voices` now serves — 64 voices,
   24kHz, Apache-2.0, on Main. Piper on Odris remains the fallback. The old note
   here said Kokoro was "proven but not yet wired in"; that is out of date.
   Narrating 23 deck slides took 47s end to end.

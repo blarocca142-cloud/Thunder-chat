@@ -43,12 +43,6 @@ class ReplyParseTest {
         assertTrue(!prose.contains("Check:") && !prose.contains("Sources read"))
     }
 
-    @Test fun speechSkipsStepsCodeAndMarkdown() {
-        val spoken = spokenText(reply)
-        assertTrue(spoken.contains("lifespan"))
-        assertTrue(!spoken.contains("**") && !spoken.contains("print(") && !spoken.contains("running code"))
-    }
-
     @Test fun plainReplyIsJustProse() {
         val parts = parseReply("Hey. All good here.")
         assertEquals(1, parts.size)
