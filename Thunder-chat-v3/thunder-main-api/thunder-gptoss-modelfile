@@ -11,7 +11,15 @@
 # a system message by `app.py` (`SYSTEM_PROMPT`) on every request, so it can be
 # changed without rebuilding the model. The old Mistral build baked its prompt
 # in, which is why `thunder-modelfile` looks so different.
+# Note what is ALSO not here: there is no TEMPLATE line, and that is
+# deliberate. This file used to carry `TEMPLATE {{ .Prompt }}`, which is a bare
+# passthrough - it would have handed the model one flat string with no roles
+# and no tool block. It never reached the running model (verified 2026-09-29:
+# the live thunder-gptoss template is byte-identical, sha256 a4c9919c..., to
+# stock gpt-oss:20b's), so the recipe and the model had quietly diverged and
+# only the recipe was wrong. Rebuilding from it would have destroyed the
+# harmony format and with it every tool call. Omitting TEMPLATE inherits the
+# base model's, which is what is actually running and what tool calling needs.
 FROM gpt-oss:20b
-TEMPLATE {{ .Prompt }}
 PARAMETER num_ctx 16384
 PARAMETER temperature 0.6

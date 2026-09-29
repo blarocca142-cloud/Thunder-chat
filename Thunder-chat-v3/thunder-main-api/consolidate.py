@@ -43,6 +43,8 @@ SERVERUS = "http://10.168.168.13:9001"
 # want weights whose modifier cannot be identified.
 # See reports/model-origin-audit-2026-09-29.md.
 MODEL = os.environ.get("CONSOLIDATE_MODEL", "thunder-gptoss:latest")
+# Same window as app.py's chat calls - see the note on NUM_CTX there.
+NUM_CTX = int(os.environ.get("THUNDER_NUM_CTX", "16384"))
 
 PAIRS_PER_BATCH = 5      # more than this and the model starts summarising
 MAX_TURNS = 400
@@ -137,7 +139,11 @@ def ask_model(excerpt: str) -> list[str]:
         "model": MODEL, "stream": False, "format": "json",
         # Deterministic: this runs unattended, and a different answer every
         # night for the same input would be impossible to reason about.
-        "options": {"temperature": 0, "num_predict": 1200},
+        # num_ctx matches app.py's chat calls. The 3am job runs on the same
+        # model chat uses, so without it the nightly run evicted the resident
+        # chat runner and reloaded it at a different window - and left it that
+        # way for whoever spoke to Thunder first in the morning.
+        "options": {"temperature": 0, "num_predict": 1200, "num_ctx": NUM_CTX},
         "messages": [
             {"role": "system", "content": PROMPT},
             {"role": "user", "content": excerpt},

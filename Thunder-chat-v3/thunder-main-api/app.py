@@ -41,6 +41,15 @@ from onboarding import narrate as onboarding_narrate
 
 OLLAMA = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
 MODEL = os.environ.get("THUNDER_MODEL", "dolphin3")  # set on Main; see TOOLS.md before choosing one
+
+# Ollama keys a loaded runner by model *and* context size. A request that asks
+# for a different num_ctx than the resident runner has does not just run with a
+# different window - it evicts and reloads the model, ~10s of dead air on a
+# 12GB model. So every call that touches the chat model must send the same
+# value, and that value lives here rather than being repeated per call site.
+# Embedding calls are deliberately excluded (nomic-embed-text has its own
+# 2048 runner; forcing 16384 on it would reload that too).
+NUM_CTX = int(os.environ.get("THUNDER_NUM_CTX", "16384"))
 SERVERUS = os.environ.get("SERVERUS_URL", "http://10.168.168.13:9001")
 ENGINE = os.environ.get("ENGINE_URL", "http://10.168.168.12:9002")
 ODRIS = os.environ.get("ODRIS_URL", "http://10.168.168.15:9003")
@@ -83,6 +92,7 @@ CODE.mkdir(exist_ok=True)
 # this 24B and a frontier model is context, not reasoning - so it gets context.
 UPLOADS = uploads.Uploads(DATA / "uploads")
 VISION_MODEL = os.environ.get("THUNDER_VISION", "thunder-vision")
+VISION_NUM_CTX = int(os.environ.get("THUNDER_VISION_NUM_CTX", "8192"))
 ODRIS_YOUTUBE = "http://10.168.168.15:9008/youtube"
 # Only Odris reaches the internet, so every outside lookup goes through it.
 # Main asking YouTube directly would mean punching a hole in the lockdown.
@@ -521,7 +531,7 @@ CHAT_OPTIONS = {
     "repeat_penalty": 1.18,
     "repeat_last_n": 256,
     "num_predict": 1400,
-    "num_ctx": int(os.environ.get("THUNDER_NUM_CTX", "16384")),
+    "num_ctx": NUM_CTX,
 }
 
 # With tools on, the model writes code and reads pages. A 1.18 repeat penalty
@@ -557,7 +567,7 @@ TOOL_OPTIONS = {
     "repeat_penalty": 1.05,
     "repeat_last_n": 128,
     "num_predict": int(os.environ.get("THUNDER_NUM_PREDICT", "4096")),
-    "num_ctx": int(os.environ.get("THUNDER_NUM_CTX", "16384")),
+    "num_ctx": NUM_CTX,
     "temperature": float(os.environ.get("THUNDER_TEMPERATURE", "0.6")),
 }
 
@@ -626,6 +636,11 @@ def classify_search_query(msg: str) -> str | None:
         {
             "model": MODEL,
             "stream": False,
+            # Same num_ctx as every other chat call. This one sent no options at
+            # all, so it inherited the Modelfile default - fine while that
+            # happens to be 16384, but the moment THUNDER_NUM_CTX is changed
+            # this call would have reloaded the model on every message.
+            "options": {"num_ctx": NUM_CTX},
             "messages": [
                 {
                     "role": "system",
@@ -794,7 +809,13 @@ def ollama_vision(message: str, image_b64: str) -> str:
         "prompt": message or "Describe what this is, and read any text in it.",
         "images": [image_b64],
         "stream": False,
-        "options": {"temperature": 0.2, "num_predict": 900},
+        # The vision model's own window, not the chat model's. It is a separate
+        # runner, so this cannot evict the chat model - but pinning it to
+        # NUM_CTX would waste VRAM on a 3.3GB model that never sees a long
+        # conversation, and leaving it unset would let it drift on a default.
+        # 8192 is room for an image plus a page of OCR'd text.
+        "options": {"temperature": 0.2, "num_predict": 900,
+                    "num_ctx": VISION_NUM_CTX},
     }).encode()
     req = urllib.request.Request(f"{OLLAMA}/api/generate", data=payload,
                                  headers={"Content-Type": "application/json"},
@@ -1249,9 +1270,67 @@ def canary_hits(limit: int = 5) -> list[dict]:
     return out
 
 
+# Anything at or above this counts as "working". Idle sits at 0-2%; a reply in
+# flight pins the card near 100%. The gap is wide enough that the exact number
+# does not matter much, but it is well clear of the noise floor.
+GPU_BUSY_UTIL_PCT = int(os.environ.get("THUNDER_GPU_BUSY_UTIL", "25"))
+
+
+def gpu_state() -> dict:
+    """What the GPU is actually doing, for /status.
+
+    This used to be genai_state(), which asked thunder-genai on :9010 - a
+    service stopped and disabled on 2026-09-29, so gpu.up had been hardcoded
+    false-by-accident ever since, and the phone showed the card as down while
+    it was serving every reply.
+
+    The truth now comes from the two things that are really there: Ollama, and
+    nvidia-smi. Both are on the /status path, so both get short timeouts and
+    the whole thing is one subprocess and one localhost request.
+
+    The key set is unchanged - Android parses up/loading/busy/progress{step,
+    total} (ThunderApi.kt GpuState) and those all still mean what they meant.
+    `progress` stays {0, 0}: it existed for diffusion's step counter, and token
+    generation has no equivalent total to count towards, so hasProgress() stays
+    false and the UI shows a plain spinner rather than a fake bar.
+    """
+    ok = _run(["nvidia-smi", "--query-gpu=utilization.gpu", "--format=csv,noheader,nounits"],
+              timeout=3)
+    try:
+        util = int(float(ok.splitlines()[0].strip()))
+    except (ValueError, IndexError):
+        util = None
+
+    loaded: list[str] = []
+    reachable = False
+    try:
+        with urllib.request.urlopen(f"{OLLAMA}/api/ps", timeout=2) as r:
+            body = json.loads(r.read().decode())
+        reachable = True
+        loaded = [m.get("name") or m.get("model") or "" for m in (body.get("models") or [])]
+        loaded = [n for n in loaded if n]
+    except Exception:
+        pass
+
+    return {
+        # Up means the card can actually serve a reply: the driver sees it and
+        # Ollama is answering. Either one alone is not enough to promise that.
+        "up": bool(reachable and util is not None),
+        "loaded": loaded,
+        # Ollama's /api/ps only lists models that have finished loading, so
+        # there is nothing here to report a partial load from.
+        "loading": None,
+        "busy": util is not None and util >= GPU_BUSY_UTIL_PCT,
+        "progress": {"step": 0, "total": 0},
+    }
+
+
 def genai_state() -> dict:
-    """What the GPU is doing right now, so the client can show a loader
-    instead of dead air while a model swaps in."""
+    """What the image/video generators are doing.
+
+    Still reports thunder-genai on :9010, which is correct: that service is
+    what /system's "generators" key is about, and it is stopped and disabled.
+    It is no longer what /status's "gpu" key uses - see gpu_state()."""
     try:
         with urllib.request.urlopen(f"{GENAI}/health", timeout=2) as r:
             body = json.loads(r.read().decode())
@@ -1270,6 +1349,9 @@ def release_chat_model() -> None:
     """Evict the chat model from the GPU before a generation starts. One user,
     one job at a time - whatever is running should own the whole card rather
     than wait out Ollama's idle timer."""
+    # No num_ctx here on purpose: keep_alive 0 unloads the runner, so there is
+    # no context to size. Sending one would only risk loading the model in
+    # order to immediately discard it.
     payload = json.dumps({"model": MODEL, "prompt": "", "keep_alive": 0}).encode()
     req = urllib.request.Request(
         f"{OLLAMA}/api/generate", data=payload, headers={"Content-Type": "application/json"}
@@ -1284,7 +1366,12 @@ def release_chat_model() -> None:
 def warm_model() -> None:
     """Ask Ollama to load the chat model without generating anything, so it is
     resident by the time the user finishes reading the greeting."""
+    # num_ctx matters here more than anywhere: this call is what *loads* the
+    # model. Without it the runner came up at the Modelfile default and the
+    # first real chat request, asking for NUM_CTX, threw it away and loaded it
+    # again - so warming the model actively cost time instead of saving it.
     payload = json.dumps({"model": MODEL, "prompt": "",
+                          "options": {"num_ctx": NUM_CTX},
                           "keep_alive": os.environ.get("THUNDER_KEEP_ALIVE", "24h")}).encode()
     req = urllib.request.Request(
         f"{OLLAMA}/api/generate", data=payload, headers={"Content-Type": "application/json"}
@@ -1346,9 +1433,10 @@ def _probes() -> dict:
             return _STATUS_CACHE["probes"]
     jobs = {"ollama": _POOL.submit(ollama_up), "heartbeat": _POOL.submit(odris_heartbeat),
             "egress": _POOL.submit(recent_blocked_egress), "canary": _POOL.submit(canary_hits),
-            "gpu": _POOL.submit(genai_state)}
+            "gpu": _POOL.submit(gpu_state)}
     fallback = {"ollama": False, "heartbeat": None, "egress": [], "canary": [],
-                "gpu": {"up": False, "loaded": [], "loading": None, "busy": False}}
+                "gpu": {"up": False, "loaded": [], "loading": None, "busy": False,
+                        "progress": {"step": 0, "total": 0}}}
     out = {}
     for k, f in jobs.items():
         try:

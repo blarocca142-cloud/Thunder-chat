@@ -31,6 +31,16 @@ unit with lingering enabled, so `systemctl --user restart thunder-tts` works.
 
 - **Main**: `thunder-main` (FastAPI :8080), `ollama` (:11434). `thunder-genai`
   is **stopped and disabled** as of 2026-09-29 — see below.
+- `/status`'s `gpu` block now reads the **real** GPU — nvidia-smi plus Ollama's
+  `/api/ps` (`gpu_state()` in `app.py`). It used to ask thunder-genai on :9010,
+  so once that was disabled `gpu.up` was stuck false and the phone showed the
+  card as down while it was answering every message. `/system`'s `generators`
+  key still means thunder-genai and is still correctly false.
+- **Port 11434 is still open to the whole LAN and Ollama has no auth of any
+  kind.** `net-lockdown/port-11434.sh` is written and reviewed but **not yet
+  run**. When it is run, the allowlist must be localhost + **.15 odris** +
+  **.11 cache** — cache is not optional: `thunder-cache.service` is active and
+  enabled, has no GPU, and sends every batch job to Main's Ollama.
 - Chat model: **`thunder-gptoss:latest`** — gpt-oss 20B MXFP4 (OpenAI).
   `THUNDER_MODEL` env var. Unlike the old `thunder:latest`, it bakes in **no
   system prompt** — it is gpt-oss with `num_ctx 16384` and `temperature 0.6`,
@@ -75,8 +85,30 @@ unit with lingering enabled, so `systemctl --user restart thunder-tts` works.
   `diffusers` *library* source in the genai venv and some download logs, no
   weights. Every model `ollama list` reports was re-checked against
   `BLOCKED_ARCH`: no matches.
+- **Flash attention is already on — don't "enable" it again.** Ollama 0.33.3
+  starts every runner with `--flash-attn auto`, and the journal says
+  `resolve_fused_ops: Flash Attention enabled` on every load.
+  `OLLAMA_FLASH_ATTENTION=1` forces what auto already picked and buys nothing.
+- **gpt-oss's KV cache is tiny, so `q8_0` KV is not a speed knob.** Sliding-window
+  attention, 12 KV layers at head dim 64: the whole cache at 16384 ctx is 414MB
+  (384 non-SWA + 30 SWA). q8_0 saves ~200MB of 24GB — context headroom, not
+  tok/s. Drop-in is in `thunder-main-api/ollama-tuning.conf`, **not installed**.
+- **Measured chat speed is ~201 tok/s** (gpt-oss 20B, 16384 ctx, 400-token
+  reply, 2026-09-29). That is not inconsistent with the 55.5 tok/s above: that
+  was the *dense* 24B. gpt-oss is MoE with ~3.6B active per token.
+- **Ollama reloads the model if `num_ctx` changes between requests** — it keys
+  the runner on model *and* context size, so a mismatched call evicts 12GB and
+  reloads it (~10s of dead air). Every chat-model call must send the same
+  `THUNDER_NUM_CTX`; `forge.py`, `consolidate.py`, `extract.py` and
+  `warm_model` were all missing it. Embedding calls must **not** have it —
+  nomic-embed-text has its own 2048 runner.
 - **The 3090 is compute capability 8.6, so fp8 does not work at all.**
   `torch._scaled_mm` needs 8.9+. NF4 (bitsandbytes) works; fp8 hard-fails.
+- **The monitor costs 94MB of VRAM, so moving the cable is not worth it.**
+  gnome-shell 82 + Xwayland 6 + snapd 6. There is also **no iGPU to move it
+  to**: `lspci` shows only the 3090 and no `i915` loads — the Q87 board has the
+  i7-4790's HD 4600 disabled in BIOS. TTS on the card costs 1328MB, fourteen
+  times more.
 - **Sequential CPU offload cannot be used with bitsandbytes 4-bit weights** —
   "Cannot copy out of meta tensor". `apply_offload` falls back automatically.
 - **`PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` is required** for

@@ -14,6 +14,8 @@ OLLAMA = "http://127.0.0.1:11434/api/chat"
 # installed and is a one-env-var fallback if the NPI regression noted in that
 # report ever bites.
 MODEL = os.environ.get("CLAIMS_MODEL", "thunder-gptoss:latest")
+# Same window as app.py's chat calls - see the note on NUM_CTX there.
+NUM_CTX = int(os.environ.get("THUNDER_NUM_CTX", "16384"))
 
 # Blayne's rule (2026-09-27): chat and coding may use any model, but medical
 # and claims work never runs on a model from a Chinese lab. Checked by what the
@@ -71,7 +73,9 @@ def extract(text: str) -> dict:
         raise BlockedModel(why)
     payload = json.dumps({
         "model": MODEL, "stream": False, "format": "json",
-        "options": {"temperature": 0, "num_predict": 1600},
+        # Same window as chat - claims runs on the chat model now, so a
+        # different num_ctx here would reload the model for every document.
+        "options": {"temperature": 0, "num_predict": 1600, "num_ctx": NUM_CTX},
         "messages": [
             {"role": "system", "content":
              "You extract billing fields from scanned clinical documents. "

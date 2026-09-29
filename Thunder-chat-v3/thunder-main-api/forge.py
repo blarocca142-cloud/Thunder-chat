@@ -29,6 +29,9 @@ from concurrent.futures import ThreadPoolExecutor
 
 import tools
 
+# Same window as app.py's chat calls - see the note on NUM_CTX there. Read from
+# the environment rather than imported so forge stays usable standalone.
+NUM_CTX = int(os.environ.get("THUNDER_NUM_CTX", "16384"))
 CANDIDATES = int(os.environ.get("FORGE_CANDIDATES", "4"))
 REPAIR_ROUNDS = int(os.environ.get("FORGE_REPAIR_ROUNDS", "3"))
 TEMPS = [0.2, 0.6, 0.9, 1.1, 0.4, 0.8]
@@ -41,7 +44,13 @@ ASSERT_LINE = re.compile(r'File "[^"]*test_forge\.py", line (\d+)')
 def _chat(ollama: str, model: str, system: str, user: str, temperature: float) -> str:
     payload = {"model": model, "stream": False, "think": False,
                "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-               "options": {"temperature": temperature, "num_predict": 4096, "repeat_penalty": 1.0}}
+               "options": {"temperature": temperature, "num_predict": 4096, "repeat_penalty": 1.0,
+                           # Forge runs on the chat model, so it must ask for the
+                           # same window chat uses. Without this the first forge
+                           # call evicted the resident chat runner and reloaded
+                           # it at the default - then the next chat message
+                           # reloaded it right back.
+                           "num_ctx": NUM_CTX}}
     req = urllib.request.Request(f"{ollama}/api/chat", data=json.dumps(payload).encode(),
                                  headers={"Content-Type": "application/json"}, method="POST")
     with urllib.request.urlopen(req, timeout=600) as r:
