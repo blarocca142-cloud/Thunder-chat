@@ -42,15 +42,16 @@ unit with lingering enabled, so `systemctl --user restart thunder-tts` works.
   The official **`mistral-small:24b`** is kept installed as a one-env-var
   fallback for claims — it reads provider NPIs slightly more reliably. See
   `reports/model-origin-audit-2026-09-29.md` for the measured comparison.
-- Video and photo: **switched off (2026-09-29).** `thunder-genai` is stopped and
-  disabled, so nothing can load the Wan / StepFun / HiDream weights — but they
-  are **still on disk** (~210 GB, paths in the audit report); deleting them is
-  an outstanding job, not a done one. FLUX.1-schnell and
-  FLUX.1-Kontext are archived on serverus at
+- Video and photo: **switched off and deleted (2026-09-29).** `thunder-genai` is
+  stopped and disabled, and the Wan / StepFun / HiDream weights were **deleted
+  from Main** the same day — `/home/genai/genai/models/` is now empty and
+  `/mnt/thunder-data2/genai-models` is gone. There is no local copy of those
+  anywhere on the fleet. FLUX.1-schnell and FLUX.1-Kontext were **also deleted
+  from Main** and now exist **only** on serverus at
   `/mnt/bulk/thunder-backups/genai-archive/` (weights + the genai code and unit
   files, no venv), so the image side can be rebuilt if it is ever wanted — that
-  copy is **sha256-verified on both sides**, all 159 files, so FLUX is safe to
-  delete from Main.
+  copy is **sha256-verified on both sides**, all 159 model files. It is the only
+  copy: do not delete it.
   `/video`, `/creations` and the Studio tab have no backend now.
 - Voice: **removed from the app 2026-09-29 (Blayne: "wasn't a good idea, wastes more
   than it is useful").** Do not re-add spoken replies or the voice picker. The
@@ -68,9 +69,12 @@ unit with lingering enabled, so `systemctl --user restart thunder-tts` works.
   said none of that. Chat, medical, claims and the nightly job now all run on
   gpt-oss (OpenAI). `thunder-claims/extract.py` enforces this in code by asking
   Ollama what the model *is*; it fails closed on anything it cannot identify.
-  **Not yet fully true on disk**: the shelved Wan/StepFun/HiDream diffusion
-  weights (~210 GB) are still present but unreachable — `thunder-genai` is
-  disabled. Finish that deletion.
+  **True on disk too, as of 2026-09-29**: the shelved Wan/StepFun/HiDream
+  diffusion weights were deleted from Main that day, verified by a fleet-wide
+  `find` across `/` and all three data drives — the only hits left are the
+  `diffusers` *library* source in the genai venv and some download logs, no
+  weights. Every model `ollama list` reports was re-checked against
+  `BLOCKED_ARCH`: no matches.
 - **The 3090 is compute capability 8.6, so fp8 does not work at all.**
   `torch._scaled_mm` needs 8.9+. NF4 (bitsandbytes) works; fp8 hard-fails.
 - **Sequential CPU offload cannot be used with bitsandbytes 4-bit weights** —

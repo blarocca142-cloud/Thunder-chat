@@ -295,7 +295,7 @@ now — corrected.
   — all three gone. They shared one blob, so **14.3 GB freed**. `/status` and
   `/chat` re-checked afterwards and still healthy.
 
-## C. The diffusion stack — partly done
+## C. The diffusion stack — done
 
 ### Done
 
@@ -342,6 +342,9 @@ only the empty HF stub. Nothing to delete.
 
 ### NOT done — needs Blayne
 
+*(Superseded — Blayne ran these himself later the same day. See "Deletion
+completed" below.)*
+
 **The 209.5 GB above is still on disk, and FLUX is still on Main.** The
 deletion was refused by the sandbox as irreversible local destruction, and that
 refusal was not worked around. The exposure is already closed — `thunder-genai`
@@ -358,7 +361,61 @@ rm -rf ~/.cache/huggingface/hub          # 204 KB of empty stubs
 sudo rm -rf /home/genai/genai/models/flux1-schnell /home/genai/genai/models/flux1-kontext-dev
 ```
 
+### Deletion completed — 2026-09-29
+
+Blayne ran the commands above himself on Main. Verified read-only afterwards:
+
+- **All ten paths are gone**, including `/mnt/thunder-data2/genai-models` and
+  both FLUX directories. `/home/genai/genai/models/` still exists but is empty
+  (4.0K).
+- `sudo find` for `*wan2*`, `*step1x*`, `*hidream*`, `*lightx2v*` across `/` and
+  all three data drives (`-xdev` per mount) returns **no weights** — only the
+  `diffusers` library's own `hidream_image`/`wan` source files inside
+  `/home/genai/genai/venv` (5.9 GB venv, pip package code) and thirteen
+  `*_download.log` files from September. `/home/genai` is 6.0 GB total, all venv
+  and small test outputs.
+- `ollama list` re-checked model by model against `BLOCKED_ARCH` in
+  `thunder-claims/extract.py`, using the same `/api/show` family/architecture
+  logic the guard uses: twelve models, families `gpt-oss`, `llama`, `gemma3`,
+  `nomic-bert`. **No matches.**
+- FLUX archive on serverus intact: **159 files** under
+  `genai-archive/models/` — exactly the count that was sha256-verified — plus 36
+  files in `code/`, 108 GiB, on a volume with 3.3 TB free.
+- `thunder-main` healthy: `/status` returns `"state":"ok"`, `"message":"chat
+  ok"`, `ollama: true`, `thunder-gptoss:latest`, all three nodes up, no canary
+  alerts.
+
+`df -h` after the deletion:
+
+| filesystem | mount | size | used | avail | use% |
+|---|---|---|---|---|---|
+| `/dev/sda3` | `/` | 915G | 238G | 631G | 28% |
+| `/dev/sdb1` | `/mnt/thunder-data1` | 916G | 33G | 838G | 4% |
+| `/dev/sdc1` | `/mnt/thunder-data2` | 916G | 33G | 838G | 4% |
+| `/dev/sdd1` | `/mnt/thunder-data3` | 916G | 33G | 838G | 4% |
+
+The 33G on each data drive is that drive's 33 GB swapfile and nothing else — so
+data2, which held 69.4 GB of Wan weights, is now carrying only swap. That is the
+direct confirmation for one of the two locations.
+
+**A caveat on the freed figure:** no `df` snapshot was taken *before* the
+deletion, so the amount freed is not a subtraction of two measurements. It is
+the sum of the per-directory `du` sizes measured during this audit (the
+corrected table above), which the empty directories and the data2 reading
+corroborate:
+
+| | freed |
+|---|---|
+| Qwen shootout model | 18.6 GB |
+| `thunder` / `thunder-bare` / `huihui_ai` (one shared blob) | 14.3 GB |
+| Wan / StepFun / HiDream weights (both locations) | 209.5 GB |
+| FLUX on Main (now only on serverus) | 115.6 GB |
+| **total freed** | **~358 GB** |
+
 ## Disk
+
+*(Superseded by the table in "Deletion completed" above — kept as the state at
+the time of the audit.)*
 
 | | freed |
 |---|---|
