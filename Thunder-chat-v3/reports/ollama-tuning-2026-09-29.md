@@ -447,3 +447,47 @@ Across the whole verification `journalctl` shows exactly two
 `starting llama-server` lines, for two different blobs (gpt-oss and
 nomic-embed-text). **Zero reloads of an already-resident model** — the item 2
 `num_ctx` work is still holding.
+
+## Reverted — same day, 2026-09-29
+
+Blayne made the call to back the `q8_0` KV drop-in out. The saving was real but
+trivial and the cost was not: 192 MiB of 24576 (0.8% of the card) against a
+5.6% drop in generation speed.
+
+Removed with the documented undo:
+
+    sudo rm /etc/systemd/system/ollama.service.d/tuning.conf
+    sudo systemctl daemon-reload && sudo systemctl restart ollama
+
+Verified on the live box afterwards:
+
+- `/etc/systemd/system/ollama.service.d/` holds only `override.conf`.
+  `systemctl show ollama -p Environment` has `OLLAMA_HOST` and
+  `OLLAMA_KEEP_ALIVE` and **no** `OLLAMA_KV_CACHE_TYPE`. Service `active`.
+- After `POST /warm`, the runner command line has **no** `--cache-type-k` or
+  `--cache-type-v` flag. The journal allocates KV at f16 again: 384.00 MiB
+  non-SWA + 30.00 MiB SWA = **414.00 MiB**, matching the pre-drop-in figure
+  exactly. `resolve_fused_ops: Flash Attention enabled` still present with
+  nothing setting `OLLAMA_FLASH_ATTENTION` — `--flash-attn auto` gets it right
+  on its own, as recorded above.
+- Benchmark, same script and prompt, 3 runs after warmup:
+
+  | config | mean gen tok/s |
+  |---|---|
+  | f16 (before) | 201.41 |
+  | q8_0 drop-in | 190.12 |
+  | **f16 (reverted)** | **201.53** |
+
+  201.53 against 201.41 is the same number inside run-to-run scatter. The
+  revert restored full speed; nothing else moved. Runner VRAM 11884 MiB, GPU
+  total 13358 MiB, model 100% GPU at 16384 context.
+- Unrelated state still intact: `THUNDER-OLLAMA-IN` present on v4 and v6,
+  odris (.15) and cache (.11) both read `{"version":"0.33.3"}` from
+  `10.168.168.10:11434`, and thunder-engine (.12, not allowlisted) times out as
+  designed. `/status` reports `gpu.up: true`, `state: ok`, and a real `POST
+  /chat` answered correctly.
+
+The drop-in file is kept at `thunder-main-api/ollama-tuning.conf` as a record of
+what was measured. It is not deployed. Only revisit it if the context window
+grows well past 16384, where the KV cache is large enough for the trade to
+change sign.

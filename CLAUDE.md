@@ -96,31 +96,36 @@ unit with lingering enabled, so `systemctl --user restart thunder-tts` works.
   starts every runner with `--flash-attn auto`, and the journal says
   `resolve_fused_ops: Flash Attention enabled` on every load.
   `OLLAMA_FLASH_ATTENTION=1` forces what auto already picked and buys nothing.
-  It is now set (harmlessly) by the drop-in below.
-- **`q8_0` KV is INSTALLED and it made chat 5.6% slower. Measured, 2026-09-29.**
-  `thunder-main-api/ollama-tuning.conf` is live at
-  `/etc/systemd/system/ollama.service.d/tuning.conf`. It is genuinely in effect,
-  not a silent fallback — the runner shows `--cache-type-k q8_0
-  --cache-type-v q8_0` and the cache allocates at q8_0.
+  It was set (harmlessly) by the tuning drop-in until that was removed on
+  2026-09-29; nothing sets it now, and the journal still says Flash Attention
+  is enabled. That is the point: auto already gets it right.
+- **`q8_0` KV was tried on 2026-09-29 and REMOVED the same day — it made chat
+  5.6% slower. Don't install it again without a reason.** It was genuinely in
+  effect while it was on, not a silent fallback: the runner showed
+  `--cache-type-k q8_0 --cache-type-v q8_0` and the cache allocated at q8_0.
   gpt-oss's KV cache is tiny to begin with (sliding-window attention, 12 KV
   layers at head dim 64), so halving it **414 MiB → 220 MiB** saved only
   **192 MiB of 24576 — 0.8% of the card** — while costing **201.4 → 190.1 tok/s**.
-  The run sets don't overlap, so it is real, not noise: dequantising on every
+  The run sets didn't overlap, so it was real, not noise: dequantising on every
   attention read isn't paid for when there was no bandwidth pressure to relieve.
-  **Bad trade at today's 11GB-of-24GB usage; only worth it if context grows well
-  past 16384.** Undo is
-  `sudo rm /etc/systemd/system/ollama.service.d/tuning.conf && sudo systemctl daemon-reload && sudo systemctl restart ollama`.
-  Ignore `KV cache shifting is not supported` in the log — it predates this and
-  is a property of gpt-oss's iSWA.
+  **Bad trade at today's 11GB-of-24GB usage; only worth revisiting if context
+  grows well past 16384.** Blayne made the call to revert; the drop-in is kept
+  at `thunder-main-api/ollama-tuning.conf` for reference but is **not** deployed
+  to `/etc/systemd/system/ollama.service.d/`, which now holds only
+  `override.conf` (`OLLAMA_HOST`, `OLLAMA_KEEP_ALIVE`). Re-measured after the
+  revert: **201.5 tok/s, KV back at f16 414 MiB** — full speed restored.
+  Ignore `KV cache shifting is not supported` in the log — it predates all of
+  this and is a property of gpt-oss's iSWA.
 - **Thunder cannot see its own runtime config.** Asked its context window it
   guessed "30-k range" when it is 16384 (it did flag the uncertainty). `num_ctx`,
   the model name and the GPU state are facts about the running process that
   nothing puts in front of the model — fix via the memory profile or a
   fleet-status tool, not by hardcoding a number in the prompt.
-- **Measured chat speed is ~190 tok/s as currently configured** — 201 tok/s on
-  f16 KV, 190 with the q8_0 drop-in above (gpt-oss 20B, 16384 ctx, 400-token
-  reply, 2026-09-29). That is not inconsistent with the 55.5 tok/s above: that
-  was the *dense* 24B. gpt-oss is MoE with ~3.6B active per token.
+- **Measured chat speed is ~201 tok/s as currently configured** — 201.5 tok/s
+  re-measured after the q8_0 revert, against 201.4 before it went on and 190.1
+  while it was on (gpt-oss 20B, 16384 ctx, 400-token reply, 2026-09-29). That is
+  not inconsistent with the 55.5 tok/s above: that was the *dense* 24B. gpt-oss
+  is MoE with ~3.6B active per token.
 - **Ollama reloads the model if `num_ctx` changes between requests** — it keys
   the runner on model *and* context size, so a mismatched call evicts 12GB and
   reloads it (~10s of dead air). Every chat-model call must send the same
