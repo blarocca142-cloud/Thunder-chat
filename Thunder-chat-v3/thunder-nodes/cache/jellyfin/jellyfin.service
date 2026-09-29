@@ -1,0 +1,19 @@
+[Unit]
+Description=Jellyfin media server (portable, user service)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/jellyfin/jellyfin --service \
+  --datadir %h/jellyfin/data \
+  --cachedir %h/jellyfin/cache \
+  --configdir %h/jellyfin/config \
+  --logdir %h/jellyfin/log \
+  --ffmpeg %h/jellyfin/bin/ffmpeg
+Restart=always
+RestartSec=5
+WorkingDirectory=%h/jellyfin
+
+[Install]
+WantedBy=default.target

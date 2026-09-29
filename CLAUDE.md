@@ -11,7 +11,7 @@ you don't burn Blayne's usage rediscovering the fleet.
 | Host | Address | Role | Notes |
 |---|---|---|---|
 | thunder-main | 10.168.168.10 | API, Ollama, generation | RTX 3090 24GB, 30GB RAM (maxed) |
-| thunder-cache | .11 | idle | i5-3470, 22GB |
+| thunder-cache | .11 | **Jellyfin :8096** | i5-3470, 22GB. `thunder-nodes/cache/jellyfin/` |
 | thunder-engine | .12 | safety yes/no (9002) | i7-3770, 30GB |
 | serverus | .13 | memory (9001) | **Xeon E3-1230 v5** — best CPU in the fleet, barely used |
 | odris | .15 | heartbeat 9003, websearch 9004, admin 9005, **TTS 9006**, health 9007, youtube 9008, **tool gate 9009** | Radeon 550 **4GB**, 30GB RAM. Code in `/home/blayne-odris/` |
@@ -36,7 +36,9 @@ unit with lingering enabled, so `systemctl --user restart thunder-tts` works.
 - Video: **Wan 2.2 T2V-A14B NF4 + LightX2V LoRAs**, 4 steps.
   `GENAI_VIDEO_MODEL=5b|a14b|a14b_nf4`
 - Photo: FLUX.1-schnell. Edit: FLUX.1 Kontext.
-- Voice: **Kokoro is wired in and is what `/voices` now serves** — 64 voices,
+- Voice: **removed from the app 2026-09-29 (Blayne: "wasn't a good idea, wastes more
+  than it is useful").** Do not re-add spoken replies or the voice picker. The
+  mic button (dictation *to* Thunder) stays. Server side still has: Kokoro is wired in and is what `/voices` now serves — 64 voices,
   24kHz, Apache-2.0, on Main. Piper on Odris remains the fallback. The old note
   here said Kokoro was "proven but not yet wired in"; that is out of date.
   Narrating 23 deck slides took 47s end to end.

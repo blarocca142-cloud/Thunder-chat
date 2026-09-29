@@ -136,15 +136,6 @@ fun parseReply(reply: String): List<Part> {
     return out
 }
 
-/** What should be read aloud: the prose, without steps, code or checks. */
-fun spokenText(reply: String): String =
-    parseReply(reply).filterIsInstance<Part.Markdown>()
-        .joinToString(" ") { stripMarkdown(it.text) }
-        .ifBlank { reply }
-
-private fun stripMarkdown(s: String): String =
-    s.replace(Regex("""[*_`#>]+"""), "").replace(Regex("""\[([^\]]+)]\([^)]+\)"""), "$1")
-
 // ---- drawing ----------------------------------------------------------------
 
 @Composable
