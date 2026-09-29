@@ -189,6 +189,7 @@ fun ThunderRoot(
     }
     var apiToken by remember { mutableStateOf(prefs.apiToken) }
     var speakReplies by remember { mutableStateOf(prefs.speakReplies) }
+    var fingerprintLock by remember { mutableStateOf(prefs.fingerprintLock) }
     var voice by remember { mutableStateOf(prefs.voice) }
     // Android's on-device engine - no server, no model to ship.
     val tts = remember { TextToSpeech(context) { } }
@@ -626,6 +627,11 @@ fun ThunderRoot(
             onDark = {
                 dark = it
                 prefs.darkMode = it
+            },
+            fingerprint = fingerprintLock,
+            onFingerprint = {
+                fingerprintLock = it
+                prefs.fingerprintLock = it
             },
             onDismiss = { showSettings = false }
         )
@@ -1221,6 +1227,8 @@ private fun ServerDialog(
     api: ThunderApi,
     speak: Boolean,
     onSpeak: (Boolean) -> Unit,
+    fingerprint: Boolean,
+    onFingerprint: (Boolean) -> Unit,
     onDismiss: () -> Unit
 ) {
     AlertDialog(
@@ -1276,6 +1284,36 @@ private fun ServerDialog(
                     Switch(
                         checked = dark,
                         onCheckedChange = onDark,
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = ThunderInk.OnGold,
+                            checkedTrackColor = ThunderInk.Gold,
+                            uncheckedThumbColor = ThunderInk.Surface,
+                            uncheckedTrackColor = ThunderInk.Hairline
+                        )
+                    )
+                }
+                Spacer(Modifier.height(14.dp))
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            stringResource(R.string.settings_fingerprint),
+                            color = ThunderInk.Ink,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            stringResource(R.string.settings_fingerprint_hint),
+                            color = ThunderInk.Mute,
+                            fontSize = 12.sp,
+                            lineHeight = 16.sp
+                        )
+                    }
+                    Switch(
+                        checked = fingerprint,
+                        onCheckedChange = onFingerprint,
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = ThunderInk.OnGold,
                             checkedTrackColor = ThunderInk.Gold,
