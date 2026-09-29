@@ -2,7 +2,7 @@
 """Measure what Thunder's hardware actually delivers. Run before and after
 `tune.sh apply` and compare - a tuning that is not measured is a guess.
 
-    python3 bench.py                       # current THUNDER_MODEL, or thunder:latest
+    python3 bench.py                       # current THUNDER_MODEL, or thunder-gptoss:latest
     python3 bench.py --model qwen3-coder --ctx 32768 --parallel 4
 
 Reports generation tokens/sec, prompt-processing tokens/sec, time to first
@@ -57,7 +57,7 @@ def rate(n, ns):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--model", default=os.environ.get("THUNDER_MODEL", "thunder:latest"))
+    ap.add_argument("--model", default=os.environ.get("THUNDER_MODEL", "thunder-gptoss:latest"))
     ap.add_argument("--ctx", type=int, default=16384)
     ap.add_argument("--parallel", type=int, default=4)
     a = ap.parse_args()

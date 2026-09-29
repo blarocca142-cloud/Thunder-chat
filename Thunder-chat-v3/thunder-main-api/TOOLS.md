@@ -88,10 +88,11 @@ one baked into the model competes with it.
 Blayne's rule. Enforced three ways, by what a model *is*, not what it is called:
 
 - **Chat**: a message that looks like a claim or chart (`tools.looks_medical`)
-  is answered by `THUNDER_MEDICAL_MODEL` (default `thunder:latest`, Mistral),
+  is answered by `THUNDER_MEDICAL_MODEL` (default `thunder-gptoss:latest`,
+  gpt-oss 20B, OpenAI),
   whatever `THUNDER_MODEL` is. The app shows a line saying so.
 - **Context**: when the main model answers, earlier medical turns and recalled
   medical notes are stripped from its prompt, so it never sees them.
 - **Claims pipeline**: `thunder-claims/extract.py` asks Ollama for the model's
   architecture and refuses Qwen, DeepSeek, GLM and the other Chinese families
-  before reading a single page (`CLAIMS_MODEL`, default `thunder:latest`).
+  before reading a single page (`CLAIMS_MODEL`, default `thunder-gptoss:latest`).

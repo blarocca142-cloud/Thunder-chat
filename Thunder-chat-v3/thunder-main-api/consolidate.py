@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import sys
 import urllib.request
@@ -35,7 +36,13 @@ import memory as mem  # noqa: E402
 
 OLLAMA = "http://127.0.0.1:11434/api/chat"
 SERVERUS = "http://10.168.168.13:9001"
-MODEL = "thunder:latest"
+# gpt-oss 20B (OpenAI) since 2026-09-29, and an env var rather than a constant
+# so it can be moved without editing code. It was `thunder:latest` - Mistral
+# Small abliterated and republished by an anonymous account. A job that runs
+# unattended at 3am and proposes what Thunder will believe is the last place to
+# want weights whose modifier cannot be identified.
+# See reports/model-origin-audit-2026-09-29.md.
+MODEL = os.environ.get("CONSOLIDATE_MODEL", "thunder-gptoss:latest")
 
 PAIRS_PER_BATCH = 5      # more than this and the model starts summarising
 MAX_TURNS = 400

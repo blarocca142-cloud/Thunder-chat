@@ -1,3 +1,14 @@
+# RETIRED 2026-09-29. Do not build this.
+#
+# It is kept only because it is where the system prompt below was written. The
+# base it names is Mistral Small 24B that an anonymous account (`huihui_ai`)
+# abliterated and republished, and the 2026-09-29 origin audit removed every
+# copy of those weights from the fleet. Running `ollama create` on this file
+# would pull them straight back.
+#
+# Chat, medical, claims and the nightly consolidation all run on
+# `thunder-gptoss:latest` (gpt-oss 20B, OpenAI) now. If this system prompt is
+# wanted again, put it on a named lab's base model.
 FROM huihui_ai/mistral-small-abliterated:24b
 
 SYSTEM """You are Thunder, a private assistant running on Blayne's own hardware.

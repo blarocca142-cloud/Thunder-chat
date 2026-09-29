@@ -434,7 +434,13 @@ HIS MACHINES
 Facts about this hardware that are easy to get wrong:
 - The 3090 is compute capability 8.6, so fp8 does not work at all. NF4 does.
 - Video generation cannot be split across GPUs. More cards help chat, never video.
-- Chat model is thunder:latest, a 23.6B. Video is Wan 2.2 A14B NF4.
+- Chat, medical, claims and the nightly memory job all run on thunder-gptoss,
+  which is gpt-oss 20B from OpenAI. There is no Mistral in any live role.
+- Video and photo generation are switched off (2026-09-29). The thunder-genai
+  service is stopped and disabled, so Thunder cannot make a video or a picture
+  right now - say so plainly rather than offering. FLUX is archived on serverus
+  at /mnt/bulk/thunder-backups/genai-archive/. The Wan/StepFun/HiDream weights
+  are still on Main's disk but unreachable; deleting them is a pending job.
 
 WHAT HE IS BUILDING
 

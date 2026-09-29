@@ -13,7 +13,7 @@ After=network.target
 Type=simple
 User=blayne
 WorkingDirectory=/home/blayne/Thunder-chat/Thunder-chat-v3/thunder-main-api
-Environment=THUNDER_MODEL=thunder:latest
+Environment=THUNDER_MODEL=thunder-gptoss:latest
 Environment=THUNDER_IMAGE_URL=http://127.0.0.1:9010/generate
 Environment=THUNDER_VIDEO_URL=http://127.0.0.1:9010/generate_video
 ExecStart=/usr/bin/python3 -m uvicorn app:app --host 0.0.0.0 --port 8443 \

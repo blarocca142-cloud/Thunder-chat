@@ -7,7 +7,13 @@ for JSON will sometimes write prose instead.
 import json, os, sys, time, urllib.request
 
 OLLAMA = "http://127.0.0.1:11434/api/chat"
-MODEL = os.environ.get("CLAIMS_MODEL", "thunder:latest")
+# gpt-oss 20B (OpenAI) since 2026-09-29. It replaced `thunder:latest`, which was
+# Mistral Small abliterated and republished by an anonymous account - see
+# reports/model-origin-audit-2026-09-29.md. On 20 synthetic forms the two were
+# within a case of each other; the official `mistral-small:24b` is kept
+# installed and is a one-env-var fallback if the NPI regression noted in that
+# report ever bites.
+MODEL = os.environ.get("CLAIMS_MODEL", "thunder-gptoss:latest")
 
 # Blayne's rule (2026-09-27): chat and coding may use any model, but medical
 # and claims work never runs on a model from a Chinese lab. Checked by what the
@@ -73,11 +79,23 @@ def extract(text: str) -> dict:
             {"role": "user", "content": f"Document text:\n\n{text}"},
         ],
     }).encode()
-    req = urllib.request.Request(OLLAMA, data=payload,
-                                 headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=300) as r:
-        body = json.loads(r.read().decode())
-    return json.loads(body["message"]["content"])
+    # Measured on 2026-09-29: roughly one page in twenty comes back with an
+    # empty content string, which json.loads then dies on. It is not the page -
+    # the same page succeeded three times out of three on retry - so it is
+    # worth one more attempt rather than losing the document. Without this the
+    # model switch would have made extraction strictly less reliable.
+    last = None
+    for _ in range(2):
+        req = urllib.request.Request(OLLAMA, data=payload,
+                                     headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=300) as r:
+            body = json.loads(r.read().decode())
+        content = (body.get("message") or {}).get("content") or ""
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError as e:
+            last = e
+    raise last
 
 if __name__ == "__main__":
     text = open(sys.argv[1]).read()

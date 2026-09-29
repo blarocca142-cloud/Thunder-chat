@@ -29,13 +29,29 @@ unit with lingering enabled, so `systemctl --user restart thunder-tts` works.
 
 ## What runs where
 
-- **Main**: `thunder-main` (FastAPI :8080), `thunder-genai` (:9010, runs as
-  `genai`), `ollama` (:11434)
-- Chat model: **`thunder:latest`** — 23.6B, Q4_K_M, abliterated Mistral base,
-  custom system prompt. `THUNDER_MODEL` env var.
-- Video: **Wan 2.2 T2V-A14B NF4 + LightX2V LoRAs**, 4 steps.
-  `GENAI_VIDEO_MODEL=5b|a14b|a14b_nf4`
-- Photo: FLUX.1-schnell. Edit: FLUX.1 Kontext.
+- **Main**: `thunder-main` (FastAPI :8080), `ollama` (:11434). `thunder-genai`
+  is **stopped and disabled** as of 2026-09-29 — see below.
+- Chat model: **`thunder-gptoss:latest`** — gpt-oss 20B MXFP4 (OpenAI).
+  `THUNDER_MODEL` env var. Unlike the old `thunder:latest`, it bakes in **no
+  system prompt** — it is gpt-oss with `num_ctx 16384` and `temperature 0.6`,
+  and the persona comes from `SYSTEM_PROMPT` in `app.py` at request time.
+- Medical, claims extraction and the nightly memory consolidation **all run on
+  `thunder-gptoss:latest` too**, as of 2026-09-29. `THUNDER_MEDICAL_MODEL`,
+  `CLAIMS_MODEL`, `CONSOLIDATE_MODEL`. One model, already resident, so a
+  medical question or the 3am job no longer evicts the chat model.
+  The official **`mistral-small:24b`** is kept installed as a one-env-var
+  fallback for claims — it reads provider NPIs slightly more reliably. See
+  `reports/model-origin-audit-2026-09-29.md` for the measured comparison.
+- Video and photo: **switched off (2026-09-29).** `thunder-genai` is stopped and
+  disabled, so nothing can load the Wan / StepFun / HiDream weights — but they
+  are **still on disk** (~210 GB, paths in the audit report); deleting them is
+  an outstanding job, not a done one. FLUX.1-schnell and
+  FLUX.1-Kontext are archived on serverus at
+  `/mnt/bulk/thunder-backups/genai-archive/` (weights + the genai code and unit
+  files, no venv), so the image side can be rebuilt if it is ever wanted — that
+  copy is **sha256-verified on both sides**, all 159 files, so FLUX is safe to
+  delete from Main.
+  `/video`, `/creations` and the Studio tab have no backend now.
 - Voice: **removed from the app 2026-09-29 (Blayne: "wasn't a good idea, wastes more
   than it is useful").** Do not re-add spoken replies or the voice picker. The
   mic button (dictation *to* Thunder) stays. Server side still has: Kokoro is wired in and is what `/voices` now serves — 64 voices,
@@ -45,6 +61,16 @@ unit with lingering enabled, so `systemctl --user restart thunder-tts` works.
 
 ## Hard-won facts — do not relearn these
 
+- **No Chinese-origin or anonymously-modified weights in any live role
+  (2026-09-29 audit + cleanup). Origin is judged by architecture/base blob, not
+  by tag.** `thunder:latest` looked French and was: Mistral Small 24B — but
+  abliterated and republished by the anonymous `huihui_ai` account, and the tag
+  said none of that. Chat, medical, claims and the nightly job now all run on
+  gpt-oss (OpenAI). `thunder-claims/extract.py` enforces this in code by asking
+  Ollama what the model *is*; it fails closed on anything it cannot identify.
+  **Not yet fully true on disk**: the shelved Wan/StepFun/HiDream diffusion
+  weights (~210 GB) are still present but unreachable — `thunder-genai` is
+  disabled. Finish that deletion.
 - **The 3090 is compute capability 8.6, so fp8 does not work at all.**
   `torch._scaled_mm` needs 8.9+. NF4 (bitsandbytes) works; fp8 hard-fails.
 - **Sequential CPU offload cannot be used with bitsandbytes 4-bit weights** —

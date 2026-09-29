@@ -531,9 +531,11 @@ CHAT_OPTIONS = {
 TOOLS_ON = os.environ.get("THUNDER_TOOLS", "1") != "0"
 # Blayne's rule: chat and code can run on any model, medical never runs on a
 # Chinese one. Anything that looks like a claim or a chart is answered by this
-# model instead - thunder:latest (Mistral) until the shootout picks a better
-# non-Chinese one.
-MEDICAL_MODEL = os.environ.get("THUNDER_MEDICAL_MODEL", "thunder:latest")
+# model instead. Since 2026-09-29 that is gpt-oss 20B (OpenAI), the same model
+# chat uses, so a medical question no longer forces a model swap. The old
+# default was thunder:latest - Mistral Small abliterated by an anonymous
+# account; see reports/model-origin-audit-2026-09-29.md.
+MEDICAL_MODEL = os.environ.get("THUNDER_MEDICAL_MODEL", "thunder-gptoss:latest")
 
 # Turbo: llama.cpp's llama-server, which can do what Ollama cannot - speculative
 # decoding (a small draft model proposes, the big one verifies several tokens

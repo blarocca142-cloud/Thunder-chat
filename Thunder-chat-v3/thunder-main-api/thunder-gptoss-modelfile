@@ -1,0 +1,17 @@
+# How `thunder-gptoss:latest` is built - the chat, medical, claims and
+# consolidation model as of 2026-09-29.
+#
+# Recorded because the old `thunder-modelfile` was retired that day and this
+# was the only live model with no recipe in the repo. Rebuild with:
+#
+#     ollama pull gpt-oss:20b
+#     ollama create thunder-gptoss -f thunder-gptoss-modelfile
+#
+# Note what is NOT here: there is no SYSTEM block. Thunder's persona is sent as
+# a system message by `app.py` (`SYSTEM_PROMPT`) on every request, so it can be
+# changed without rebuilding the model. The old Mistral build baked its prompt
+# in, which is why `thunder-modelfile` looks so different.
+FROM gpt-oss:20b
+TEMPLATE {{ .Prompt }}
+PARAMETER num_ctx 16384
+PARAMETER temperature 0.6
