@@ -36,11 +36,18 @@ unit with lingering enabled, so `systemctl --user restart thunder-tts` works.
   so once that was disabled `gpu.up` was stuck false and the phone showed the
   card as down while it was answering every message. `/system`'s `generators`
   key still means thunder-genai and is still correctly false.
-- **Port 11434 is still open to the whole LAN and Ollama has no auth of any
-  kind.** `net-lockdown/port-11434.sh` is written and reviewed but **not yet
-  run**. When it is run, the allowlist must be localhost + **.15 odris** +
-  **.11 cache** — cache is not optional: `thunder-cache.service` is active and
-  enabled, has no GPU, and sends every batch job to Main's Ollama.
+- **Port 11434 is firewalled as of 2026-09-29** — `net-lockdown/port-11434.sh`
+  has been **run**. Ollama still has no auth of any kind; the packet filter is
+  the only thing protecting it. Allowlist is localhost + **.15 odris** +
+  **.11 cache**, everything else DROPped, v4 and v6, in a dedicated
+  `THUNDER-OLLAMA-IN` chain so it cannot disturb the uid 994/997 egress rules.
+  Persisted to `/etc/iptables/rules.v4`/`.v6`. Undo:
+  `sudo bash net-lockdown/unlock-11434.sh`.
+  **Cache is not optional** and is in the allowlist deliberately:
+  `thunder-cache.service` is active and enabled, has no GPU, and sends every
+  batch job to Main's Ollama — blocking .11 would break the overnight worker
+  silently. Verified from all four boxes. Note the other nodes have **no
+  `curl`** — test reachability with `ssh <node> python3 -c '...urllib...'`.
 - Chat model: **`thunder-gptoss:latest`** — gpt-oss 20B MXFP4 (OpenAI).
   `THUNDER_MODEL` env var. Unlike the old `thunder:latest`, it bakes in **no
   system prompt** — it is gpt-oss with `num_ctx 16384` and `temperature 0.6`,
@@ -89,11 +96,29 @@ unit with lingering enabled, so `systemctl --user restart thunder-tts` works.
   starts every runner with `--flash-attn auto`, and the journal says
   `resolve_fused_ops: Flash Attention enabled` on every load.
   `OLLAMA_FLASH_ATTENTION=1` forces what auto already picked and buys nothing.
-- **gpt-oss's KV cache is tiny, so `q8_0` KV is not a speed knob.** Sliding-window
-  attention, 12 KV layers at head dim 64: the whole cache at 16384 ctx is 414MB
-  (384 non-SWA + 30 SWA). q8_0 saves ~200MB of 24GB — context headroom, not
-  tok/s. Drop-in is in `thunder-main-api/ollama-tuning.conf`, **not installed**.
-- **Measured chat speed is ~201 tok/s** (gpt-oss 20B, 16384 ctx, 400-token
+  It is now set (harmlessly) by the drop-in below.
+- **`q8_0` KV is INSTALLED and it made chat 5.6% slower. Measured, 2026-09-29.**
+  `thunder-main-api/ollama-tuning.conf` is live at
+  `/etc/systemd/system/ollama.service.d/tuning.conf`. It is genuinely in effect,
+  not a silent fallback — the runner shows `--cache-type-k q8_0
+  --cache-type-v q8_0` and the cache allocates at q8_0.
+  gpt-oss's KV cache is tiny to begin with (sliding-window attention, 12 KV
+  layers at head dim 64), so halving it **414 MiB → 220 MiB** saved only
+  **192 MiB of 24576 — 0.8% of the card** — while costing **201.4 → 190.1 tok/s**.
+  The run sets don't overlap, so it is real, not noise: dequantising on every
+  attention read isn't paid for when there was no bandwidth pressure to relieve.
+  **Bad trade at today's 11GB-of-24GB usage; only worth it if context grows well
+  past 16384.** Undo is
+  `sudo rm /etc/systemd/system/ollama.service.d/tuning.conf && sudo systemctl daemon-reload && sudo systemctl restart ollama`.
+  Ignore `KV cache shifting is not supported` in the log — it predates this and
+  is a property of gpt-oss's iSWA.
+- **Thunder cannot see its own runtime config.** Asked its context window it
+  guessed "30-k range" when it is 16384 (it did flag the uncertainty). `num_ctx`,
+  the model name and the GPU state are facts about the running process that
+  nothing puts in front of the model — fix via the memory profile or a
+  fleet-status tool, not by hardcoding a number in the prompt.
+- **Measured chat speed is ~190 tok/s as currently configured** — 201 tok/s on
+  f16 KV, 190 with the q8_0 drop-in above (gpt-oss 20B, 16384 ctx, 400-token
   reply, 2026-09-29). That is not inconsistent with the 55.5 tok/s above: that
   was the *dense* 24B. gpt-oss is MoE with ~3.6B active per token.
 - **Ollama reloads the model if `num_ctx` changes between requests** — it keys

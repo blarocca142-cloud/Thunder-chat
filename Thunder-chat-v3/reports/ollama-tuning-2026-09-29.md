@@ -298,3 +298,152 @@ will simply be absent:
 
 Restarting Ollama drops both resident models; `POST /warm` puts the chat model
 back, or the next message will.
+
+---
+
+# Applied 2026-09-29
+
+Blayne ran both of the commands above on thunder-main. Everything below was
+measured afterwards; nothing was changed in this pass except `POST /warm`.
+
+| # | Check | Result |
+|---|---|---|
+| 1 | Ollama env + active | **Pass** |
+| 2 | q8_0 KV actually in use | **Pass** — not a fallback |
+| 3 | Benchmark vs 201.41 baseline | **Pass, with a caveat** — 5.6% slower |
+| 4 | Firewall, all four reachability checks | **Pass** |
+| 5 | `gpu.up` true, Thunder answering | **Pass** |
+
+## 1. Environment
+
+`systemctl is-active ollama` → `active`. `systemctl show ollama -p Environment`
+carries all four variables, so the drop-in appended rather than replaced:
+
+    OLLAMA_KEEP_ALIVE=-1  OLLAMA_HOST=0.0.0.0:11434
+    OLLAMA_FLASH_ATTENTION=1  OLLAMA_KV_CACHE_TYPE=q8_0
+
+## 2. q8_0 KV is real, not a fallback
+
+The runner command line proves it — this is the thing that would simply be
+absent if Ollama had refused the setting for this architecture:
+
+    llama-server ... -c 16384 --cache-type-k q8_0 --cache-type-v q8_0 --flash-attn on
+
+And the allocation halved, as predicted:
+
+    llama_kv_cache: size = 204.00 MiB (16384 cells, 12 layers), K (q8_0): 102.00 MiB, V (q8_0): 102.00 MiB
+    llama_kv_cache: size =  15.94 MiB ( 1280 cells, 12 layers), K (q8_0):   7.97 MiB, V (q8_0):   7.97 MiB
+
+**414.00 MiB → 219.94 MiB**, a saving of 194 MiB. Flash attention now logs
+`flash_attn = enabled` instead of `auto` — the same resolved state, forced.
+
+### VRAM, like for like
+
+Compared with both models resident, as in the baseline:
+
+| | before | after | delta |
+|---|---|---|---|
+| gpt-oss runner | 11896 MiB | 11704 MiB | **−192 MiB** |
+| runners (gpt-oss + nomic-embed) | 12516 MiB | 12324 MiB | −192 MiB |
+| whole card | 13996 MiB | 13804 MiB | −192 MiB |
+
+192 MiB of 24576 — **0.8% of the card**, exactly the predicted size. The 1328
+MiB the TTS process holds is unrelated and unchanged.
+
+## 3. Speed: q8_0 KV costs about 5.6%
+
+Same `/tmp/bench_ollama.py`, same prompt, 400 tokens, 3 runs after a warm-up:
+
+| | runs (tok/s) | mean |
+|---|---|---|
+| before (f16 KV) | 200.26 / 201.44 / 202.54 | **201.41** |
+| after (q8_0 KV) | 190.84 / 189.50 / 190.03 | **190.12** |
+
+**−11.3 tok/s, −5.6%.** The two sets do not overlap — the slowest "before" run
+is 9.4 tok/s faster than the fastest "after" run — so this is a real effect and
+not noise. Prompt eval is unchanged at ~5000 tok/s.
+
+This is worth being plain about: **the prediction in this report was "tok/s
+unchanged or very slightly down", and 5.6% is more than that.** Quantised KV
+costs a dequantisation step on every attention read, and on a model whose KV
+cache was already tiny there is no bandwidth saving to pay for it.
+
+**What was actually bought: 192 MiB (0.8% of the card) for 5.6% of the speed.**
+That is a bad trade on today's workload, where VRAM is not the constraint —
+11 GB of 24 GB is in use. It is only worth keeping if context is about to grow
+well past 16384. Undo is one command:
+
+    sudo rm /etc/systemd/system/ollama.service.d/tuning.conf
+    sudo systemctl daemon-reload && sudo systemctl restart ollama
+
+`OLLAMA_FLASH_ATTENTION=1` is harmless either way — it forces what `auto`
+already chose, and can stay.
+
+Not a regression, though it appears in the same logs: `KV cache shifting is not
+supported for this context, disabling KV cache shifting`. That line has been
+present on every load since **Sep 27**, before any of this, and is a property of
+gpt-oss's interleaved sliding-window attention, not of q8_0.
+
+## 4. Firewall
+
+`THUNDER-OLLAMA-IN` is installed on both v4 and v6, one reference each, from
+`INPUT ... tcp dpt:11434`. v4 order: `lo`, `127.0.0.0/8`, `10.168.168.15`,
+`10.168.168.11`, RELATED/ESTABLISHED, rate-limited LOG, DROP. The v6 chain is
+`lo` / `::1` / RELATED,ESTABLISHED / DROP — its first rule is interface-scoped
+to `lo`, checked with `-v`, so it is not a blanket accept.
+
+All four checks behaved as intended:
+
+| From | Expected | Result |
+|---|---|---|
+| localhost | works | `{"version":"0.33.3"}` |
+| odris `.15` | works | `{"version":"0.33.3"}` |
+| thunder-cache `.11` | **works** | `{"version":"0.33.3"}` |
+| thunder-engine `.12` | times out | `URLError <urlopen error timed out>` |
+
+Engine times out rather than being refused, which is the DROP doing its job —
+a port scan gets silence, not a closed-port answer.
+
+Cache reaching Ollama is the check that matters most: the allowlist in the
+original brief would have blocked it and broken the overnight batch worker
+silently. `thunder-cache.service` on `.11` is still `active (running)`, up
+5 days. It does print `unit file ... changed on disk, run daemon-reload` — that
+is pre-existing, unrelated to this work, and was left alone.
+
+Persistence and blast radius both confirmed: `THUNDER-OLLAMA-IN` is in
+`/etc/iptables/rules.v4` and `rules.v6` with all its rules,
+`netfilter-persistent` is `enabled`, and the OUTPUT egress rules for uids 994
+(`genai`) and 997 (`ollama`) are **all still present and counting packets** —
+the dedicated chain did not disturb them.
+
+*(Note for future sessions: the other nodes have no `curl`. Use
+`ssh <node> python3 -c '...urllib...'` for reachability checks.)*
+
+Undo: `sudo bash net-lockdown/unlock-11434.sh`.
+
+## 5. Thunder is answering
+
+`POST /warm` returns immediately and loads in the background; gpt-oss was
+resident ~12s later. `/status` reports `gpu.up: true` with
+`loaded: ["thunder-gptoss:latest"]` — the fix from item 5 holding up against a
+real restart, which is the first time it has been tested that way.
+
+A real `POST /chat`, asked what GPU it runs on and what its context window is:
+
+> I'm running on the RTX 3090 in thunder-main.
+> I'm not sure exactly what context window the gpt-oss 20B model is using right
+> now — it's somewhere in the 30-k-token range, but I don't have a definitive
+> number.
+
+The GPU is right. The context window is **16384**, so "30-k-token range" is
+wrong — but it flagged its own uncertainty rather than stating a number flatly,
+which is the behaviour priority 4 asks for. The underlying gap is real and
+worth fixing separately: **Thunder cannot see its own runtime configuration.**
+`num_ctx` is a fact about the running process that nothing puts in front of the
+model — a candidate for the profile block in memory, or for a fleet-status tool
+under priority 2.
+
+Across the whole verification `journalctl` shows exactly two
+`starting llama-server` lines, for two different blobs (gpt-oss and
+nomic-embed-text). **Zero reloads of an already-resident model** — the item 2
+`num_ctx` work is still holding.
