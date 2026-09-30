@@ -3,9 +3,16 @@
 
 The pieces already worked from the command line: OCR, extraction, repair,
 validation, the encrypted vault. Nobody bills from a command line, so this
-puts one screen in front of them: a list of claims, a claim form laid out like
-the paper one, the checks running as you type, and Save going straight into
-the vault. Nothing is ever submitted to a payer from here.
+puts them behind one screen:
+
+- claims, laid out in CMS-1500 box order, checked as you type
+- a patient list, and saved insurers and providers, so a claim is picked
+  together rather than retyped
+- tracking: sent, paid, partly paid, denied, with amounts and a balance
+- a printable CMS-1500-style page for review and the paper file
+
+Everything - claims, patients, insurers, providers - is a record in the
+encrypted vault. Nothing is ever submitted to a payer from here.
 
     ./claims_web.py                     # this machine only, http://127.0.0.1:8770
     THUNDER_CLAIMS_PASSWORD=... ./claims_web.py --host 10.168.168.10
@@ -30,7 +37,7 @@ import tempfile
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE))
@@ -38,9 +45,40 @@ import intake  # noqa: E402  (brings vault, extract, repair, validate, codelist)
 from intake import codelist, vault  # noqa: E402
 
 PAGE = HERE / "claims_web.html"
-INDEX_FIELDS = ["patient_name", "claim_number"]
 MAX_UPLOAD = 25 * 1024 * 1024
 ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+# Every kind of record lives in the one vault, told apart by id prefix. Claims
+# kept the bare "c" prefix they were first saved with.
+KINDS = {
+    "claim":    {"prefix": "c",    "index": ["patient_name", "claim_number"]},
+    "patient":  {"prefix": "pt-",  "index": ["patient_name"]},
+    "payer":    {"prefix": "ins-", "index": []},
+    "provider": {"prefix": "pv-",  "index": []},
+}
+BILLING = ("draft", "sent", "paid", "partial", "denied")
+
+
+def kind_of(record_id: str) -> str:
+    for k in ("patient", "payer", "provider"):
+        if record_id.startswith(KINDS[k]["prefix"]):
+            return k
+    return "claim"
+
+
+def money(v) -> float:
+    try:
+        return round(float(str(v or "0").replace("$", "").replace(",", "")), 2)
+    except ValueError:
+        return 0.0
+
+
+def total_charges(claim: dict) -> float:
+    t = 0.0
+    for p in claim.get("procedures") or []:
+        units = money((p or {}).get("units")) or 1
+        t += units * money((p or {}).get("charge"))
+    return round(t, 2)
 
 
 def assess(claim: dict) -> dict:
@@ -60,39 +98,71 @@ def assess(claim: dict) -> dict:
     return {"status": status, "reasons": reasons, "issues": issues, "codes": codes}
 
 
-def list_claims() -> list[dict]:
-    """Every record, newest first. Each one is decrypted (and audited) to show
-    its name - that is the cost of a list a person can actually read."""
+def summary(kind: str, rid: str, r: dict) -> dict:
+    if kind == "claim":
+        meta = r.get("_meta") or {}
+        track = r.get("tracking") or {}
+        charges = total_charges(r)
+        paid = money(track.get("paid_amount"))
+        return {"id": rid, "patient_name": r.get("patient_name", ""),
+                "date_of_service": r.get("date_of_service", ""),
+                "insurer": r.get("insurer", ""), "status": meta.get("status", ""),
+                "billing": track.get("billing") or "draft",
+                "charges": charges, "paid": paid, "balance": round(charges - paid, 2),
+                "saved": meta.get("saved", "")}
+    if kind == "patient":
+        return {"id": rid, "patient_name": r.get("patient_name", ""), "dob": r.get("dob", ""),
+                "insurer": r.get("insurer", ""), "phone": r.get("phone", "")}
+    if kind == "payer":
+        return {"id": rid, "name": r.get("name", ""), "payer_id": r.get("payer_id", ""),
+                "phone": r.get("phone", "")}
+    return {"id": rid, "name": r.get("name", ""), "npi": r.get("npi", ""),
+            "role": r.get("role", ""), "tax_id": r.get("tax_id", "")}
+
+
+def list_records(kind: str) -> list[dict]:
+    """Every record of one kind, newest first. Each one is decrypted (and
+    audited) to show its name - the cost of a list a person can read."""
     out = []
     for p in sorted(vault.records_dir().glob("*.rec"),
                     key=lambda p: p.stat().st_mtime, reverse=True):
+        if kind_of(p.stem) != kind:
+            continue
         try:
-            c = vault.get(p.stem)
+            r = vault.get(p.stem)
         except BaseException as e:  # vault raises SystemExit on a bad record
             out.append({"id": p.stem, "error": str(e).splitlines()[0]})
             continue
-        meta = c.get("_meta") or {}
-        out.append({
-            "id": p.stem,
-            "patient_name": c.get("patient_name", ""),
-            "date_of_service": c.get("date_of_service", ""),
-            "insurer": c.get("insurer", ""),
-            "status": meta.get("status", ""),
-            "saved": meta.get("saved", ""),
-        })
+        out.append(summary(kind, p.stem, r))
     return out
 
 
-def save_claim(record_id: str | None, claim: dict) -> dict:
-    claim = {k: v for k, v in claim.items() if k != "_meta"}
-    a = assess(claim)
-    rid = record_id or time.strftime("c%Y%m%d-%H%M%S-") + secrets.token_hex(2)
-    if not ID_RE.match(rid):
+def new_id(kind: str) -> str:
+    return KINDS[kind]["prefix"] + time.strftime("%Y%m%d-%H%M%S-") + secrets.token_hex(2)
+
+
+def save(kind: str, record_id: str | None, data: dict) -> dict:
+    if kind not in KINDS:
+        raise ValueError("unknown record type")
+    rid = record_id or new_id(kind)
+    if not ID_RE.match(rid) or kind_of(rid) != kind:
         raise ValueError("bad record id")
-    claim["_meta"] = {"status": a["status"], "reasons": a["reasons"],
-                      "saved": time.strftime("%Y-%m-%d %H:%M")}
-    vault.put(rid, claim, INDEX_FIELDS)
-    return {"id": rid, **a}
+    data = {k: v for k, v in data.items() if k != "_meta"}
+    extra = {}
+    if kind == "claim":
+        track = data.get("tracking") or {}
+        if track.get("billing") and track["billing"] not in BILLING:
+            raise ValueError("unknown billing status")
+        a = assess(data)
+        data["_meta"] = {"status": a["status"], "reasons": a["reasons"],
+                         "saved": time.strftime("%Y-%m-%d %H:%M")}
+        extra = a
+    else:
+        name = data.get("patient_name") if kind == "patient" else data.get("name")
+        if not str(name or "").strip():
+            raise ValueError("a name is required")
+    vault.put(rid, data, KINDS[kind]["index"])
+    return {"id": rid, **extra}
 
 
 def scan(data: bytes, filename: str) -> dict:
@@ -118,7 +188,7 @@ def scan(data: bytes, filename: str) -> dict:
 
 class Handler(BaseHTTPRequestHandler):
     password: str | None = None
-    server_version = "ThunderClaims/1"
+    server_version = "ThunderClaims/2"
 
     def log_message(self, fmt, *args):  # no request lines on stdout
         pass
@@ -155,22 +225,35 @@ class Handler(BaseHTTPRequestHandler):
             raise ValueError("file too large (25 MB max)")
         return self.rfile.read(n)
 
+    def _err(self, e: BaseException):
+        self._send(500, {"error": str(e).splitlines()[0] if str(e) else type(e).__name__})
+
     def do_GET(self):
         if not self._authed():
             return
-        path = urlparse(self.path).path
+        u = urlparse(self.path)
         try:
-            if path in ("/", "/index.html"):
+            if u.path in ("/", "/index.html"):
                 return self._send(200, PAGE.read_bytes(), "text/html; charset=utf-8")
-            if path == "/api/claims":
-                return self._send(200, {"claims": list_claims()})
-            m = re.match(r"^/api/claims/([A-Za-z0-9_-]+)$", path)
+            if u.path == "/api/list":
+                kind = (parse_qs(u.query).get("kind") or ["claim"])[0]
+                if kind not in KINDS:
+                    return self._send(400, {"error": "unknown record type"})
+                return self._send(200, {"records": list_records(kind)})
+            if u.path == "/api/claims":  # kept for older pages
+                return self._send(200, {"claims": list_records("claim")})
+            m = re.match(r"^/api/(?:rec|claims)/([A-Za-z0-9_-]+)$", u.path)
             if m:
-                c = vault.get(m.group(1))
-                return self._send(200, {"id": m.group(1), "claim": c, **assess(c)})
+                rid = m.group(1)
+                r = vault.get(rid)
+                kind = kind_of(rid)
+                body = {"id": rid, "kind": kind, "data": r, "claim": r}
+                if kind == "claim":
+                    body.update(assess(r))
+                return self._send(200, body)
             self._send(404, {"error": "not found"})
         except BaseException as e:
-            self._send(500, {"error": str(e).splitlines()[0] if str(e) else type(e).__name__})
+            self._err(e)
 
     def do_POST(self):
         if not self._authed():
@@ -179,16 +262,19 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if path == "/api/check":
                 return self._send(200, assess(json.loads(self._body() or b"{}")))
-            if path == "/api/claims":
+            if path == "/api/save":
                 b = json.loads(self._body() or b"{}")
-                return self._send(200, save_claim(b.get("id"), b.get("claim") or {}))
+                return self._send(200, save(b.get("kind") or "", b.get("id"), b.get("data") or {}))
+            if path == "/api/claims":  # kept for older pages
+                b = json.loads(self._body() or b"{}")
+                return self._send(200, save("claim", b.get("id"), b.get("claim") or {}))
             if path == "/api/scan":
                 return self._send(200, scan(self._body(), self.headers.get("X-Filename", "")))
             self._send(404, {"error": "not found"})
         except ValueError as e:
             self._send(400, {"error": str(e)})
         except BaseException as e:
-            self._send(500, {"error": str(e).splitlines()[0] if str(e) else type(e).__name__})
+            self._err(e)
 
 
 def main() -> int:

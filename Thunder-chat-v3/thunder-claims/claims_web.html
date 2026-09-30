@@ -4,14 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Thunder Claims</title>
+<link rel="icon" href="data:,">
 <style>
-/* Layout: claim list on the left, the claim form in CMS-1500 box order on the right,
-   checks pinned above the form so a problem is never below the fold. */
+/* Layout: tabs across the top (claims, patients, insurers, providers); a list on the left,
+   the open record on the right. The claim form follows CMS-1500 box order, checks pinned on top. */
 :root {
   --bg: #f3f5f4; --panel: #ffffff; --ink: #18211d; --mute: #5b6b63; --line: #d5dcd8;
   --accent: #b3261e; --accent-soft: #fbe9e7; --ok: #1d6b47; --ok-soft: #e3f2ea;
   --warn: #8a5a00; --warn-soft: #fdf1d8; --block: #b3261e; --block-soft: #fbe9e7;
-  --field: #fbfcfb;
+  --info: #2a5d8f; --info-soft: #e5eef8; --field: #fbfcfb;
   --sans: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
   --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
   color-scheme: light;
@@ -20,58 +21,68 @@
   :root { --bg: #111614; --panel: #19201d; --ink: #e5ebe8; --mute: #97a69e; --line: #2c3632;
     --accent: #f08a80; --accent-soft: #3a1f1c; --ok: #6fcf9c; --ok-soft: #173326;
     --warn: #f0c060; --warn-soft: #3a2f14; --block: #f08a80; --block-soft: #3a1f1c;
-    --field: #141a17; color-scheme: dark; }
+    --info: #8cb8e8; --info-soft: #1a2838; --field: #141a17; color-scheme: dark; }
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 var(--sans); }
-header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 12px 20px;
+header { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 10px 20px;
   background: var(--panel); border-bottom: 1px solid var(--line); }
-header h1 { margin: 0; font-size: 18px; letter-spacing: .2px; }
+header h1 { margin: 0; font-size: 18px; }
 header h1 span { color: var(--accent); }
-.banner { font-size: 12px; color: var(--warn); background: var(--warn-soft); padding: 3px 10px; border-radius: 999px; }
-.wrap { display: grid; grid-template-columns: 280px 1fr; min-height: calc(100vh - 53px); }
+nav { display: flex; gap: 4px; flex-wrap: wrap; }
+nav button { border: 0; background: transparent; font-weight: 600; color: var(--mute); padding: 6px 12px; border-radius: 8px; }
+nav button.on { background: var(--accent-soft); color: var(--accent); }
+.banner { margin-left: auto; font-size: 12px; color: var(--warn); background: var(--warn-soft); padding: 3px 10px; border-radius: 999px; }
+.wrap { display: grid; grid-template-columns: 290px 1fr; min-height: calc(100vh - 53px); }
 @media (max-width: 860px) { .wrap { grid-template-columns: 1fr; } }
 aside { border-right: 1px solid var(--line); padding: 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 aside .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+aside .actions.one { grid-template-columns: 1fr; }
+.totals { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.totals div { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; min-width: 0; }
+.totals small { display: block; color: var(--mute); font-size: 11px; }
+.totals b { font-variant-numeric: tabular-nums; font-size: 13px; }
 .list { display: flex; flex-direction: column; gap: 6px; overflow: auto; }
 .item { text-align: left; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px;
   cursor: pointer; font: inherit; color: inherit; display: grid; gap: 2px; }
 .item:hover, .item:focus-visible { border-color: var(--mute); outline: none; }
 .item.on { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
 .item .n { font-weight: 600; overflow-wrap: anywhere; }
-.item .s { color: var(--mute); font-size: 12px; }
+.item .s { color: var(--mute); font-size: 12px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .empty { color: var(--mute); font-size: 13px; padding: 8px 2px; }
 main { padding: 16px 20px 60px; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
-.bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; position: sticky; top: 0; z-index: 2;
-  background: var(--bg); padding: 6px 0; }
-.pill { font-weight: 700; font-size: 12px; letter-spacing: .6px; padding: 4px 10px; border-radius: 999px; text-transform: uppercase; }
-.pill.CLEAN { color: var(--ok); background: var(--ok-soft); }
-.pill.REVIEW { color: var(--warn); background: var(--warn-soft); }
-.pill.BLOCK { color: var(--block); background: var(--block-soft); }
-.pill.NEW { color: var(--mute); background: var(--field); border: 1px solid var(--line); }
+.bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; position: sticky; top: 0; z-index: 2; background: var(--bg); padding: 6px 0; }
+.pill { font-weight: 700; font-size: 11px; letter-spacing: .6px; padding: 3px 9px; border-radius: 999px; text-transform: uppercase; white-space: nowrap; }
+.pill.CLEAN, .pill.paid { color: var(--ok); background: var(--ok-soft); }
+.pill.REVIEW, .pill.partial { color: var(--warn); background: var(--warn-soft); }
+.pill.BLOCK, .pill.denied { color: var(--block); background: var(--block-soft); }
+.pill.sent { color: var(--info); background: var(--info-soft); }
+.pill.NEW, .pill.draft { color: var(--mute); background: var(--field); border: 1px solid var(--line); }
 .bar .spacer { flex: 1; }
 .msg { color: var(--mute); font-size: 13px; }
-button { font: inherit; font-weight: 600; border-radius: 8px; padding: 8px 14px; cursor: pointer; border: 1px solid var(--line);
-  background: var(--panel); color: var(--ink); }
+button { font: inherit; font-weight: 600; border-radius: 8px; padding: 8px 14px; cursor: pointer; border: 1px solid var(--line); background: var(--panel); color: var(--ink); }
 button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.small { padding: 5px 10px; font-size: 13px; }
 button:disabled { opacity: .5; cursor: wait; }
-button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .checks { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; }
 .checks ul { margin: 4px 0 0; padding-left: 18px; }
-.checks li.b { color: var(--block); }
-.checks li.w { color: var(--warn); }
+.checks li.b { color: var(--block); } .checks li.w { color: var(--warn); }
 .checks .ok { color: var(--ok); font-weight: 600; }
 .checks .repairs { margin-top: 8px; color: var(--mute); font-size: 13px; }
 section.box { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px 14px; }
-section.box h2 { margin: 0 0 10px; font-size: 13px; text-transform: uppercase; letter-spacing: .8px; color: var(--mute); }
+section.box h2 { margin: 0 0 10px; font-size: 13px; text-transform: uppercase; letter-spacing: .8px; color: var(--mute);
+  display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+section.box h2 .pick { margin-left: auto; text-transform: none; letter-spacing: 0; font-weight: 400; display: flex; gap: 6px; align-items: center; }
+section.box h2 .pick select { width: auto; max-width: 220px; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px 12px; }
 .f { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .f.wide { grid-column: span 2; }
 @media (max-width: 480px) { .f.wide { grid-column: auto; } }
 .f label { font-size: 12px; color: var(--mute); }
 .f label b { font-family: var(--mono); font-weight: 600; color: var(--accent); margin-right: 4px; }
-input, select { font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--field);
-  color: var(--ink); width: 100%; min-width: 0; }
+input, select, textarea { font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--field); color: var(--ink); width: 100%; min-width: 0; }
+textarea { min-height: 60px; resize: vertical; }
 input.bad { border-color: var(--block); background: var(--block-soft); }
 input.code { font-family: var(--mono); text-transform: uppercase; }
 table { width: 100%; border-collapse: collapse; }
@@ -85,168 +96,355 @@ td.letter { font-family: var(--mono); font-weight: 700; color: var(--accent); wi
 .add { margin-top: 8px; font-size: 13px; padding: 5px 10px; }
 .total { text-align: right; font-variant-numeric: tabular-nums; margin-top: 6px; color: var(--mute); }
 .total b { color: var(--ink); }
-input[type=number] { font-variant-numeric: tabular-nums; }
+.money { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 10px; font-variant-numeric: tabular-nums; }
+.money span { color: var(--mute); } .money b { color: var(--ink); }
+[hidden] { display: none !important; }
+
+/* ---- CMS-1500 style print page ---- */
+#print { display: none; }
+@media print {
+  @page { size: letter; margin: 0.35in; }
+  body { background: #fff; color: #000; }
+  header, .wrap { display: none !important; }
+  #print { display: block; font: 9pt/1.25 Arial, Helvetica, sans-serif; color: #000; }
+}
+#print .ph { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 2px solid #000; padding-bottom: 4px; margin-bottom: 4px; }
+#print .ph h3 { margin: 0; font-size: 13pt; letter-spacing: 1px; }
+#print .carrier { font-size: 9pt; text-align: right; }
+#print .row { display: grid; border-left: 1px solid #000; }
+#print .c { border-right: 1px solid #000; border-bottom: 1px solid #000; padding: 2px 4px; min-height: 30px; }
+#print .c i { display: block; font-style: normal; font-size: 6.5pt; text-transform: uppercase; }
+#print .c span { font-family: "Courier New", monospace; font-size: 10pt; }
+#print .top { border-top: 1px solid #000; }
+#print table { border-collapse: collapse; width: 100%; margin: 0; }
+#print th, #print td { border: 1px solid #000; padding: 2px 4px; font-size: 8pt; }
+#print td { font-family: "Courier New", monospace; font-size: 9.5pt; height: 20px; }
+#print .note { font-size: 7pt; margin-top: 6px; }
 </style>
 </head>
 <body>
 <header>
   <h1>Thunder <span>Claims</span></h1>
+  <nav id="tabs">
+    <button data-tab="claim" class="on">Claims</button>
+    <button data-tab="patient">Patients</button>
+    <button data-tab="payer">Insurers</button>
+    <button data-tab="provider">Providers</button>
+  </nav>
   <span class="banner">Synthetic patients only</span>
 </header>
 <div class="wrap">
   <aside>
-    <div class="actions">
-      <button id="new">New claim</button>
-      <button id="scanBtn">From a scan</button>
-    </div>
+    <div class="actions" id="sideActions"></div>
     <input type="file" id="scanFile" accept=".png,.jpg,.jpeg,.tif,.tiff,.bmp,.pdf" hidden>
-    <div class="list" id="list"><div class="empty">Loading claims…</div></div>
+    <div id="claimTools">
+      <div class="totals" id="totals"></div>
+      <label class="f" style="margin-top:8px"><span class="msg">Show</span>
+        <select id="filter">
+          <option value="">All claims</option><option value="draft">Drafts</option><option value="sent">Sent, waiting</option>
+          <option value="partial">Partly paid</option><option value="denied">Denied</option><option value="paid">Paid</option>
+          <option value="owed">Anything still owed</option>
+        </select></label>
+    </div>
+    <div class="list" id="list"><div class="empty">Loading…</div></div>
   </aside>
 
   <main>
     <div class="bar">
       <span class="pill NEW" id="pill">New</span>
+      <span class="pill draft" id="billPill" hidden></span>
       <span class="msg" id="msg">Fill in the form. Checks run as you type.</span>
       <span class="spacer"></span>
-      <button class="primary" id="save">Save claim</button>
+      <button id="printBtn" class="small" hidden>Print CMS-1500</button>
+      <button class="primary" id="save">Save</button>
     </div>
 
-    <div class="checks" id="checks"><span class="msg">No checks yet.</span></div>
+    <!-- ===== CLAIM ===== -->
+    <div id="claimView">
+      <div class="checks" id="checks"><span class="msg">No checks yet.</span></div>
 
-    <section class="box">
-      <h2>Patient</h2>
-      <div class="grid">
-        <div class="f wide"><label for="patient_name"><b>2</b>Patient name (Last, First)</label><input id="patient_name"></div>
-        <div class="f"><label for="dob"><b>3</b>Date of birth</label><input id="dob" placeholder="MM/DD/YYYY"></div>
-        <div class="f"><label for="sex"><b>3</b>Sex</label>
-          <select id="sex"><option value=""></option><option>M</option><option>F</option></select></div>
-        <div class="f wide"><label for="address"><b>5</b>Address</label><input id="address"></div>
-        <div class="f"><label for="phone"><b>5</b>Phone</label><input id="phone"></div>
-      </div>
-    </section>
+      <section class="box" style="margin-top:14px">
+        <h2>Billing status
+          <span class="pick">for this claim</span></h2>
+        <div class="grid">
+          <div class="f"><label for="t_billing">Status</label>
+            <select id="t_billing"><option value="draft">Draft</option><option value="sent">Sent</option>
+              <option value="paid">Paid</option><option value="partial">Partly paid</option><option value="denied">Denied</option></select></div>
+          <div class="f"><label for="t_sent_date">Date sent</label><input id="t_sent_date" placeholder="MM/DD/YYYY"></div>
+          <div class="f"><label for="t_paid_amount">Amount paid $</label><input id="t_paid_amount" inputmode="decimal"></div>
+          <div class="f"><label for="t_paid_date">Date paid</label><input id="t_paid_date" placeholder="MM/DD/YYYY"></div>
+          <div class="f wide"><label for="t_denial_reason">Denial reason</label><input id="t_denial_reason"></div>
+          <div class="f wide"><label for="t_notes">Notes</label><textarea id="t_notes"></textarea></div>
+        </div>
+        <div class="money">
+          <div><span>Billed</span> <b id="m_billed">$0.00</b></div>
+          <div><span>Paid</span> <b id="m_paid">$0.00</b></div>
+          <div><span>Balance</span> <b id="m_balance">$0.00</b></div>
+        </div>
+      </section>
 
-    <section class="box">
-      <h2>Insurance &amp; injury</h2>
-      <div class="grid">
-        <div class="f wide"><label for="insurer"><b>11c</b>Insurance plan / carrier</label><input id="insurer"></div>
-        <div class="f"><label for="claim_number"><b>11</b>Claim / policy number</label><input id="claim_number"></div>
-        <div class="f"><label for="date_of_injury"><b>14</b>Date of injury</label><input id="date_of_injury" placeholder="MM/DD/YYYY"></div>
-        <div class="f wide"><label for="accident_type"><b>10</b>How it happened</label><input id="accident_type" placeholder="e.g. Motor vehicle accident"></div>
-      </div>
-    </section>
+      <section class="box" style="margin-top:14px">
+        <h2>Patient
+          <span class="pick"><select id="pickPatient" aria-label="Pick a saved patient"></select>
+            <button class="small" id="savePatient">Save to patient list</button></span></h2>
+        <div class="grid">
+          <div class="f wide"><label for="patient_name"><b>2</b>Patient name (Last, First)</label><input id="patient_name"></div>
+          <div class="f"><label for="dob"><b>3</b>Date of birth</label><input id="dob" placeholder="MM/DD/YYYY"></div>
+          <div class="f"><label for="sex"><b>3</b>Sex</label>
+            <select id="sex"><option value=""></option><option>M</option><option>F</option></select></div>
+          <div class="f wide"><label for="address"><b>5</b>Address</label><input id="address"></div>
+          <div class="f"><label for="phone"><b>5</b>Phone</label><input id="phone"></div>
+        </div>
+      </section>
 
-    <section class="box">
-      <h2>Providers</h2>
-      <div class="grid">
-        <div class="f wide"><label for="referring_provider"><b>17</b>Referring provider</label><input id="referring_provider"></div>
-        <div class="f"><label for="referring_npi"><b>17b</b>Referring NPI</label><input id="referring_npi" class="code" inputmode="numeric"></div>
-        <div class="f wide"><label for="treating_provider"><b>31</b>Treating provider</label><input id="treating_provider"></div>
-        <div class="f"><label for="treating_npi"><b>24J</b>Treating NPI</label><input id="treating_npi" class="code" inputmode="numeric"></div>
-      </div>
-    </section>
+      <section class="box" style="margin-top:14px">
+        <h2>Insurance &amp; injury
+          <span class="pick"><select id="pickPayer" aria-label="Pick a saved insurer"></select></span></h2>
+        <div class="grid">
+          <div class="f wide"><label for="insurer"><b>11c</b>Insurance plan / carrier</label><input id="insurer"></div>
+          <div class="f wide"><label for="insurer_address">Carrier address (printed top right)</label><input id="insurer_address"></div>
+          <div class="f"><label for="payer_id">Payer ID</label><input id="payer_id" class="code"></div>
+          <div class="f"><label for="claim_number"><b>11</b>Claim / policy number</label><input id="claim_number"></div>
+          <div class="f"><label for="date_of_injury"><b>14</b>Date of injury</label><input id="date_of_injury" placeholder="MM/DD/YYYY"></div>
+          <div class="f"><label for="accident_state"><b>10b</b>Accident state</label><input id="accident_state" class="code" maxlength="2"></div>
+          <div class="f wide"><label for="accident_type"><b>10</b>How it happened</label><input id="accident_type" placeholder="e.g. Motor vehicle accident"></div>
+          <div class="f"><label for="adjuster_name">Adjuster</label><input id="adjuster_name"></div>
+          <div class="f"><label for="adjuster_phone">Adjuster phone</label><input id="adjuster_phone"></div>
+          <div class="f"><label for="attorney">Attorney / firm</label><input id="attorney"></div>
+          <div class="f"><label for="attorney_phone">Attorney phone</label><input id="attorney_phone"></div>
+        </div>
+      </section>
 
-    <section class="box">
-      <h2>Billing provider</h2>
-      <div class="grid">
-        <div class="f wide"><label for="clinic_name"><b>33</b>Practice name</label><input id="clinic_name"></div>
-        <div class="f"><label for="clinic_tax_id"><b>25</b>Tax ID (EIN)</label><input id="clinic_tax_id" class="code"></div>
-        <div class="f"><label for="clinic_npi"><b>33a</b>Practice NPI</label><input id="clinic_npi" class="code" inputmode="numeric"></div>
-      </div>
-    </section>
+      <section class="box" style="margin-top:14px">
+        <h2>Providers
+          <span class="pick"><select id="pickReferring" aria-label="Pick referring provider"></select>
+            <select id="pickTreating" aria-label="Pick treating provider"></select></span></h2>
+        <div class="grid">
+          <div class="f wide"><label for="referring_provider"><b>17</b>Referring provider</label><input id="referring_provider"></div>
+          <div class="f"><label for="referring_npi"><b>17b</b>Referring NPI</label><input id="referring_npi" class="code" inputmode="numeric"></div>
+          <div class="f wide"><label for="treating_provider"><b>31</b>Treating provider</label><input id="treating_provider"></div>
+          <div class="f"><label for="treating_npi"><b>24J</b>Treating NPI</label><input id="treating_npi" class="code" inputmode="numeric"></div>
+        </div>
+      </section>
 
-    <section class="box">
-      <h2><b>21</b> Diagnoses (ICD-10)</h2>
-      <div class="tablewrap"><table>
-        <thead><tr><th></th><th>Code</th><th>Description</th><th>Official list</th><th></th></tr></thead>
-        <tbody id="dxRows"></tbody>
-      </table></div>
-      <button class="add" id="addDx">+ Add diagnosis</button>
-    </section>
+      <section class="box" style="margin-top:14px">
+        <h2>Billing provider
+          <span class="pick"><select id="pickBilling" aria-label="Pick billing practice"></select></span></h2>
+        <div class="grid">
+          <div class="f wide"><label for="clinic_name"><b>33</b>Practice name</label><input id="clinic_name"></div>
+          <div class="f wide"><label for="clinic_address"><b>33</b>Practice address</label><input id="clinic_address"></div>
+          <div class="f"><label for="clinic_tax_id"><b>25</b>Tax ID (EIN)</label><input id="clinic_tax_id" class="code"></div>
+          <div class="f"><label for="clinic_npi"><b>33a</b>Practice NPI</label><input id="clinic_npi" class="code" inputmode="numeric"></div>
+        </div>
+      </section>
 
-    <section class="box">
-      <h2><b>24</b> Services</h2>
-      <div class="grid" style="margin-bottom:10px">
-        <div class="f"><label for="date_of_service"><b>24A</b>Date of service</label><input id="date_of_service" placeholder="MM/DD/YYYY"></div>
-      </div>
-      <div class="tablewrap"><table>
-        <thead><tr><th>CPT / HCPCS</th><th>Description</th><th>Units</th><th>Charge $</th><th>Dx ptr</th><th>Official list</th><th></th></tr></thead>
-        <tbody id="pxRows"></tbody>
-      </table></div>
-      <button class="add" id="addPx">+ Add service line</button>
-      <div class="total">Total charges <b id="total">$0.00</b></div>
+      <section class="box" style="margin-top:14px">
+        <h2><span><b style="font-family:var(--mono);color:var(--accent)">21</b> Diagnoses (ICD-10)</span></h2>
+        <div class="tablewrap"><table>
+          <thead><tr><th></th><th>Code</th><th>Description</th><th>Official list</th><th></th></tr></thead>
+          <tbody id="dxRows"></tbody>
+        </table></div>
+        <button class="add" id="addDx">+ Add diagnosis</button>
+      </section>
+
+      <section class="box" style="margin-top:14px">
+        <h2><span><b style="font-family:var(--mono);color:var(--accent)">24</b> Services</span></h2>
+        <div class="grid" style="margin-bottom:10px">
+          <div class="f"><label for="date_of_service"><b>24A</b>Date of service</label><input id="date_of_service" placeholder="MM/DD/YYYY"></div>
+          <div class="f"><label for="place_of_service"><b>24B</b>Place of service</label>
+            <select id="place_of_service"><option value="11">11 Office</option><option value="12">12 Home</option>
+              <option value="22">22 Outpatient hospital</option><option value="23">23 Emergency room</option><option value="02">02 Telehealth</option></select></div>
+        </div>
+        <div class="tablewrap"><table>
+          <thead><tr><th>CPT / HCPCS</th><th>Modifier</th><th>Description</th><th>Units</th><th>Charge $ (each)</th><th>Dx ptr</th><th>Official list</th><th></th></tr></thead>
+          <tbody id="pxRows"></tbody>
+        </table></div>
+        <button class="add" id="addPx">+ Add service line</button>
+        <div class="total">Total charges <b id="total">$0.00</b></div>
+      </section>
+    </div>
+
+    <!-- ===== DIRECTORY (patients, insurers, providers) ===== -->
+    <section class="box" id="dirView" hidden>
+      <h2 id="dirTitle"></h2>
+      <div class="grid" id="dirForm"></div>
     </section>
   </main>
 </div>
 
+<div id="print"></div>
+
 <script>
 (function () {
-  var FIELDS = ["patient_name", "dob", "sex", "address", "phone", "insurer", "claim_number", "date_of_injury",
-    "accident_type", "referring_provider", "referring_npi", "treating_provider", "treating_npi",
-    "clinic_name", "clinic_tax_id", "clinic_npi", "date_of_service"];
-  var LETTERS = "ABCDEFGHIJKL";
-  var state = { id: null, claim: blank(), codes: {}, dirty: false };
   var $ = function (id) { return document.getElementById(id); };
+  var CLAIM_FIELDS = ["patient_name", "dob", "sex", "address", "phone", "insurer", "insurer_address", "payer_id",
+    "claim_number", "date_of_injury", "accident_state", "accident_type", "adjuster_name", "adjuster_phone", "attorney",
+    "attorney_phone", "referring_provider", "referring_npi", "treating_provider", "treating_npi", "clinic_name",
+    "clinic_address", "clinic_tax_id", "clinic_npi", "date_of_service", "place_of_service"];
+  var TRACK = ["billing", "sent_date", "paid_amount", "paid_date", "denial_reason", "notes"];
+  var PATIENT_FROM_CLAIM = ["patient_name", "dob", "sex", "address", "phone", "insurer", "claim_number", "date_of_injury",
+    "accident_type", "adjuster_name", "adjuster_phone", "attorney", "attorney_phone"];
+  var DIR = {
+    patient: { title: "Patient", name: "patient_name", fields: [
+      ["patient_name", "Name (Last, First)", 1], ["dob", "Date of birth"], ["sex", "Sex (M/F)"], ["phone", "Phone"],
+      ["address", "Address", 1], ["insurer", "Insurer", 1], ["claim_number", "Claim / policy number"],
+      ["date_of_injury", "Date of injury"], ["accident_type", "How it happened", 1], ["adjuster_name", "Adjuster"],
+      ["adjuster_phone", "Adjuster phone"], ["attorney", "Attorney / firm"], ["attorney_phone", "Attorney phone"]] },
+    payer: { title: "Insurer", name: "name", fields: [
+      ["name", "Insurer name", 1], ["address", "Claims mailing address", 1], ["payer_id", "Payer ID"], ["phone", "Phone"],
+      ["fax", "Fax"], ["notes", "Notes", 1]] },
+    provider: { title: "Provider", name: "name", fields: [
+      ["name", "Name", 1], ["role", "Role: billing, treating or referring"], ["npi", "NPI"], ["tax_id", "Tax ID (billing only)"],
+      ["address", "Address (billing only)", 1], ["phone", "Phone"]] }
+  };
+  var LETTERS = "ABCDEFGHIJKL";
+  var tab = "claim", dir = { patient: [], payer: [], provider: [] }, claims = [];
+  var state = { id: null, claim: blankClaim(), codes: {}, dirty: false };
+  var drec = { id: null, data: {} };
 
-  function blank() {
-    var c = {}; FIELDS.forEach(function (f) { c[f] = ""; });
+  function blankClaim() {
+    var c = {}; CLAIM_FIELDS.forEach(function (f) { c[f] = ""; }); c.place_of_service = "11";
     c.diagnoses = [{ code: "", description: "" }];
-    c.procedures = [{ code: "", description: "", units: "1", charge: "", pointer: "A" }];
+    c.procedures = [blankLine()];
+    c.tracking = { billing: "draft" };
     return c;
   }
+  function blankLine() { return { code: "", modifier: "", description: "", units: "1", charge: "", pointer: "A" }; }
   function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
-
+  function money(v) { var n = parseFloat(String(v == null ? "" : v).replace(/[$,]/g, "")); return isNaN(n) ? 0 : n; }
+  function fmt(n) { return "$" + n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ","); }
+  function setMsg(t) { $("msg").textContent = t; }
   function api(method, url, body, headers) {
     return fetch(url, { method: method, body: body, headers: headers || (body ? { "Content-Type": "application/json" } : {}) })
       .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || r.statusText); return j; }); });
   }
 
-  // ---- list
-  function loadList(selectId) {
-    api("GET", "/api/claims").then(function (r) {
-      var el = $("list");
-      if (!r.claims.length) { el.innerHTML = '<div class="empty">No claims saved yet. Fill in the form and click Save claim.</div>'; return; }
-      el.innerHTML = r.claims.map(function (c) {
-        if (c.error) return '<div class="item"><span class="n">' + esc(c.id) + '</span><span class="s">' + esc(c.error) + '</span></div>';
-        return '<button class="item' + (c.id === (selectId || state.id) ? " on" : "") + '" data-id="' + esc(c.id) + '">' +
-          '<span class="n">' + esc(c.patient_name || "(no name)") + '</span>' +
-          '<span class="s"><span class="pill ' + esc(c.status) + '" style="padding:1px 6px;font-size:10px">' + esc(c.status || "?") + '</span> ' +
-          esc(c.date_of_service || "") + (c.insurer ? " · " + esc(c.insurer) : "") + '</span></button>';
-      }).join("");
-    }).catch(function (e) { $("list").innerHTML = '<div class="empty">Couldn’t load claims: ' + esc(e.message) + '</div>'; });
+  // ================= tabs & lists =================
+  $("tabs").addEventListener("click", function (e) {
+    var b = e.target.closest("button[data-tab]"); if (!b) return;
+    tab = b.dataset.tab;
+    document.querySelectorAll("#tabs button").forEach(function (x) { x.classList.toggle("on", x === b); });
+    showTab();
+  });
+  function showTab() {
+    var isClaim = tab === "claim";
+    $("claimView").hidden = !isClaim; $("dirView").hidden = isClaim; $("claimTools").hidden = !isClaim;
+    $("pill").hidden = !isClaim; $("billPill").hidden = !isClaim || !state.id; $("printBtn").hidden = !isClaim;
+    $("sideActions").className = "actions" + (isClaim ? "" : " one");
+    $("sideActions").innerHTML = isClaim
+      ? '<button id="newBtn">New claim</button><button id="scanBtn">From a scan</button>'
+      : '<button id="newBtn">New ' + DIR[tab].title.toLowerCase() + '</button>';
+    $("newBtn").onclick = function () { isClaim ? newClaim() : newDir(); };
+    if (isClaim) { $("scanBtn").onclick = function () { $("scanFile").click(); }; renderClaimList(); setMsg(state.id ? "Claim " + state.id : "New claim."); }
+    else { newDir(); renderDirList(); }
+  }
+  function loadAll() {
+    return Promise.all(["claim", "patient", "payer", "provider"].map(function (k) {
+      return api("GET", "/api/list?kind=" + k).then(function (r) { if (k === "claim") claims = r.records; else dir[k] = r.records; });
+    })).then(function () { fillPickers(); tab === "claim" ? renderClaimList() : renderDirList(); })
+      .catch(function (e) { $("list").innerHTML = '<div class="empty">Couldn’t load: ' + esc(e.message) + '</div>'; });
+  }
+  function renderClaimList() {
+    var f = $("filter").value;
+    var shown = claims.filter(function (c) {
+      if (c.error || !f) return true;
+      if (f === "owed") return c.billing !== "draft" && c.balance > 0.004;
+      return c.billing === f;
+    });
+    var billed = 0, paid = 0;
+    claims.forEach(function (c) { if (!c.error && c.billing !== "draft") { billed += c.charges; paid += c.paid; } });
+    $("totals").innerHTML = '<div><small>Billed</small><b>' + fmt(billed) + '</b></div><div><small>Paid</small><b>' + fmt(paid) +
+      '</b></div><div><small>Owed</small><b>' + fmt(billed - paid) + '</b></div>';
+    $("list").innerHTML = shown.length ? shown.map(function (c) {
+      if (c.error) return '<div class="item"><span class="n">' + esc(c.id) + '</span><span class="s">' + esc(c.error) + '</span></div>';
+      return '<button class="item' + (c.id === state.id ? " on" : "") + '" data-id="' + esc(c.id) + '">' +
+        '<span class="n">' + esc(c.patient_name || "(no name)") + '</span>' +
+        '<span class="s"><span class="pill ' + esc(c.status) + '">' + esc(c.status || "?") + '</span>' +
+        '<span class="pill ' + esc(c.billing) + '">' + esc(c.billing) + '</span>' + esc(c.date_of_service || "") +
+        ' · ' + fmt(c.charges) + (c.billing !== "draft" && c.balance > 0.004 ? ' · owed ' + fmt(c.balance) : "") + '</span></button>';
+    }).join("") : '<div class="empty">' + (claims.length ? "Nothing matches that filter." : "No claims yet. Fill in the form and click Save.") + '</div>';
+  }
+  $("filter").addEventListener("change", renderClaimList);
+  function renderDirList() {
+    var rows = dir[tab], nameKey = tab === "patient" ? "patient_name" : "name";
+    $("list").innerHTML = rows.length ? rows.map(function (r) {
+      var sub = tab === "patient" ? [r.dob, r.insurer].filter(Boolean).join(" · ")
+        : tab === "payer" ? [r.payer_id && "Payer ID " + r.payer_id, r.phone].filter(Boolean).join(" · ")
+        : [r.role, r.npi && "NPI " + r.npi].filter(Boolean).join(" · ");
+      return '<button class="item' + (r.id === drec.id ? " on" : "") + '" data-id="' + esc(r.id) + '"><span class="n">' +
+        esc(r[nameKey] || "(no name)") + '</span><span class="s">' + esc(sub) + '</span></button>';
+    }).join("") : '<div class="empty">None saved yet.</div>';
   }
   $("list").addEventListener("click", function (e) {
     var b = e.target.closest(".item[data-id]"); if (!b) return;
-    if (state.dirty && !confirmLeave()) return;
-    api("GET", "/api/claims/" + b.dataset.id).then(function (r) {
-      var c = r.claim; delete c._meta;
-      c.diagnoses = c.diagnoses && c.diagnoses.length ? c.diagnoses : [{ code: "", description: "" }];
-      c.procedures = c.procedures && c.procedures.length ? c.procedures : [{ code: "", description: "", units: "1", charge: "", pointer: "A" }];
-      state = { id: r.id, claim: c, codes: r.codes, dirty: false };
-      render(); showChecks(r); setMsg("Saved claim " + r.id); loadList(r.id);
-    }).catch(function (e) { setMsg("Couldn’t open it: " + e.message); });
+    tab === "claim" ? openClaim(b.dataset.id) : openDir(b.dataset.id);
   });
-  function confirmLeave() { setMsg("Unsaved changes. Save first, or click again to discard."); state.dirty = false; return false; }
 
-  // ---- form
+  // ================= pickers =================
+  function opts(list, label, nameKey) {
+    return '<option value="">' + label + '</option>' + list.map(function (r) {
+      return '<option value="' + esc(r.id) + '">' + esc(r[nameKey] || r.id) + '</option>'; }).join("");
+  }
+  function fillPickers() {
+    $("pickPatient").innerHTML = opts(dir.patient, "Pick a saved patient…", "patient_name");
+    $("pickPayer").innerHTML = opts(dir.payer, "Pick a saved insurer…", "name");
+    var byRole = function (role) { return dir.provider.filter(function (p) { return !p.role || p.role.toLowerCase().indexOf(role) >= 0; }); };
+    $("pickReferring").innerHTML = opts(byRole("referr"), "Referring…", "name");
+    $("pickTreating").innerHTML = opts(byRole("treat"), "Treating…", "name");
+    $("pickBilling").innerHTML = opts(byRole("bill"), "Pick a billing practice…", "name");
+  }
+  function pick(sel, apply) {
+    $(sel).addEventListener("change", function () {
+      var id = this.value; this.value = ""; if (!id) return;
+      api("GET", "/api/rec/" + id).then(function (r) { apply(r.data); render(); changed(); setMsg("Filled in from the saved list."); })
+        .catch(function (e) { setMsg("Couldn’t load it: " + e.message); });
+    });
+  }
+  pick("pickPatient", function (p) { PATIENT_FROM_CLAIM.forEach(function (k) { if (p[k] != null && p[k] !== "") state.claim[k] = p[k]; }); });
+  pick("pickPayer", function (p) { state.claim.insurer = p.name || ""; state.claim.insurer_address = p.address || ""; state.claim.payer_id = p.payer_id || ""; });
+  pick("pickReferring", function (p) { state.claim.referring_provider = p.name || ""; state.claim.referring_npi = p.npi || ""; });
+  pick("pickTreating", function (p) { state.claim.treating_provider = p.name || ""; state.claim.treating_npi = p.npi || ""; });
+  pick("pickBilling", function (p) { state.claim.clinic_name = p.name || ""; state.claim.clinic_npi = p.npi || "";
+    state.claim.clinic_tax_id = p.tax_id || ""; state.claim.clinic_address = p.address || ""; });
+  $("savePatient").addEventListener("click", function () {
+    var d = {}; PATIENT_FROM_CLAIM.forEach(function (k) { d[k] = state.claim[k] || ""; });
+    if (!d.patient_name.trim()) return setMsg("Type the patient’s name first.");
+    var existing = dir.patient.filter(function (p) { return p.patient_name.trim().toLowerCase() === d.patient_name.trim().toLowerCase() && (p.dob || "") === (d.dob || ""); })[0];
+    api("POST", "/api/save", JSON.stringify({ kind: "patient", id: existing ? existing.id : null, data: d }))
+      .then(function () { setMsg((existing ? "Updated " : "Added ") + d.patient_name + " in the patient list."); return loadAll(); })
+      .catch(function (e) { setMsg("Not saved: " + e.message); });
+  });
+
+  // ================= claim form =================
   function render() {
-    FIELDS.forEach(function (f) { $(f).value = state.claim[f] || ""; });
-    $("dxRows").innerHTML = state.claim.diagnoses.map(function (d, i) {
+    var c = state.claim;
+    CLAIM_FIELDS.forEach(function (f) { $(f).value = c[f] || (f === "place_of_service" ? "11" : ""); });
+    var t = c.tracking || (c.tracking = { billing: "draft" });
+    TRACK.forEach(function (k) { $("t_" + k).value = t[k] || (k === "billing" ? "draft" : ""); });
+    $("dxRows").innerHTML = c.diagnoses.map(function (d, i) {
       return '<tr><td class="letter">' + LETTERS[i] + '</td>' +
-        '<td><input class="code" data-dx="' + i + '" data-k="code" value="' + esc(d.code) + '" placeholder="S13.4XXA"></td>' +
-        '<td><input data-dx="' + i + '" data-k="description" value="' + esc(d.description) + '"></td>' +
+        '<td><input class="code" data-dx="' + i + '" data-k="code" value="' + esc(d.code) + '" placeholder="S13.4XXA" aria-label="Diagnosis ' + LETTERS[i] + ' code"></td>' +
+        '<td><input data-dx="' + i + '" data-k="description" value="' + esc(d.description) + '" aria-label="Diagnosis ' + LETTERS[i] + ' description"></td>' +
         '<td class="tag-cell" data-code="' + esc(d.code) + '"></td>' +
         '<td><button class="x" data-rmdx="' + i + '" aria-label="Remove diagnosis ' + LETTERS[i] + '">×</button></td></tr>';
     }).join("");
-    $("pxRows").innerHTML = state.claim.procedures.map(function (p, i) {
-      return '<tr><td><input class="code" data-px="' + i + '" data-k="code" value="' + esc(p.code) + '" placeholder="97110" style="width:90px"></td>' +
-        '<td><input data-px="' + i + '" data-k="description" value="' + esc(p.description) + '"></td>' +
-        '<td><input data-px="' + i + '" data-k="units" value="' + esc(p.units) + '" inputmode="numeric" style="width:56px"></td>' +
-        '<td><input data-px="' + i + '" data-k="charge" value="' + esc(p.charge) + '" inputmode="decimal" style="width:90px"></td>' +
-        '<td><input class="code" data-px="' + i + '" data-k="pointer" value="' + esc(p.pointer) + '" style="width:60px" placeholder="A"></td>' +
+    $("pxRows").innerHTML = c.procedures.map(function (p, i) {
+      var inp = function (k, w, ph, cls, mode) { return '<td><input ' + (cls ? 'class="' + cls + '" ' : '') + 'data-px="' + i + '" data-k="' + k + '" value="' + esc(p[k]) + '"' +
+        (ph ? ' placeholder="' + ph + '"' : '') + (mode ? ' inputmode="' + mode + '"' : '') + (w ? ' style="width:' + w + 'px"' : '') + ' aria-label="Line ' + (i + 1) + ' ' + k + '"></td>'; };
+      return '<tr>' + inp("code", 90, "97110", "code") + inp("modifier", 60, "", "code") + inp("description") +
+        inp("units", 56, "", "", "numeric") + inp("charge", 90, "", "", "decimal") + inp("pointer", 60, "A", "code") +
         '<td class="tag-cell" data-code="' + esc(p.code) + '"></td>' +
-        '<td><button class="x" data-rmpx="' + i + '" aria-label="Remove service line">×</button></td></tr>';
+        '<td><button class="x" data-rmpx="' + i + '" aria-label="Remove service line ' + (i + 1) + '">×</button></td></tr>';
     }).join("");
-    paintCodes(); total();
+    paintCodes(); totals();
+  }
+  function charges() { return state.claim.procedures.reduce(function (s, p) { return s + (money(p.units) || 1) * money(p.charge); }, 0); }
+  function totals() {
+    var billed = charges(), paid = money((state.claim.tracking || {}).paid_amount);
+    $("total").textContent = fmt(billed); $("m_billed").textContent = fmt(billed);
+    $("m_paid").textContent = fmt(paid); $("m_balance").textContent = fmt(billed - paid);
+    var b = (state.claim.tracking || {}).billing || "draft";
+    $("billPill").className = "pill " + b; $("billPill").textContent = { draft: "Draft", sent: "Sent", paid: "Paid", partial: "Partly paid", denied: "Denied" }[b];
   }
   function paintCodes() {
     document.querySelectorAll(".tag-cell").forEach(function (td) {
@@ -255,34 +453,34 @@ input[type=number] { font-variant-numeric: tabular-nums; }
         : v === false ? '<span class="tag no">✗ not a real code</span>' : '<span class="tag na">no list to check</span>';
     });
   }
-  function total() {
-    var t = state.claim.procedures.reduce(function (s, p) {
-      var u = parseFloat(p.units) || 1, c = parseFloat(String(p.charge).replace(/[$,]/g, "")) || 0; return s + u * c; }, 0);
-    $("total").textContent = "$" + t.toFixed(2);
-  }
-
-  FIELDS.forEach(function (f) {
+  CLAIM_FIELDS.forEach(function (f) {
     $(f).addEventListener("input", function () { state.claim[f] = $(f).value; changed(); });
+    $(f).addEventListener("change", function () { state.claim[f] = $(f).value; changed(); });
   });
-  document.querySelector("main").addEventListener("input", function (e) {
+  TRACK.forEach(function (k) {
+    var h = function () { state.claim.tracking[k] = $("t_" + k).value; totals(); state.dirty = true; };
+    $("t_" + k).addEventListener("input", h); $("t_" + k).addEventListener("change", h);
+  });
+  $("claimView").addEventListener("input", function (e) {
     var t = e.target, i;
     if (t.dataset.dx != null) { i = +t.dataset.dx; state.claim.diagnoses[i][t.dataset.k] = t.value; if (t.dataset.k === "code") t.closest("tr").querySelector(".tag-cell").dataset.code = t.value.trim(); changed(); }
-    if (t.dataset.px != null) { i = +t.dataset.px; state.claim.procedures[i][t.dataset.k] = t.value; if (t.dataset.k === "code") t.closest("tr").querySelector(".tag-cell").dataset.code = t.value.trim(); total(); changed(); }
+    if (t.dataset.px != null) { i = +t.dataset.px; state.claim.procedures[i][t.dataset.k] = t.value; if (t.dataset.k === "code") t.closest("tr").querySelector(".tag-cell").dataset.code = t.value.trim(); totals(); changed(); }
   });
-  document.querySelector("main").addEventListener("click", function (e) {
+  $("claimView").addEventListener("click", function (e) {
     var t = e.target;
     if (t.dataset.rmdx != null) { state.claim.diagnoses.splice(+t.dataset.rmdx, 1); if (!state.claim.diagnoses.length) state.claim.diagnoses.push({ code: "", description: "" }); render(); changed(); }
-    if (t.dataset.rmpx != null) { state.claim.procedures.splice(+t.dataset.rmpx, 1); if (!state.claim.procedures.length) state.claim.procedures.push({ code: "", description: "", units: "1", charge: "", pointer: "A" }); render(); changed(); }
+    if (t.dataset.rmpx != null) { state.claim.procedures.splice(+t.dataset.rmpx, 1); if (!state.claim.procedures.length) state.claim.procedures.push(blankLine()); render(); changed(); }
   });
   $("addDx").addEventListener("click", function () {
     if (state.claim.diagnoses.length >= 12) return setMsg("A claim form holds 12 diagnoses (A–L).");
     state.claim.diagnoses.push({ code: "", description: "" }); render(); changed();
   });
   $("addPx").addEventListener("click", function () {
-    state.claim.procedures.push({ code: "", description: "", units: "1", charge: "", pointer: "A" }); render(); changed();
+    if (state.claim.procedures.length >= 6) return setMsg("A claim form holds 6 service lines. Start a second claim for more.");
+    state.claim.procedures.push(blankLine()); render(); changed();
   });
 
-  // ---- checks
+  // checks
   var timer = null;
   function cleaned() {
     var c = JSON.parse(JSON.stringify(state.claim));
@@ -295,58 +493,125 @@ input[type=number] { font-variant-numeric: tabular-nums; }
     api("POST", "/api/check", JSON.stringify(cleaned())).then(function (r) { state.codes = r.codes; paintCodes(); showChecks(r); })
       .catch(function (e) { setMsg("Checks unavailable: " + e.message); });
   }
-  function showChecks(r, repairs) {
-    $("pill").className = "pill " + r.status; $("pill").textContent = { CLEAN: "Clean", REVIEW: "Review", BLOCK: "Blocked" }[r.status] || r.status;
-    var bad = {};
-    (r.issues || []).forEach(function (i) { bad[i.field.split("[")[0]] = 1; });
-    FIELDS.forEach(function (f) { $(f).classList.toggle("bad", !!bad[f]); });
-    var head = r.status === "CLEAN" ? '<span class="ok">Passes every check.</span> Still a draft: a person reads it before it is billed.'
-      : r.status === "BLOCK" ? "<b>Can’t be billed yet.</b> Fix these:" : "<b>Needs a human look:</b>";
-    var items = (r.reasons || []).map(function (x) { return '<li class="' + (r.status === "BLOCK" ? "b" : "w") + '">' + esc(plain(x)) + "</li>"; }).join("");
-    // A blocked claim's reasons are only the blockers; still show what else needs doing.
-    if (r.status === "BLOCK") items += (r.issues || []).filter(function (i) { return i.severity === "WARN"; })
-      .map(function (i) { return '<li class="w">' + esc(plain(i.field + ": " + i.problem)) + "</li>"; }).join("");
-    var rep = repairs && repairs.length ? '<div class="repairs">Fixed from the scan (check these): ' + repairs.map(esc).join("; ") + "</div>" : "";
-    $("checks").innerHTML = head + (items ? "<ul>" + items + "</ul>" : "") + rep;
-  }
   function plain(s) {
     return s.replace(/_/g, " ").replace(/\bdob\b/, "date of birth").replace(/npi/gi, "NPI")
       .replace(/diagnoses\[(\d+)\]/, function (_, i) { return "diagnosis " + LETTERS[+i]; })
       .replace(/procedures\[(\d+)\]/, function (_, i) { return "service line " + (+i + 1); });
   }
-  function setMsg(t) { $("msg").textContent = t; }
+  function showChecks(r, repairs) {
+    $("pill").className = "pill " + r.status; $("pill").textContent = { CLEAN: "Clean", REVIEW: "Review", BLOCK: "Blocked" }[r.status] || r.status;
+    var bad = {}; (r.issues || []).forEach(function (i) { bad[i.field.split("[")[0]] = 1; });
+    CLAIM_FIELDS.forEach(function (f) { $(f).classList.toggle("bad", !!bad[f]); });
+    var head = r.status === "CLEAN" ? '<span class="ok">Passes every check.</span> Still a draft: a person reads it before it is billed.'
+      : r.status === "BLOCK" ? "<b>Can’t be billed yet.</b> Fix these:" : "<b>Needs a human look:</b>";
+    var items = (r.reasons || []).map(function (x) { return '<li class="' + (r.status === "BLOCK" ? "b" : "w") + '">' + esc(plain(x)) + "</li>"; }).join("");
+    if (r.status === "BLOCK") items += (r.issues || []).filter(function (i) { return i.severity === "WARN"; })
+      .map(function (i) { return '<li class="w">' + esc(plain(i.field + ": " + i.problem)) + "</li>"; }).join("");
+    var rep = repairs && repairs.length ? '<div class="repairs">Fixed from the scan (check these): ' + repairs.map(esc).join("; ") + "</div>" : "";
+    $("checks").innerHTML = head + (items ? "<ul>" + items + "</ul>" : "") + rep;
+  }
 
-  // ---- actions
-  $("new").addEventListener("click", function () {
-    state = { id: null, claim: blank(), codes: {}, dirty: false };
-    render(); $("pill").className = "pill NEW"; $("pill").textContent = "New";
-    $("checks").innerHTML = '<span class="msg">No checks yet.</span>'; setMsg("New claim."); loadList();
-  });
-  $("save").addEventListener("click", function () {
-    var b = $("save"); b.disabled = true; setMsg("Saving…");
-    api("POST", "/api/claims", JSON.stringify({ id: state.id, claim: cleaned() })).then(function (r) {
-      state.id = r.id; state.dirty = false; showChecks(r); setMsg("Saved, encrypted. Claim " + r.id); loadList(r.id);
-    }).catch(function (e) { setMsg("Not saved: " + e.message); }).finally(function () { b.disabled = false; });
-  });
-  $("scanBtn").addEventListener("click", function () { $("scanFile").click(); });
+  function normalize(c) {
+    var b = blankClaim(); Object.keys(c || {}).forEach(function (k) { if (k !== "_meta") b[k] = c[k]; });
+    b.diagnoses = (b.diagnoses || []).filter(function (d) { return d && (d.code || d.description); });
+    b.procedures = (b.procedures || []).filter(function (p) { return p && (p.code || p.description); }).map(function (p) {
+      var l = blankLine(); Object.keys(p).forEach(function (k) { l[k] = p[k] == null ? "" : p[k]; }); if (!l.units) l.units = "1"; return l; });
+    if (!b.diagnoses.length) b.diagnoses = [{ code: "", description: "" }];
+    if (!b.procedures.length) b.procedures = [blankLine()];
+    b.tracking = b.tracking || { billing: "draft" };
+    return b;
+  }
+  function newClaim() {
+    state = { id: null, claim: blankClaim(), codes: {}, dirty: false };
+    render(); $("pill").className = "pill NEW"; $("pill").textContent = "New"; $("billPill").hidden = true;
+    $("checks").innerHTML = '<span class="msg">No checks yet.</span>'; setMsg("New claim."); renderClaimList();
+  }
+  function openClaim(id) {
+    api("GET", "/api/rec/" + id).then(function (r) {
+      state = { id: r.id, claim: normalize(r.data), codes: r.codes, dirty: false };
+      render(); showChecks(r); $("billPill").hidden = false; setMsg("Claim " + r.id); renderClaimList();
+    }).catch(function (e) { setMsg("Couldn’t open it: " + e.message); });
+  }
+
+  // scan
   $("scanFile").addEventListener("change", function () {
     var f = $("scanFile").files[0]; $("scanFile").value = ""; if (!f) return;
-    var b = $("scanBtn"); b.disabled = true; setMsg("Reading " + f.name + "… about 10 seconds.");
+    var b = $("scanBtn"); if (b) b.disabled = true; setMsg("Reading " + f.name + "… about 10 seconds.");
     f.arrayBuffer().then(function (buf) {
       return api("POST", "/api/scan", buf, { "Content-Type": "application/octet-stream", "X-Filename": f.name });
     }).then(function (r) {
-      var c = blank(); Object.keys(r.claim || {}).forEach(function (k) { c[k] = r.claim[k]; });
-      c.diagnoses = (c.diagnoses || []).filter(function (d) { return d && (d.code || d.description); });
-      c.procedures = (c.procedures || []).filter(function (p) { return p && (p.code || p.description); })
-        .map(function (p) { return { code: p.code || "", description: p.description || "", units: p.units || "1", charge: p.charge || "", pointer: p.pointer || "A" }; });
-      if (!c.diagnoses.length) c.diagnoses = [{ code: "", description: "" }];
-      if (!c.procedures.length) c.procedures = [{ code: "", description: "", units: "1", charge: "", pointer: "A" }];
-      state = { id: null, claim: c, codes: r.codes, dirty: true };
+      state = { id: null, claim: normalize(r.claim), codes: r.codes, dirty: true };
       render(); showChecks(r, r.repairs); setMsg("Filled in from " + f.name + ". Check every field against the page, then save.");
-    }).catch(function (e) { setMsg("Couldn’t read the scan: " + e.message); }).finally(function () { b.disabled = false; });
+    }).catch(function (e) { setMsg("Couldn’t read the scan: " + e.message); }).finally(function () { if (b) b.disabled = false; });
   });
 
-  render(); loadList();
+  // ================= directory =================
+  function newDir() { drec = { id: null, data: {} }; renderDirForm(); setMsg("New " + DIR[tab].title.toLowerCase() + "."); }
+  function openDir(id) {
+    api("GET", "/api/rec/" + id).then(function (r) { drec = { id: r.id, data: r.data }; renderDirForm(); renderDirList(); setMsg(DIR[tab].title + " saved as " + r.id); })
+      .catch(function (e) { setMsg("Couldn’t open it: " + e.message); });
+  }
+  function renderDirForm() {
+    var d = DIR[tab];
+    $("dirTitle").textContent = (drec.id ? "Edit " : "New ") + d.title.toLowerCase();
+    $("dirForm").innerHTML = d.fields.map(function (f) {
+      var id = "d_" + f[0], v = drec.data[f[0]] || "";
+      var input = f[0] === "notes" || f[0] === "address" && tab === "payer" ? '<textarea id="' + id + '">' + esc(v) + '</textarea>'
+        : '<input id="' + id + '" value="' + esc(v) + '"' + (/npi|tax_id|payer_id/.test(f[0]) ? ' class="code"' : "") + '>';
+      return '<div class="f' + (f[2] ? " wide" : "") + '"><label for="' + id + '">' + esc(f[1]) + '</label>' + input + '</div>';
+    }).join("");
+  }
+
+  // ================= save =================
+  $("save").addEventListener("click", function () {
+    var b = $("save"); b.disabled = true; setMsg("Saving…");
+    var req;
+    if (tab === "claim") {
+      req = api("POST", "/api/save", JSON.stringify({ kind: "claim", id: state.id, data: cleaned() })).then(function (r) {
+        state.id = r.id; state.dirty = false; showChecks(r); $("billPill").hidden = false; setMsg("Saved, encrypted. Claim " + r.id); return loadAll();
+      });
+    } else {
+      var data = {}; DIR[tab].fields.forEach(function (f) { data[f[0]] = $("d_" + f[0]).value.trim(); });
+      req = api("POST", "/api/save", JSON.stringify({ kind: tab, id: drec.id, data: data })).then(function (r) {
+        drec = { id: r.id, data: data }; setMsg("Saved " + (data[DIR[tab].name] || "") + "."); renderDirForm(); return loadAll();
+      });
+    }
+    req.catch(function (e) { setMsg("Not saved: " + e.message); }).finally(function () { b.disabled = false; });
+  });
+
+  // ================= print =================
+  $("printBtn").addEventListener("click", function () {
+    var c = cleaned(), t = c.tracking || {};
+    var cell = function (label, val, extra) { return '<div class="c"' + (extra || "") + '><i>' + label + '</i><span>' + esc(val || "") + '</span></div>'; };
+    var dx = (c.diagnoses || []).map(function (d, i) { return LETTERS[i] + ". " + (d.code || ""); });
+    while (dx.length < 12) dx.push(LETTERS[dx.length] + ".");
+    var lines = (c.procedures || []).slice(0, 6);
+    var rows = lines.map(function (p) {
+      var units = money(p.units) || 1, amt = units * money(p.charge);
+      return '<tr><td>' + esc(c.date_of_service) + '</td><td>' + esc(c.place_of_service) + '</td><td>' + esc(p.code) + ' ' + esc(p.modifier || "") +
+        '</td><td>' + esc(p.pointer) + '</td><td style="text-align:right">' + amt.toFixed(2) + '</td><td>' + units + '</td><td>' + esc(c.treating_npi) + '</td></tr>';
+    });
+    while (rows.length < 6) rows.push('<tr><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>');
+    $("print").innerHTML =
+      '<div class="ph"><div><h3>HEALTH INSURANCE CLAIM FORM</h3><div style="font-size:7pt">Plain-paper copy for review and filing (CMS-1500 layout)</div></div>' +
+      '<div class="carrier">' + esc(c.insurer) + '<br>' + esc(c.insurer_address) + (c.payer_id ? '<br>Payer ID ' + esc(c.payer_id) : "") + '</div></div>' +
+      '<div class="row top" style="grid-template-columns:2fr 1fr">' + cell("1a. Insured’s ID / claim number", c.claim_number) + cell("3. Patient birth date / sex", (c.dob || "") + "  " + (c.sex || "")) + '</div>' +
+      '<div class="row" style="grid-template-columns:2fr 1fr">' + cell("2. Patient’s name", c.patient_name) + cell("5. Telephone", c.phone) + '</div>' +
+      '<div class="row" style="grid-template-columns:2fr 1fr">' + cell("5. Patient’s address", c.address) + cell("11c. Insurance plan", c.insurer) + '</div>' +
+      '<div class="row" style="grid-template-columns:1fr 1fr 1fr">' + cell("10. Condition related to", c.accident_type) + cell("10b. Auto accident state", c.accident_state) + cell("14. Date of injury", c.date_of_injury) + '</div>' +
+      '<div class="row" style="grid-template-columns:2fr 1fr">' + cell("17. Referring provider", c.referring_provider) + cell("17b. NPI", c.referring_npi) + '</div>' +
+      '<div class="row" style="grid-template-columns:1fr"><div class="c"><i>21. Diagnosis (ICD Ind. 0)</i><span>' +
+        dx.map(esc).join("&nbsp;&nbsp;&nbsp;") + '</span></div></div>' +
+      '<table><thead><tr><th>24A. Date of service</th><th>B. POS</th><th>D. CPT/HCPCS  Modifier</th><th>E. Dx ptr</th><th>F. $ Charges</th><th>G. Units</th><th>J. Rendering NPI</th></tr></thead><tbody>' + rows.join("") + '</tbody></table>' +
+      '<div class="row" style="grid-template-columns:1fr 1fr 1fr">' + cell("25. Federal Tax ID", c.clinic_tax_id) + cell("26. Patient account no.", state.id || "") + cell("28. Total charge", fmt(charges())) + '</div>' +
+      '<div class="row" style="grid-template-columns:1fr 1fr 1fr">' + cell("31. Signature of physician", c.treating_provider) + cell("32. Service facility", c.clinic_name) +
+        cell("33. Billing provider &amp; phone", (c.clinic_name || "") + "  " + (c.clinic_address || "") + (c.clinic_npi ? "  NPI " + c.clinic_npi : "")) + '</div>' +
+      '<div class="note">Status: ' + esc(t.billing || "draft") + (t.sent_date ? " · sent " + esc(t.sent_date) : "") +
+        (t.paid_amount ? " · paid " + fmt(money(t.paid_amount)) : "") + '. Payers that take paper claims need the red-ink CMS-1500 form; this copy is for review and your files.</div>';
+    window.print();
+  });
+
+  showTab(); render(); loadAll();
 })();
 </script>
 </body>
