@@ -606,6 +606,11 @@ body.locked > :not(.login):not(#print) { display: none !important; }
                   <label>How it happened:</label><input data-p="accident_type" class="span3" aria-label="How it happened">
                   <label>First Treatment:</label><input data-p="first_treatment" placeholder="MM/DD/YYYY" aria-label="First treatment">
                   <label>PIP Notice Sent:</label><input data-p="pip_notice_sent" placeholder="MM/DD/YYYY" aria-label="Notice of initiation of treatment sent" title="Notice of initiation of treatment - within 21 days of first treatment extends billing from 35 to 75 days">
+                  <label>EMC:</label><select data-p="emc" aria-label="Emergency medical condition" title="Emergency medical condition, 627.736(1)(a)"><option value="">Not set</option><option value="yes">Yes $10k</option><option value="no">No $2.5k</option></select>
+                  <label>EMC By / Date:</label><input data-p="emc_by" placeholder="MD/DO, dentist, PA or APRN" aria-label="EMC determined by">
+                  <label>Paid to Others:</label><input data-p="pip_paid_others" inputmode="decimal" placeholder="0.00" aria-label="PIP paid to other providers" title="From the carrier's PIP payout log - the limit is shared by every provider">
+                  <label>PIP Limit:</label><input data-p="pip_limit" inputmode="decimal" placeholder="only if the policy differs" aria-label="PIP limit override">
+                  <div class="span4 pipbox" id="patPip" style="grid-column:1/-1"></div>
                   <label>Adjuster:</label><input data-p="adjuster_name" aria-label="Adjuster">
                   <label>Adjuster Phone:</label><input data-p="adjuster_phone" aria-label="Adjuster phone">
                   <label>Attorney / Firm:</label><input data-p="attorney" aria-label="Attorney">
@@ -820,7 +825,9 @@ body.locked > :not(.login):not(#print) { display: none !important; }
       { k: "name", t: "Name", v: function (r) { return r.patient_name; } },
       { k: "acct", t: "Account #", w: "74px", v: function (r) { return r.account_number; } },
       { k: "payer", t: "Pri Payer", w: "28%", v: function (r) { return r.insurer; } },
-      { k: "bal", t: "Tot. Cla. Bal.", w: "88px", m: 1, v: patBal }],
+      { k: "bal", t: "Tot. Cla. Bal.", w: "88px", m: 1, v: patBal },
+      { k: "pipleft", t: "PIP Left", w: "80px", v: function (r) { return r.pip_left == null ? (r.pip_limit == null ? "No EMC" : "") : fmt(r.pip_left); },
+        cls: function (r) { return r.pip_level ? "pip-" + r.pip_level : ""; } }],
     claim: [
       { k: "name", t: "Name", v: function (r) { return r.patient_name; } },
       { k: "dos", t: "1st DOS", w: "74px", d: 1, v: function (r) { return r.date_of_service; } },
@@ -1170,7 +1177,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   function openRec(kind, id) {
     for (var i = 0; i < S.docs.length; i++) if (S.docs[i].id === id) return activate(i);
     api("GET", "/api/rec/" + id).then(function (r) {
-      var d = { kind: r.kind, id: r.id, data: prep(r.kind, r.data), codes: r.codes || {}, check: r.kind === "claim" ? r : null, ledger: r.ledger || null, dirty: false };
+      var d = { kind: r.kind, id: r.id, data: prep(r.kind, r.data), codes: r.codes || {}, check: r.kind === "claim" ? r : null, ledger: r.ledger || null, benefits: r.benefits || null, dirty: false };
       if (d.kind === "claim") calTo(d, d.data.date_of_service);
       if (d.kind === "payment") { d.rows = null; d.alloc = null; d.opts = { ignore: false, zero: false }; }
       addDoc(d);
@@ -1562,13 +1569,22 @@ body.locked > :not(.login):not(#print) { display: none !important; }
       d.codes = r.codes; d.check = r; if (cur() === d) { paintCodes(); showChecks(r); }
     }).catch(function (e) { setMsg("Scrub unavailable: " + e.message); });
   }
+  function benefitsHtml(b) {
+    if (!b) return "";
+    var lim = b.limit == null ? "unknown until EMC is set" : fmt(b.limit);
+    var html = '<div><b>PIP benefits</b> - limit ' + esc(lim) + ' · used ' + fmt(b.used) +
+      (b.paid_others ? ' (' + fmt(b.paid_ours) + ' to us, ' + fmt(b.paid_others) + ' to others)' : "") +
+      (b.remaining == null ? "" : ' · <span class="' + (b.remaining <= 0 ? "late" : b.level === "soon" ? "soon" : "ok") + '">left ' + fmt(b.remaining) + '</span>') + '</div>' +
+      (b.open_ins ? '<div class="src">Open insurance balance ' + fmt(b.open_ins) + ' - at 80% the carrier would pay ~' + fmt(b.expected) + '</div>' : "");
+    return html + b.flags.map(function (f) { return '<div class="' + f.level + '">⚠ ' + esc(f.text) + '</div>'; }).join("");
+  }
   function showPip(p) {
     if (!p || !p.applies) { $("pipBox").innerHTML = '<span class="src">Accident is not in Florida - no PIP clocks.</span>'; return; }
     var when = function (i) { return i.days < 0 ? -i.days + " days ago" : i.days === 0 ? "today" : "in " + i.days + " days"; };
     var html = p.items.map(function (i) { return '<div class="' + i.level + '">' + esc(i.label) + " " + esc(i.date) + " (" + when(i) + ')</div>' +
       (i.note ? '<div class="src">' + esc(i.note) + '</div>' : ""); }).join("") +
       p.flags.map(function (f) { return '<div class="' + f.level + '">⚠ ' + esc(f.text) + '</div>'; }).join("");
-    $("pipBox").innerHTML = (html || '<span class="ok">No open PIP deadlines.</span>') + '<div class="src">Reminders from Fla. Stat. 627.736 - not legal advice.</div>';
+    $("pipBox").innerHTML = (html || '<span class="ok">No open PIP deadlines.</span>') + benefitsHtml((cur() || {}).benefits) + '<div class="src">Reminders from Fla. Stat. 627.736 - not legal advice.</div>';
   }
   function plain(s) {
     return s.replace(/_/g, " ").replace(/\bdob\b/, "date of birth").replace(/npi/gi, "NPI")
@@ -1630,14 +1646,24 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   function renderPatient() {
     var d = cur(), p = d.data;
     qa("#patView [data-p]").forEach(function (el) { if (el.type === "checkbox") el.checked = !!p[el.dataset.p]; else el.value = p[el.dataset.p] || (el.tagName === "SELECT" ? el.options[0].value : ""); });
+    $("patPip").innerHTML = benefitsHtml(d.benefits) + '<div class="src">Fla. Stat. 627.736 - the limit is shared by every provider. Not legal advice.</div>';
     setMsg(d.id ? "Patient " + (p.account_number ? "Account # " + p.account_number : d.id) : "New patient - the account number is assigned when you save.");
   }
   $("patView").addEventListener("input", function (e) {
     var t = e.target, d = cur(); if (!d || d.kind !== "patient" || !t.dataset.p) return;
     d.data[t.dataset.p] = t.type === "checkbox" ? t.checked : t.value; markDirty();
     if (/^(last_name|first_name|mi|dob)$/.test(t.dataset.p)) renderDocTabs();
+    if (/^(emc|pip_paid_others|pip_limit)$/.test(t.dataset.p)) refreshBenefits(d);
   });
-  $("patView").addEventListener("change", function (e) { var t = e.target, d = cur(); if (d && d.kind === "patient" && t.dataset.p && t.tagName === "SELECT") { d.data[t.dataset.p] = t.value; markDirty(); } });
+  var bTimer;
+  function refreshBenefits(d) {
+    clearTimeout(bTimer); bTimer = setTimeout(function () {
+      api("POST", "/api/benefits", JSON.stringify({ id: d.id, data: d.data })).then(function (b) {
+        d.benefits = b; if (cur() === d) $("patPip").innerHTML = benefitsHtml(b) + '<div class="src">Fla. Stat. 627.736 - the limit is shared by every provider. Not legal advice.</div>';
+      }).catch(function () {});
+    }, 300);
+  }
+  $("patView").addEventListener("change", function (e) { var t = e.target, d = cur(); if (d && d.kind === "patient" && t.dataset.p && t.tagName === "SELECT") { d.data[t.dataset.p] = t.value; markDirty(); if (t.dataset.p === "emc") refreshBenefits(d); } });
   $("insTabs").addEventListener("click", function (e) {
     var b = e.target.closest("[data-ins]"); if (!b) return;
     qa("#insTabs button").forEach(function (x) { x.classList.toggle("on", x === b); }); $("ins1").hidden = b.dataset.ins !== "1"; $("ins2").hidden = b.dataset.ins !== "2";

@@ -159,3 +159,53 @@ def short(items: list, flags: list) -> str:
     if "pay" in by:
         return f"Pay due {by['pay']['days']}d"
     return ""
+
+
+# ---- benefits: the $10,000 / $2,500 limit -----------------------------------
+#
+# 627.736(1)(a)3-4: medical benefits are $10,000 if a physician (MD/DO), a
+# dentist, a PA or an APRN has determined the injured person had an emergency
+# medical condition (EMC), and only $2,500 if not. The limit is per person and
+# shared by every provider who treats them - this office only sees its own
+# payments, so what the carrier paid to others has to be typed in from the
+# carrier's PIP payout log.
+
+EMC_LIMIT = 10000.0
+NO_EMC_LIMIT = 2500.0
+PIP_PAYS = 0.80  # 627.736(1)(a): 80% of reasonable expenses
+
+
+def _money(v) -> float:
+    try:
+        return round(float(str(v or "0").replace("$", "").replace(",", "")), 2)
+    except ValueError:
+        return 0.0
+
+
+def benefits(case: dict, paid_ours: float, open_ins: float) -> dict:
+    emc = str(case.get("emc") or "").strip().lower()
+    override = _money(case.get("pip_limit"))
+    limit = override or (EMC_LIMIT if emc == "yes" else NO_EMC_LIMIT if emc == "no" else None)
+    others = _money(case.get("pip_paid_others"))
+    used = round(paid_ours + others, 2)
+    expected = round(open_ins * PIP_PAYS, 2)
+    remaining = round(limit - used, 2) if limit is not None else None
+    flags = []
+    if emc not in ("yes", "no") and not override:
+        flags.append({"key": "no_emc", "level": "soon",
+                      "text": "EMC not on file: the limit is $10,000 with an emergency medical condition "
+                              "determined by an MD/DO, dentist, PA or APRN, and $2,500 without (627.736(1)(a))."})
+        if used + expected > NO_EMC_LIMIT:
+            flags.append({"key": "emc_needed", "level": "late",
+                          "text": f"Paid plus open bills (~${used + expected:,.2f}) go past $2,500 - "
+                                  "without an EMC determination the rest will not be paid."})
+    if remaining is not None:
+        if remaining <= 0:
+            flags.append({"key": "exhausted", "level": "late", "text": f"PIP benefits exhausted (${used:,.2f} of ${limit:,.2f} used)."})
+        elif expected > remaining:
+            flags.append({"key": "short", "level": "soon",
+                          "text": f"Open bills would pay ~${expected:,.2f} at 80%, but only ${remaining:,.2f} is left."})
+    worst = [f["level"] for f in flags]
+    return {"emc": emc, "limit": limit, "paid_ours": round(paid_ours, 2), "paid_others": others, "used": used,
+            "open_ins": round(open_ins, 2), "expected": expected, "remaining": remaining, "flags": flags,
+            "level": next((lv for lv in LEVELS if lv in worst), "")}

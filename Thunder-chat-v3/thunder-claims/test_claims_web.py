@@ -259,6 +259,16 @@ check("claims list carries the PIP clock", row and "pip_text" in row[0] and "pip
 st, j, _ = req("GET", f"/api/rec/{SCID}", token=TOK)
 check("an open claim carries its PIP check (a missing date of injury is flagged)", j.get("pip", {}).get("applies") is True
       and any(f["key"] == "no_doi" for f in j["pip"]["flags"]), j.get("pip"))
+st, j, _ = req("GET", f"/api/rec/{SPID}", token=TOK)
+check("a patient carries PIP benefits: the carrier's $60 counts toward the limit", j.get("benefits", {}).get("paid_ours") == 60, j.get("benefits"))
+st, j, _ = req("POST", "/api/benefits", {"id": SPID, "data": {**req("GET", f"/api/rec/{SPID}", token=TOK)[1]["data"], "emc": "no"}}, token=TOK)
+check("unsaved EMC edits are priced live", j.get("limit") == 2500 and j.get("remaining") == 2440, j)
+st, _, _ = req("POST", "/api/benefits", {"id": SPID, "data": {}})
+check("benefits need a login", st == 401)
+st, _, _ = req("POST", "/api/benefits", {"id": "../x", "data": {}}, token=TOK)
+check("benefits refuse a bad id", st == 400)
+row = [r for r in req("GET", "/api/list?kind=patient", token=TOK)[1]["records"] if r["id"] == SPID]
+check("patients list carries PIP left", row and "pip_left" in row[0], row)
 
 print("network guard")
 r = subprocess.run([sys.executable, str(Path(__file__).parent / "claims_web.py"), "--host", "0.0.0.0", "--port", "1"],

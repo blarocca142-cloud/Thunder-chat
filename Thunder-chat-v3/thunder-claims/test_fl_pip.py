@@ -97,5 +97,20 @@ check("another state's accident is not held to Florida's rules", r["applies"] is
 r = fl_pip.deadlines(claim(accident_state=""), TODAY)
 check("a blank state is treated as Florida (the office bills only FL PIP)", r["applies"] is True)
 
+print("benefits limit")
+b = fl_pip.benefits({"emc": "yes"}, 3000, 1000)
+check("EMC: $10,000 limit, used and left", b["limit"] == 10000 and b["remaining"] == 7000 and b["expected"] == 800 and not b["flags"], b)
+b = fl_pip.benefits({"emc": "no"}, 2000, 1000)
+check("no EMC: $2,500, and open bills worth more than what is left are flagged", b["limit"] == 2500 and b["remaining"] == 500
+      and any(f["key"] == "short" for f in b["flags"]), b)
+b = fl_pip.benefits({"emc": "yes", "pip_paid_others": "9,500"}, 600, 0)
+check("what the carrier paid other providers counts against the limit", b["remaining"] == -100 and b["level"] == "late"
+      and any(f["key"] == "exhausted" for f in b["flags"]), b)
+b = fl_pip.benefits({}, 2000, 1000)
+check("EMC not on file: limit unknown, and past $2,500 is called out", b["limit"] is None and b["remaining"] is None
+      and {f["key"] for f in b["flags"]} == {"no_emc", "emc_needed"}, b)
+b = fl_pip.benefits({"pip_limit": "5000"}, 1000, 0)
+check("a policy-specific limit overrides the statute's", b["limit"] == 5000 and b["remaining"] == 4000, b)
+
 print(f"\n{PASSED} passed, {FAILED} failed")
 sys.exit(1 if FAILED else 0)

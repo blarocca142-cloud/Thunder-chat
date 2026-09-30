@@ -199,7 +199,7 @@ def line_charge(p: dict) -> float:
     return round((money((p or {}).get("units")) or 1) * money((p or {}).get("charge")), 2)
 
 
-def summary(kind: str, rid: str, r: dict, led: dict | None = None) -> dict:
+def summary(kind: str, rid: str, r: dict, led: dict | None = None, claims: list | None = None) -> dict:
     if kind == "payment":
         applied = round(sum(money(a.get("paid")) for a in r.get("lines") or []), 2)
         amount = money(r.get("amount"))
@@ -234,7 +234,9 @@ def summary(kind: str, rid: str, r: dict, led: dict | None = None) -> dict:
                 "state": r.get("state", ""), "zip": r.get("zip", ""),
                 "email": r.get("email", ""), "insured_id": r.get("claim_number", ""),
                 "insurer2": r.get("insurer2", ""), "insured_id2": r.get("insured_id2", ""),
-                "reminder": r.get("reminder", "")}
+                "reminder": r.get("reminder", ""),
+                **({"pip_left": b["remaining"], "pip_limit": b["limit"], "pip_level": b["level"]}
+                   if claims is not None and (b := patient_benefits(rid, r, claims, led)) else {})}
     if kind == "payer":
         return {"id": rid, "name": r.get("name", ""), "payer_id": r.get("payer_id", ""),
                 "phone": r.get("phone", "")}
@@ -246,7 +248,8 @@ def list_records(kind: str) -> list[dict]:
     """Every record of one kind, newest first. Each one is decrypted (and
     audited) to show its name - the cost of a list a person can read."""
     out = []
-    led = ledger() if kind == "claim" else None
+    led = ledger() if kind in ("claim", "patient") else None
+    claims = list(records("claim")) if kind == "patient" else None
     for p in sorted(vault.records_dir().glob("*.rec"),
                     key=lambda p: p.stat().st_mtime, reverse=True):
         if kind_of(p.stem) != kind:
@@ -256,7 +259,7 @@ def list_records(kind: str) -> list[dict]:
         except BaseException as e:  # vault raises SystemExit on a bad record
             out.append({"id": p.stem, "error": str(e).splitlines()[0]})
             continue
-        out.append(summary(kind, p.stem, r, led))
+        out.append(summary(kind, p.stem, r, led, claims))
     return out
 
 
@@ -352,6 +355,19 @@ def _norm(x) -> str:
 def patient_claims(pid: str, p: dict, claims: list) -> list:
     return [(cid, c) for cid, c in claims
             if (c.get("patient_id") == pid) or (not c.get("patient_id") and _norm(c.get("patient_name")) == _norm(p.get("patient_name")))]
+
+
+def patient_benefits(pid: str, p: dict, claims: list | None = None, led: dict | None = None) -> dict:
+    """PIP limit used and left for one patient: what the carrier paid on this
+    office's claims (patient payments excluded) plus what it paid others."""
+    claims = list(records("claim")) if claims is None else claims
+    led = ledger() if led is None else led
+    paid = open_ins = 0.0
+    for cid, c in patient_claims(pid, p, claims):
+        posted = led.get(cid) or {"paid": 0.0, "pat_paid": 0.0}
+        paid += posted["paid"] - posted.get("pat_paid", 0.0) + money((c.get("tracking") or {}).get("paid_amount"))
+        open_ins += sum(max(x["ins_bal"], 0) for x in claim_lines(cid, c, led))
+    return fl_pip.benefits(p, round(paid, 2), round(open_ins, 2))
 
 
 def _days_since(d: str) -> int | None:
@@ -882,6 +898,10 @@ class Handler(BaseHTTPRequestHandler):
             r = vault.get(rid)
             kind = kind_of(rid)
             body = {"id": rid, "kind": kind, "data": r}
+            if kind == "patient":
+                body["benefits"] = patient_benefits(rid, r)
+            if kind == "claim" and ID_RE.match(str(r.get("patient_id") or "")) and vault.record_path(r["patient_id"]).exists():
+                body["benefits"] = patient_benefits(r["patient_id"], vault.get(r["patient_id"]))
             if kind == "claim":
                 body.update(assess(r))
                 full = ledger()
@@ -915,6 +935,12 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/api/statements/printed":
             b = json.loads(self._body() or b"{}")
             return self._send(200, {"updated": statements_printed(b.get("items") or [], str(b.get("date") or time.strftime("%m/%d/%Y"))[:10], who)})
+        if u.path == "/api/benefits":
+            b = json.loads(self._body() or b"{}")
+            pid = str(b.get("id") or "")
+            if pid and not (ID_RE.match(pid) and kind_of(pid) == "patient"):
+                return self._send(400, {"error": "bad record id"})
+            return self._send(200, patient_benefits(pid, b.get("data") or {}))
         if u.path == "/api/check":
             return self._send(200, assess(json.loads(self._body() or b"{}")))
         if u.path == "/api/save":
