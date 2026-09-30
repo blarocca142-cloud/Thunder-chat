@@ -227,7 +227,8 @@ def summary(kind: str, rid: str, r: dict, led: dict | None = None, claims: list 
                 "charges": charges, "paid": paid, "adjusted": posted["adj"],
                 "balance": round(charges - paid - posted["adj"], 2),
                 "pat_bal": round(sum(x["pat_bal"] for x in lines), 2), "ins_bal": round(sum(x["ins_bal"] for x in lines), 2),
-                "pip_level": pip["level"], "pip_text": pip["text"],
+                "pip_level": pip["level"], "pip_text": pip["text"], "method": track.get("method") or "paper",
+                "clinic_name": r.get("clinic_name", ""),
                 "saved": meta.get("saved", "")}
     if kind == "patient":
         return {"id": rid, "patient_name": r.get("patient_name", ""), "dob": r.get("dob", ""),
@@ -601,6 +602,76 @@ def procedures_from_claims(user: str) -> dict:
     for key, rec in sorted(seen.items()):
         save("procedure", None, rec, user)
     return {"added": len(seen)}
+
+
+def print_check(cid: str, c: dict) -> list[dict]:
+    """EZClaim's Errors and Warnings, for paper. An Error keeps the claim from
+    printing; a Warning prints but will probably be denied. Messages are
+    EZClaim's own wording where it has one. Like EZClaim's: this catches data
+    entry mistakes, it does not check coding."""
+    out = []
+
+    def add(sev, msg):
+        out.append({"severity": sev, "message": msg})
+
+    procs = [p for p in c.get("procedures") or [] if str((p or {}).get("code") or "").strip()]
+    if not str(c.get("patient_name") or "").strip():
+        add("Error", "The patient's name is missing.")
+    if not str(c.get("insurer") or "").strip():
+        add("Error", "The payer is missing.")
+    if not str(c.get("clinic_name") or "").strip():
+        add("Error", "Billing Provider is missing.")
+    if not procs:
+        add("Error", "Procedure Code is missing.")
+    if not any(str((d or {}).get("code") or "").strip() for d in c.get("diagnoses") or []):
+        add("Error", "Needs DX")
+    if not str(c.get("place_of_service") or "").strip():
+        add("Error", "Place of Service is missing.")
+    if any(not money((p or {}).get("charge")) for p in procs):
+        add("Error", "A service line has no charge.")
+    if not str(c.get("claim_number") or "").strip():
+        add("Warning", "The Insured's ID # is missing.")
+    if not str(c.get("dob") or "").strip():
+        add("Warning", "The patient's date of birth is missing.")
+    if not str(c.get("clinic_npi") or "").strip():
+        add("Warning", "The billing NPI (33a) is missing.")
+    elif not validate.npi_valid(str(c["clinic_npi"])):
+        add("Warning", f"The billing NPI {c['clinic_npi']} fails the NPI check digit.")
+    if not str(c.get("clinic_tax_id") or "").strip():
+        add("Warning", "The billing Tax ID (25) is missing.")
+    if not str(c.get("treating_npi") or "").strip():
+        add("Warning", "The rendering provider NPI (24J) is missing.")
+    if not str(c.get("insurer_address") or "").strip():
+        add("Warning", "The payer's mailing address is missing - it prints in the window-envelope area.")
+    codes = assess(c)["codes"]
+    for code, ok in codes.items():
+        if ok is False:
+            add("Warning", f"{code} is not on the official code list.")
+    pip = fl_pip.deadlines(c)
+    for f in pip.get("flags") or []:
+        if f["key"] in ("file_late", "billed_late", "initial", "dates"):
+            add("Warning", "Florida PIP: " + f["text"])
+    return out
+
+
+def claims_printed(ids: list, when: str, user: str) -> int:
+    """After "Did all the claims print properly?" - Yes. As in EZClaim, a
+    printed Ready to Submit claim becomes Submitted with today's bill date."""
+    n = 0
+    for cid in ids:
+        if not ID_RE.match(str(cid)) or kind_of(cid) != "claim" or not vault.record_path(cid).exists():
+            continue
+        c = vault.get(cid)
+        tr = c.setdefault("tracking", {})
+        tr["last_printed"] = when
+        if (tr.get("billing") or "draft") == "draft":
+            tr["billing"] = "sent"
+            if not tr.get("sent_date"):
+                tr["sent_date"] = when
+        c.setdefault("notes_log", []).append(note(f"Printed on a CMS-1500 for mailing ({when})", user, total_charges(c)))
+        vault.put(cid, c, KINDS["claim"]["index"])
+        n += 1
+    return n
 
 
 def delete_record(rid: str, user: str) -> dict:
@@ -1245,6 +1316,19 @@ class Handler(BaseHTTPRequestHandler):
             if pid and not (ID_RE.match(pid) and kind_of(pid) == "patient"):
                 return self._send(400, {"error": "bad record id"})
             return self._send(200, patient_benefits(pid, b.get("data") or {}))
+        if u.path == "/api/print_check":
+            b = json.loads(self._body() or b"{}")
+            out = []
+            for cid in (b.get("ids") or [])[:500]:
+                if ID_RE.match(str(cid)) and kind_of(cid) == "claim" and vault.record_path(cid).exists():
+                    c = vault.get(cid)
+                    for r in print_check(cid, c):
+                        out.append({"id": cid, "name": c.get("patient_name", ""), "dob": c.get("dob", ""), "account": c.get("account_number", ""),
+                                    "dos": c.get("date_of_service", ""), "proc": " ".join(str(p.get("code") or "") for p in c.get("procedures") or [] if (p or {}).get("code")), **r})
+            return self._send(200, {"rows": out})
+        if u.path == "/api/claims/printed":
+            b = json.loads(self._body() or b"{}")
+            return self._send(200, {"updated": claims_printed(b.get("ids") or [], str(b.get("date") or time.strftime("%m/%d/%Y"))[:10], who)})
         if u.path == "/api/delete":
             b = json.loads(self._body() or b"{}")
             return self._send(200, delete_record(str(b.get("id") or ""), who))

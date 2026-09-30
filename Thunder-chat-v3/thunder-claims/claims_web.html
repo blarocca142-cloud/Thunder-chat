@@ -285,6 +285,8 @@ td.pip-late, td.pip-overdue { color: var(--block); font-weight: 700; } td.pip-so
 .fpage .fr { position: absolute; height: 0; border-top: 1px solid #e0555a; }
 .fpage .fc { position: absolute; width: 0; border-left: 1px solid #e0555a; }
 #print .fpage { box-shadow: none; }
+#print .fpage + .fpage, #print .pcplain + .pcplain { page-break-before: always; }
+.pcgrid td.ic { width: 24px; } .pcerr table.g { table-layout: auto; } .pcerr td:nth-child(2) { white-space: normal; min-width: 260px; } .pcerr { margin-top: 10px; } .pcerr td.Error { color: var(--block); font-weight: 700; } .pcerr td.Warning { color: #9a6a00; font-weight: 700; }
 .stpage { position: relative; width: 8.5in; height: 11in; background: #fff; color: #000; font: 10pt/1.3 Arial, Helvetica, sans-serif; overflow: hidden; }
 .pvpage .stpage { transform: scale(var(--pvscale, 1)); transform-origin: top left; margin-bottom: calc((var(--pvscale, 1) - 1) * 11in + 12px); box-shadow: 0 2px 8px rgba(0,0,0,.4); }
 #print .stpage { page-break-after: always; }
@@ -736,6 +738,14 @@ body.locked > :not(.login):not(#print) { display: none !important; }
         </div>
 
         <!-- PATIENT STATEMENTS -->
+        <div id="pcView" hidden>
+          <div class="status"><span class="msg" id="pcmsg"></span></div>
+          <div class="gb"><h2>Print Claims <span class="pick msg" style="font-size:11px">claims print onto the red CMS-1500 forms, one after another</span></h2>
+            <div class="gridwrap" style="margin:0;border:0;min-height:200px"><table class="g pcgrid"><thead><tr><th class="ic"><input type="checkbox" id="pc_all" aria-label="Check all"></th><th>Name</th><th>1st DOS</th><th class="n">Tot. Chg.</th><th class="n">Tot. Bal.</th><th>Billing</th><th>Payer</th><th>Status</th></tr></thead>
+              <tbody id="pcRows"></tbody><tfoot><tr><td colspan="8" id="pcFoot"></td></tr></tfoot></table></div></div>
+          <div class="gb pcerr" id="pcErrBox" hidden><h2>Errors and Warnings <span class="pick msg" style="font-size:11px">Errors keep a claim from printing. Warnings print, but the carrier will probably deny them. Double-click a line to open the claim.</span></h2>
+            <div class="gridwrap" style="margin:0;border:0"><table class="g"><thead><tr><th>Severity</th><th>Message</th><th>Name</th><th>DOB</th><th>Account #</th><th>Srvc Date</th><th>Procedure</th></tr></thead><tbody id="pcErrRows"></tbody></table></div></div>
+        </div>
         <div id="setupView" hidden><div class="setup"><div class="optlist" id="suList"></div><div class="supane"><h2 id="suTitle"></h2><div class="form" id="suForm"></div><p class="hint" id="suHint"></p></div></div></div>
         <div id="repView" hidden><div class="status"><span class="msg" id="repmsg"></span></div><div id="repOut"></div></div>
         <div id="stmtView" hidden>
@@ -846,7 +856,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   var LETTERS = "ABCDEFGHIJKL";
   var BILL = { draft: "Ready to Submit", sent: "Submitted", hold: "On Hold", partial: "Partly Paid", paid: "Paid", denied: "Denied" };
   var OWING = { sent: 1, hold: 1, partial: 1, denied: 1 };
-  var KIND_ICON = { task: "☑", setup: "⚙", patient: "👤", claim: "📄", payer: "🏛", provider: "🩺", payment: "💵", procedure: "🧾", report: "📊", statements: "✉", help: "❓" };
+  var KIND_ICON = { printclaims: "🖨", task: "☑", setup: "⚙", patient: "👤", claim: "📄", payer: "🏛", provider: "🩺", payment: "💵", procedure: "🧾", report: "📊", statements: "✉", help: "❓" };
   var DIR = {
     payer: { title: "Payer Library", name: "name", fields: [
       ["name", "Insurer Name:", 1], ["address", "Claims Mailing Address:", 1], ["payer_id", "Payer ID:"], ["phone", "Phone #:"],
@@ -1290,6 +1300,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
     if (d.kind === "payment") return d.id ? "Payment - " + ((x.source === "payer" ? x.payer : x.patient_name) || "?") + " " + (x.date || "") : "Payment Entry";
     if (d.kind === "report") return d.name;
     if (d.kind === "setup") return "Setup";
+    if (d.kind === "printclaims") return "Print Claims";
     if (d.kind === "task") return x.subject ? "Task - " + x.subject : "New Task";
     if (d.kind === "procedure") return x.code ? "Code " + x.code + (x.modifier ? "-" + x.modifier : "") : "New Procedure Code";
     return x.name || (d.kind === "payer" ? "New Payer" : "New Physician/Facility");
@@ -1421,12 +1432,13 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   function renderWork() {
     var d = cur(), k = d ? d.kind : "home";
     $("homeView").hidden = k !== "home"; $("helpView").hidden = k !== "help"; $("claimView").hidden = k !== "claim";
-    $("patView").hidden = k !== "patient"; $("dirView").hidden = !DIR[k]; $("payView").hidden = k !== "payment"; $("stmtView").hidden = k !== "statements"; $("repView").hidden = k !== "report"; $("setupView").hidden = k !== "setup";
+    $("patView").hidden = k !== "patient"; $("dirView").hidden = !DIR[k]; $("payView").hidden = k !== "payment"; $("stmtView").hidden = k !== "statements"; $("repView").hidden = k !== "report"; $("setupView").hidden = k !== "setup"; $("pcView").hidden = k !== "printclaims";
     $("work").classList.toggle("nobtn", k === "home" || k === "help");
     renderButtons();
     if (k === "home") renderHome();
     if (k === "report") renderReport();
     if (k === "setup") renderSetup();
+    if (k === "printclaims") renderPrintClaims();
     if (k === "claim") renderClaim();
     if (k === "patient") renderPatient();
     if (DIR[k]) renderDir();
@@ -1442,6 +1454,10 @@ body.locked > :not(.login):not(#print) { display: none !important; }
     if (k === "patient") h = '<button class="primary" data-b="saveClose">Save &amp; Close</button><button data-b="save">Save</button><button data-b="close">Close</button>' +
       '<button data-b="delete">Delete</button><div class="gap"></div><button data-b="newClaim">New Claim</button>' +
       '<label class="' + (d.data.active !== false ? "act" : "") + '"><input type="checkbox" data-b="active"' + (d.data.active !== false ? " checked" : "") + '> Active</label>';
+    if (k === "printclaims") h = '<button class="primary" data-b="pcPrint">Print Claims</button><button data-b="pcPreview">Print Preview</button><button data-b="close">Close</button>' +
+      '<div class="gap"></div><button data-b="pcAll">Check All</button><button data-b="pcNone">Uncheck All</button>' + (d.errIds && d.errIds.length ? '<button data-b="pcHold">Set Claims with Errors to On Hold</button>' : "") +
+      '<div class="gap"></div><div class="radios" style="display:block"><b>Claims that are:</b>' + [["ready", "Ready to Submit"], ["paper", "All Paper"], ["all", "All"]].map(function (o) {
+        return '<label style="display:block"><input type="radio" name="pcf" value="' + o[0] + '"' + (d.filter === o[0] ? " checked" : "") + '> ' + o[1] + '</label>'; }).join("") + '</div>';
     if (k === "setup") h = '<button class="primary" data-b="saveClose">Save &amp; Close</button><button data-b="save">Save</button><button data-b="close">Close</button>';
     if (k === "report") h = '<button class="primary" data-b="repPrint">Print</button><button data-b="repRefresh">Refresh</button><button data-b="repCsv">Export (.csv)</button><button data-b="close">Close</button>' +
       '<div class="gap"></div><div class="hint" style="padding:0 4px">Click a line to open that record.</div>';
@@ -1476,6 +1492,11 @@ body.locked > :not(.login):not(#print) { display: none !important; }
       case "print": printClaim(); break;
       case "repPrint": printReport(d); break;
       case "delete": deleteDoc(); break;
+      case "pcPrint": pcPrint(d, false); break;
+      case "pcPreview": pcPrint(d, true); break;
+      case "pcAll": pcRows(d).forEach(function (c) { d.checked[c.id] = true; }); renderPrintClaims(); break;
+      case "pcNone": d.checked = {}; renderPrintClaims(); break;
+      case "pcHold": pcHold(d); break;
       case "repRefresh": runReport(d.name, d.crit, d); break;
       case "repCsv": reportCsv(d); break;
       case "savePatient": savePatientFromClaim(); break;
@@ -1531,8 +1552,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
     var b = e.target.closest("[data-go]"); if (!b) return;
     ({ newPatient: newPatient, newClaim: newClaim, scan: scanCmd, newPayment: function () { newPayment(); }, statements: function () { openStatements(); }, findClaim: function () { selectLeftTab("claim"); findCmd(); },
        editPatient: function () { selectLeftTab("patient"); findCmd(); },
-       printClaims: function () { selectLeftTab("claim"); S.grids.claim.f = { status: "Ready" }; renderGridHead(); renderGridBody();
-         setMsg("Ready-to-submit claims are listed on the left. Open one and press Print."); }
+       printClaims: openPrintClaims
     })[b.dataset.go]();
   });
 
@@ -2376,6 +2396,78 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   }
   function setPageMargin(red) { $("pagestyle").textContent = "@page { size: letter; margin: " + (red ? "0" : "0.35in") + "; }"; }
 
+  // ============ Print Claims - EZClaim's paper-billing batch ============
+  function openPrintClaims() {
+    for (var i = 0; i < S.docs.length; i++) if (S.docs[i].kind === "printclaims") { S.docs[i].errRows = null; return activate(i); }
+    addDoc({ kind: "printclaims", id: "printclaims", filter: "ready", checked: {}, errRows: null, errIds: [], dirty: false });
+  }
+  function pcRows(d) {   // EZClaim: Ready to Submit = status Ready and method Paper and billed to a payer
+    return S.data.claim.filter(function (c) {
+      if (c.error) return false;
+      if (d.filter === "ready") return c.billing === "draft" && (c.method || "paper") === "paper" && c.insurer;
+      if (d.filter === "paper") return (c.method || "paper") === "paper";
+      return true; });
+  }
+  function renderPrintClaims() {
+    var d = cur(), rows = pcRows(d), n = 0, chg = 0;
+    $("pcRows").innerHTML = rows.length ? rows.map(function (c) {
+      if (d.checked[c.id]) { n++; chg += c.charges || 0; }
+      return '<tr class="item' + (d.errIds.indexOf(c.id) >= 0 ? " owe" : "") + '" data-open="' + esc(c.id) + '"><td class="ic"><input type="checkbox" data-pcck="' + esc(c.id) + '"' + (d.checked[c.id] ? " checked" : "") + '></td><td>' + esc(c.patient_name) + '</td><td>' + esc(c.date_of_service) +
+        '</td><td class="n">' + fmt(c.charges) + '</td><td class="n">' + fmt(c.balance) + '</td><td>' + esc(c.clinic_name || "") + '</td><td>' + esc(c.insurer) + '</td><td>' + esc(BILL[c.billing] || c.billing) + '</td></tr>'; }).join("")
+      : '<tr class="empty"><td colspan="8">' + (d.filter === "ready" ? "No claims are Ready to Submit." : "No claims.") + '</td></tr>';
+    $("pcFoot").textContent = "Shown: " + rows.length + ", Checked: " + n + ", Charges Checked: " + fmt(chg);
+    $("pc_all").checked = rows.length > 0 && n === rows.length;
+    $("pcErrBox").hidden = !d.errRows;
+    if (d.errRows) $("pcErrRows").innerHTML = d.errRows.length ? d.errRows.map(function (r) {
+      return '<tr class="item" data-open="' + esc(r.id) + '"><td class="' + r.severity + '">' + r.severity + '</td><td>' + esc(r.message) + '</td><td>' + esc(r.name) + '</td><td>' + esc(r.dob) + '</td><td>' + esc(r.account) + '</td><td>' + esc(r.dos) + '</td><td>' + esc(r.proc) + '</td></tr>'; }).join("")
+      : '<tr class="empty"><td colspan="7">No errors or warnings.</td></tr>';
+    $("pcmsg").textContent = "This catches data-entry mistakes. It does not check coding.";
+  }
+  $("pcView").addEventListener("change", function (e) {
+    var d = cur(); if (!d || d.kind !== "printclaims") return;
+    if (e.target.dataset.pcck) { d.checked[e.target.dataset.pcck] = e.target.checked; renderPrintClaims(); }
+    if (e.target.id === "pc_all") { d.checked = {}; if (e.target.checked) pcRows(d).forEach(function (c) { d.checked[c.id] = true; }); renderPrintClaims(); }
+  });
+  $("btncol").addEventListener("change", function (e) { var d = cur(); if (d && d.kind === "printclaims" && e.target.name === "pcf") { d.filter = e.target.value; d.checked = {}; d.errRows = null; d.errIds = []; renderPrintClaims(); } });
+  $("pcView").addEventListener("dblclick", function (e) { var tr = e.target.closest("[data-open]"); if (tr) openRec("claim", tr.dataset.open); });
+  function pcPrint(d, previewOnly) {
+    var ids = pcRows(d).filter(function (c) { return d.checked[c.id]; }).map(function (c) { return c.id; });
+    if (!ids.length) return setMsg("Check the claims to print first.");
+    setMsg("Checking " + ids.length + " claim(s) for errors…");
+    api("POST", "/api/print_check", JSON.stringify({ ids: ids })).then(function (r) {
+      d.errRows = r.rows; d.errIds = [];
+      r.rows.forEach(function (x) { if (x.severity === "Error" && d.errIds.indexOf(x.id) < 0) d.errIds.push(x.id); });
+      d.errIds.forEach(function (id) { delete d.checked[id]; });   // an Error keeps the claim from printing
+      renderButtons(); renderPrintClaims();
+      var go = ids.filter(function (id) { return d.errIds.indexOf(id) < 0; });
+      if (!go.length) return setMsg("Nothing printed: every checked claim has an error. Fix them (double-click a line) or put them On Hold.");
+      if (d.errIds.length && !confirm(d.errIds.length + " claim(s) have errors and were unchecked - they won't print.\n\nPrint the other " + go.length + "?")) return setMsg("Nothing printed.");
+      return Promise.all([loadPrefs()].concat(go.map(function (id) { return api("GET", "/api/rec/" + id); }))).then(function (res) {
+        var docs = res.slice(1).map(function (x) { return { kind: "claim", id: x.id, data: prep("claim", x.data) }; });
+        var red = PR.form !== "always";
+        var html = docs.map(function (cd) { return red ? formPage(formItems(cd, false), previewOnly && PR.form === "preview") : '<div class="fpage plain pcplain">' + replicaHtml(cd) + '</div>'; }).join("");
+        if (previewOnly) {
+          $("pvPage").innerHTML = html; $("pvTitle").textContent = "Print Preview - " + docs.length + " claim(s)"; $("pvNote").textContent = "Preview only. Use Print Claims to print and record them.";
+          $("pview").hidden = false; $("pvPrint").hidden = true; fitPreview(); setMsg(""); return;
+        }
+        setPageMargin(red); $("print").innerHTML = html; window.print();
+        if (!confirm("Did all the claims print properly?\n\nYes marks these " + docs.length + " claim(s) Submitted with today's bill date.")) return setMsg("Nothing recorded. Fix the printer and print again.");
+        return api("POST", "/api/claims/printed", JSON.stringify({ ids: go, date: mdy(new Date()) })).then(function (r2) {
+          d.checked = {}; setMsg(r2.updated + " claim(s) printed and marked Submitted."); return loadAll().then(function () { if (cur() === d) renderPrintClaims(); });
+        });
+      });
+    }).catch(function (e) { setMsg("Print Claims stopped: " + e.message); });
+  }
+  function pcHold(d) {
+    if (!d.errIds.length) return;
+    if (!confirm("Set the " + d.errIds.length + " claim(s) with errors to On Hold?")) return;
+    Promise.all(d.errIds.map(function (id) { return api("GET", "/api/rec/" + id).then(function (r) {
+      var c = r.data; c.tracking = c.tracking || {}; c.tracking.billing = "hold";
+      return api("POST", "/api/save", JSON.stringify({ kind: "claim", id: id, data: c })); }); }))
+      .then(function () { setMsg(d.errIds.length + " claim(s) put On Hold."); d.errIds = []; d.errRows = null; renderButtons(); return loadAll().then(renderPrintClaims); })
+      .catch(function (e) { setMsg("Couldn’t put them on hold: " + e.message); });
+  }
+
   // ============ tasks, templates, merge ============
   function newTask(from) {
     var t = { status: "Not Started", priority: "Normal", assigned: S.user, start: mdy(new Date()) };
@@ -2674,7 +2766,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
     pv.test = false; loadPrefs().then(showPreview);
   }
   function showPreview() {
-    var d = cur(), red = PR.form !== "always";
+    var d = cur(), red = PR.form !== "always"; $("pvPrint").hidden = false;
     $("pvMode").value = PR.form;
     $("pvPage").innerHTML = pv.test ? formPage(formItems(d, true), true)
       : red ? formPage(formItems(d, false), PR.form === "preview") : '<div class="fpage plain" id="pvPlain">' + replicaHtml(d) + '</div>';

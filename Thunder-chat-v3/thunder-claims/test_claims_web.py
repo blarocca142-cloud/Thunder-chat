@@ -376,6 +376,20 @@ st, j, _ = req("POST", "/api/save", {"kind": "patient", "data": {"last_name": "D
 check("a duplicate account number is refused (Require Unique)", st == 400 and "already used" in j.get("error", ""), j)
 req("POST", "/api/settings", {"setup": {"account_prefix": "", "next_account": ""}}, token=TOK)
 
+print("print claims (paper batch)")
+bad = req("POST", "/api/save", {"kind": "claim", "data": {"patient_name": "NO, BILLER", "procedures": [{"code": "98941", "charge": "50"}]}}, token=TOK)[1]["id"]
+good = req("POST", "/api/save", {"kind": "claim", "data": {"patient_name": "GOOD, CLAIM", "dob": "01/01/1980", "insurer": "Test Mutual", "insurer_address": "PO Box 1, Tampa, FL 33601",
+    "claim_number": "PIP-1", "clinic_name": "SAMPLE CHIRO", "clinic_npi": "1234567893", "clinic_tax_id": "12-3456789", "treating_npi": "1234567893", "place_of_service": "11",
+    "diagnoses": [{"code": "S13.4XXA"}], "procedures": [{"code": "98941", "charge": "50", "date": "09/01/2026"}], "tracking": {"billing": "draft"}}}, token=TOK)[1]["id"]
+st, j, _ = req("POST", "/api/print_check", {"ids": [bad, good]}, token=TOK)
+msgs = {r["message"] for r in j["rows"] if r["id"] == bad and r["severity"] == "Error"}
+check("the error check uses EZClaim's messages and blocks a claim with no payer or billing provider",
+      {"The payer is missing.", "Billing Provider is missing.", "Needs DX"} <= msgs, msgs)
+check("a complete claim has no errors", not [r for r in j["rows"] if r["id"] == good and r["severity"] == "Error"], [r for r in j["rows"] if r["id"] == good])
+st, j, _ = req("POST", "/api/claims/printed", {"ids": [good, "../x"], "date": "09/30/2026"}, token=TOK)
+g = req("GET", f"/api/rec/{good}", token=TOK)[1]["data"]["tracking"]
+check("confirming the print marks it Submitted with the bill date, and skips bad ids", j["updated"] == 1 and g["billing"] == "sent" and g["sent_date"] == "09/30/2026" and g["last_printed"] == "09/30/2026", (j, g))
+
 print("company files")
 st, j, _ = req("GET", "/api/companies", token=TOK)
 check("one company to start with, and it is open", st == 200 and j["companies"] == ["Main"] and j["current"] == "Main", j)
