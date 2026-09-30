@@ -24,6 +24,11 @@ TMP = Path(tempfile.mkdtemp(prefix="claims_web_test_"))
 os.environ["THUNDER_VAULT"] = str(TMP / "vault")
 os.environ["THUNDER_VAULT_KEY"] = str(TMP / "vault.key")
 os.environ["THUNDER_CLAIMS_USERS"] = str(TMP / "users.json")
+# never the real office files on Main
+os.environ["THUNDER_CLAIMS_SETTINGS"] = str(TMP / "settings.json")
+os.environ["THUNDER_CLAIMS_PREFS"] = str(TMP / "prefs.json")
+os.environ["THUNDER_CLAIMS_COMPANIES"] = str(TMP / "companies.json")
+os.environ["THUNDER_CLAIMS_COMPANY_DIR"] = str(TMP / "companies")
 os.environ.pop("THUNDER_CLAIMS_PASSWORD", None)
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -293,6 +298,45 @@ check("seeding from past claims adds only codes not already there", st == 200 an
 check("seeding twice adds nothing", req("POST", "/api/procedures/from_claims", {}, token=TOK)[1]["added"] == 0)
 st, _, _ = req("POST", "/api/procedures/from_claims", {})
 check("the library needs a login", st == 401)
+
+print("company files")
+st, j, _ = req("GET", "/api/companies", token=TOK)
+check("one company to start with, and it is open", st == 200 and j["companies"] == ["Main"] and j["current"] == "Main", j)
+st, j, _ = req("POST", "/api/company/new", {"name": "Tampa Office!"}, token=TOK)
+check("a company name with spaces or symbols is refused (EZClaim's rule)", st == 400, j)
+st, j, _ = req("POST", "/api/company/new", {"name": "Tampa_Office"}, token=TOK)
+check("the owner can create a company, and it opens", st == 200 and j["company"] == "Tampa_Office"
+      and req("GET", "/api/companies", token=TOK)[1]["current"] == "Tampa_Office", j)
+check("a new company starts empty: no claims, patients or codes",
+      all(not req("GET", f"/api/list?kind={k}", token=TOK)[1]["records"] for k in ("claim", "patient", "procedure")))
+st, j, _ = req("POST", "/api/save", {"kind": "patient", "data": {"last_name": "TAMPA", "first_name": "ONLY"}}, token=TOK)
+check("account numbers start at 1000 in each company", j["data"]["account_number"] == "1000", j.get("data"))
+req("POST", "/api/settings", {"statement": {"return_name": "Tampa Practice LLC"}}, token=TOK)
+req("POST", "/api/company/open", {"name": "Main"}, token=TOK)
+names = [r["patient_name"] for r in req("GET", "/api/list?kind=patient", token=TOK)[1]["records"]]
+check("Main does not see Tampa's patient", "TAMPA, ONLY" not in names and names, names)
+check("settings are per company", req("GET", "/api/settings", token=TOK)[1]["statement"]["return_name"] != "Tampa Practice LLC")
+vault_tampa = TMP / "companies" / "Tampa_Office" / "records"
+check("Tampa's records are encrypted in Tampa's own vault", any(vault_tampa.glob("pt-*.rec"))
+      and b"TAMPA" not in b"".join(f.read_bytes() for f in vault_tampa.glob("*.rec")))
+os.environ["CLAIMS_NEW_PASSWORD"] = "another fake passphrase 2"
+subprocess.run([sys.executable, str(Path(__file__).parent / "claims_web.py"), "adduser", "clerk"], env=os.environ, capture_output=True, check=True)
+subprocess.run([sys.executable, str(Path(__file__).parent / "claims_web.py"), "revoke", "clerk", "*"], env=os.environ, capture_output=True, check=True)
+subprocess.run([sys.executable, str(Path(__file__).parent / "claims_web.py"), "grant", "clerk", "Tampa_Office"], env=os.environ, capture_output=True, check=True)
+st, j, _ = req("POST", "/api/login", {"user": "clerk", "password": "another fake passphrase 2"})
+CT = j.get("token")
+check("a user granted only Tampa logs straight into Tampa", st == 200 and j.get("company") == "Tampa_Office" and j.get("companies") == ["Tampa_Office"], j)
+st, j, _ = req("POST", "/api/company/open", {"name": "Main"}, token=CT)
+check("and cannot open a company they have no permission for", st == 403, j)
+names = [r["patient_name"] for r in req("GET", "/api/list?kind=patient", token=CT)[1]["records"]]
+check("so they only ever see Tampa's patients", names == ["TAMPA, ONLY"], names)
+st, j, _ = req("POST", "/api/company/new", {"name": "Clerk_Made"}, token=CT)
+check("only the owner can create a company", st == 403, j)
+subprocess.run([sys.executable, str(Path(__file__).parent / "claims_web.py"), "revoke", "clerk", "Tampa_Office"], env=os.environ, capture_output=True, check=True)
+st, j, _ = req("GET", "/api/list?kind=patient", token=CT)
+check("revoking the company cuts off a live session on its next request", st == 409, (st, j))
+acc = [json.loads(x) for x in (Path(os.environ["THUNDER_VAULT"]) / "access.log").read_text().splitlines()]
+check("the access log names the company", any(a.get("company") == "Tampa_Office" and a["who"] == "clerk" for a in acc))
 
 print("network guard")
 r = subprocess.run([sys.executable, str(Path(__file__).parent / "claims_web.py"), "--host", "0.0.0.0", "--port", "1"],

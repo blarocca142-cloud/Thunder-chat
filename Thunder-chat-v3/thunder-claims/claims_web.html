@@ -51,6 +51,13 @@ input.yes { border-color: #3c9a6a; } input.no { border-color: var(--block); back
 .rtabs { display: flex; gap: 2px; padding: 3px 6px 0; align-items: flex-end; }
 .rtabs .app { font-weight: 700; color: #fff; background: linear-gradient(#d9892b, #b8621a); border: 1px solid #94501a; border-radius: 3px 3px 0 0; padding: 3px 12px; margin-right: 6px; }
 .rtabs .app span { color: #ffe6b8; }
+.rtabs button.app { cursor: pointer; font: inherit; font-weight: 700; } .rtabs button.app:hover, .rtabs button.app:focus { background: linear-gradient(#e89a3a, #c46e20); color: #fff; border-color: #94501a; }
+.ezmenu { position: fixed; z-index: 60; left: 4px; top: 26px; display: grid; grid-template-columns: 170px 230px; background: var(--white); border: 1px solid #888; box-shadow: 2px 3px 10px rgba(0,0,0,.3); }
+.ezmenu .l { border-right: 1px solid #ddd; padding: 4px 0; } .ezmenu .r { padding: 4px 0; }
+.ezmenu button { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 6px 14px; border-radius: 0; }
+.ezmenu button:hover:not(:disabled) { background: #fbe3a0; } .ezmenu h4 { margin: 2px 12px 4px; font-size: 11px; color: var(--mute); }
+.ezmenu button.cur { font-weight: 700; } .ezmenu button.cur::after { content: "  (open)"; font-weight: 400; color: var(--mute); }
+#coCompany { font-weight: 700; }
 .rtabs button.rt { border: 1px solid transparent; border-bottom: 0; background: none; border-radius: 3px 3px 0 0; padding: 3px 12px; color: var(--rib-ink); }
 .rtabs button.rt.on { background: #fffaf0; border-color: var(--rib-edge); font-weight: 700; margin-bottom: -1px; }
 .rtabs button.rt.ctx { color: #8a4a00; } .rtabs button.rt.ctx.on { background: #fff4df; }
@@ -717,7 +724,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   </div>
 </div>
 
-<div class="statusbar"><span id="loggedIn">Logged in as: …</span><button id="logoutBtn" type="button">Log Out</button><span>Local · encrypted on Main · nothing is ever sent to a payer</span>
+<div class="statusbar"><span id="loggedIn">Logged in as: …</span><span>Company: <b id="coName">…</b></span><button id="logoutBtn" type="button">Log Out</button><span>Local · encrypted on Main · nothing is ever sent to a payer</span>
   <span class="r banner" style="margin:0">Synthetic patients only</span></div>
 <input type="file" id="scanFile" accept=".png,.jpg,.jpeg,.tif,.tiff,.bmp,.pdf" hidden>
 <div id="print"></div>
@@ -740,6 +747,15 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   </div>
 </div>
 <datalist id="pxLib"></datalist>
+<div class="modal" id="newco" hidden>
+  <div class="mwin">
+    <div class="mt">New Company</div>
+    <div class="in"><p class="hint" style="margin-top:0">A company file is a whole separate set of patients, claims, payments, libraries and settings - one per office or LLC, as in EZClaim. Nothing is shared between companies.</p>
+      <div class="form"><label for="nc_name">Company Name:</label><input id="nc_name" class="span3" placeholder="e.g. Tampa_Office" maxlength="40"></div>
+      <p class="hint">Letters, numbers and underscores only.</p><p class="msg" id="nc_msg"></p></div>
+    <div class="mbar"><span class="spacer"></span><button id="ncOk" class="primary">Create &amp; Open</button><button id="ncCancel">Cancel</button></div>
+  </div>
+</div>
 <div class="modal" id="dlview" hidden>
   <div class="mwin wide">
     <div class="mt">Demand Letter - s. 627.736(10)</div>
@@ -1158,7 +1174,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
     var d = cur(), ctx = d && (d.kind === "claim" || d.kind === "patient") ? d.kind : null;
     if ((S.rtab === "claim" || S.rtab === "patient") && S.rtab !== ctx) S.rtab = "home";
     var tabs = [["home", "Home"]].concat(ctx ? [[ctx, ctx === "claim" ? "Claim" : "Patient"]] : []).concat([["tools", "Tools"], ["support", "Support"]]);
-    $("rtabs").innerHTML = '<span class="app">Thunder <span>Claims</span></span>' + tabs.map(function (t) {
+    $("rtabs").innerHTML = '<button class="app" id="ezBtn" type="button" title="Company files - New / Open Company">Thunder <span>Claims</span></button>' + tabs.map(function (t) {
       return '<button class="rt' + (t[0] === ctx ? " ctx" : "") + (S.rtab === t[0] ? " on" : "") + '" data-rt="' + t[0] + '">' + t[1] + '</button>'; }).join("") +
       '<span class="spacer"></span><span class="banner">Synthetic patients only</span>';
     ribbonFns = [];
@@ -1207,7 +1223,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
     $("doctabs").innerHTML = '<button class="dt' + (S.active < 0 ? " on" : "") + '" data-doc="-1">🏠 Home</button>' + S.docs.map(function (d, i) {
       return '<button class="dt' + (i === S.active ? " on" : "") + '" data-doc="' + i + '">' + KIND_ICON[d.kind] + " " + esc(docTitle(d)) + (d.dirty ? "*" : "") +
         '<span class="x" data-close="' + i + '" title="Close">✕</span></button>'; }).join("");
-    var d = cur(); document.title = (d ? docTitle(d) : "Home") + " - Thunder Claims";
+    var d = cur(); document.title = (d ? docTitle(d) : "Home") + (S.company ? " - " + S.company : "") + " - Thunder Claims";
   }
   $("doctabs").addEventListener("click", function (e) {
     var x = e.target.closest("[data-close]"); if (x) { e.stopPropagation(); return closeDoc(+x.dataset.close); }
@@ -2378,14 +2394,65 @@ body.locked > :not(.login):not(#print) { display: none !important; }
     if (!user || !pw) return showLogin("Enter your user name and password.");
     $("loginBtn").disabled = true; $("loginMsg").textContent = "Checking…";
     api("POST", "/api/login", JSON.stringify({ user: user, password: pw })).then(function (r) {
-      if (S.user && S.user !== r.user) { S.docs = []; S.active = -1; }  // someone else's open records never carry over
+      if ((S.user && S.user !== r.user) || (S.company && S.company !== r.company)) { S.docs = []; S.active = -1; }  // someone else's open records, or another company's, never carry over
       S.token = r.token; S.user = r.user; S.idle = r.idle_minutes || 15; lastAct = Date.now();
       $("lpass").value = ""; $("login").hidden = true; document.body.classList.remove("locked");
       $("loggedIn").textContent = "Logged in as: " + r.user.toUpperCase();
+      S.company = r.company; $("coName").textContent = r.company || "none";
+      if (!r.company) setMsg("You don’t have permission for any company yet - ask Blayne.");
       activate(S.active); loadAll();
     }).catch(function (err) { showLogin(err.message); }).finally(function () { $("loginBtn").disabled = false; });
   });
   $("logoutBtn").onclick = function () { lock("Logged out."); };
+
+  // ============ company files (EZClaim's EZ button) ============
+  var ez = null;
+  function closeEz() { if (ez) { ez.remove(); ez = null; } }
+  document.addEventListener("click", function (e) { if (ez && !e.target.closest(".ezmenu") && !e.target.closest("#ezBtn")) closeEz(); });
+  $("rtabs").addEventListener("click", function (e) {
+    if (!e.target.closest("#ezBtn")) return;
+    if (ez) return closeEz();
+    api("GET", "/api/companies").then(function (r) {
+      closeEz(); S.companies = r.companies; S.canCreate = r.can_create;
+      ez = document.createElement("div"); ez.className = "ezmenu";
+      ez.innerHTML = '<div class="l"><button data-ez="new"' + (r.can_create ? "" : ' disabled title="Only the owner can create a company"') + '>New Company…</button>' +
+        '<button data-ez="print">Print…</button><button data-ez="logout">Log Out</button></div>' +
+        '<div class="r"><h4>Companies:</h4>' + r.companies.map(function (n) { return '<button data-co="' + esc(n) + '"' + (n === r.current ? ' class="cur"' : "") + '>' + esc(n) + '</button>'; }).join("") + '</div>';
+      document.body.appendChild(ez);
+    }).catch(function (err) { setMsg("Couldn’t list companies: " + err.message); });
+  });
+  document.addEventListener("click", function (e) {
+    var b = e.target.closest(".ezmenu button"); if (!b) return;
+    closeEz();
+    if (b.dataset.co) return openCompany(b.dataset.co);
+    if (b.dataset.ez === "new") { $("nc_name").value = ""; $("nc_msg").textContent = ""; $("newco").hidden = false; $("nc_name").focus(); }
+    if (b.dataset.ez === "print") { var p = document.querySelector('#btncol [data-b="print"]'); if (p) p.click(); else setMsg("Open a claim to print it."); }
+    if (b.dataset.ez === "logout") lock("Logged out.");
+  });
+  function leaveDocs() {
+    if (S.docs.some(function (d) { return d.dirty; }) && !confirm("Some records have unsaved changes. Switch company and lose them?")) return false;
+    S.docs = []; S.active = -1; return true;
+  }
+  function companyOpened(name) {
+    S.company = name; $("coName").textContent = name || "none";
+    Object.keys(S.data).forEach(function (k) { S.data[k] = []; });
+    Object.keys(S.grids).forEach(function (k) { S.grids[k].sel = null; S.grids[k].f = {}; });
+    activate(-1); renderDocTabs(); loadAll(); setMsg(name ? "Opened company " + name + "." : "");
+  }
+  function openCompany(name) {
+    if (name === S.company) return;
+    if (!leaveDocs()) return;
+    api("POST", "/api/company/open", JSON.stringify({ name: name })).then(function (r) { companyOpened(r.company); })
+      .catch(function (err) { setMsg("Couldn’t open " + name + ": " + err.message); });
+  }
+  $("ncCancel").onclick = function () { $("newco").hidden = true; };
+  $("ncOk").onclick = function () {
+    var name = $("nc_name").value.trim();
+    if (!/^[A-Za-z0-9_]{2,40}$/.test(name)) { $("nc_msg").textContent = "Use letters, numbers and underscores only (for example Tampa_Office)."; return; }
+    if (!leaveDocs()) return;
+    api("POST", "/api/company/new", JSON.stringify({ name: name })).then(function (r) { $("newco").hidden = true; companyOpened(r.company); })
+      .catch(function (err) { $("nc_msg").textContent = err.message; });
+  };
   ["mousedown", "keydown", "wheel", "touchstart"].forEach(function (ev) { document.addEventListener(ev, function () { lastAct = Date.now(); }, true); });
   setInterval(function () {  // automatic logoff, matched by the server's own idle limit
     if (S.token && Date.now() - lastAct > S.idle * 60000) lock("Locked after " + S.idle + " idle minutes. Log in to carry on.");

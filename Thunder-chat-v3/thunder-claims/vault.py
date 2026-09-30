@@ -163,6 +163,18 @@ def blind(index_key: bytes, field: str, value: str) -> str:
 # --------------------------------------------------------------------------
 
 _actor = threading.local()
+_root = threading.local()
+
+
+def set_root(path) -> None:
+    """Point this thread at one company's vault (EZClaim's "company file").
+    The claims server serves several companies from one process; each
+    request is pinned to the one its session opened. None = THUNDER_VAULT."""
+    _root.path = Path(path) if path else None
+
+
+def root() -> Path:
+    return getattr(_root, "path", None) or VAULT
 
 
 def set_actor(name: str | None) -> None:
@@ -175,7 +187,7 @@ def set_actor(name: str | None) -> None:
 def audit(action: str, record: str, ok: bool, note: str = "") -> None:
     """Record ids and actions only. Putting the patient's name in the audit log
     would mean the log itself is PHI sitting in plaintext."""
-    VAULT.mkdir(parents=True, exist_ok=True)
+    root().mkdir(parents=True, exist_ok=True)
     line = json.dumps({
         "at": now(),
         "who": getattr(_actor, "name", None) or os.environ.get("THUNDER_USER") or getpass.getuser(),
@@ -185,7 +197,7 @@ def audit(action: str, record: str, ok: bool, note: str = "") -> None:
         "ok": ok,
         "note": note,
     })
-    path = VAULT / "audit.log"
+    path = root() / "audit.log"
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
     with os.fdopen(fd, "a") as f:
         f.write(line + "\n")
@@ -196,7 +208,7 @@ def audit(action: str, record: str, ok: bool, note: str = "") -> None:
 # --------------------------------------------------------------------------
 
 def records_dir() -> Path:
-    d = VAULT / "records"
+    d = root() / "records"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -415,7 +427,7 @@ def backup(out: Path, passphrase: str | None = None) -> None:
         tar.add(KEYFILE, arcname="vault.key")
         for path in sorted(records_dir().glob("*.rec")):
             tar.add(path, arcname=f"records/{path.name}")
-        log = VAULT / "audit.log"
+        log = root() / "audit.log"
         if log.exists():
             tar.add(log, arcname="audit.log")
     raw = buf.getvalue()

@@ -321,10 +321,17 @@ STATEMENT_DEFAULTS = {"return_name": "", "return_addr1": "", "return_addr2": "",
                       "hide_proc": False, "global_message": "", "messages": []}
 
 
+def settings_file() -> Path:
+    """Each company file has its own options, as in EZClaim. The first
+    company keeps the original settings file so nothing moves on upgrade."""
+    c = current_company()
+    return SETTINGS_FILE if not c or c.get("default") else Path(c["path"]) / "settings.json"
+
+
 def get_settings() -> dict:
     """Practice-wide options (return address and the like) - no patient data."""
     try:
-        s_ = json.loads(SETTINGS_FILE.read_text())
+        s_ = json.loads(settings_file().read_text())
     except (FileNotFoundError, ValueError):
         s_ = {}
     return {"statement": {**STATEMENT_DEFAULTS, **(s_.get("statement") or {})}}
@@ -344,12 +351,13 @@ def set_settings(body: dict) -> dict:
     msg = cur["global_message"].strip()
     if msg and msg not in cur["messages"]:  # the message list grows as messages are used, as in EZClaim
         cur["messages"] = ([msg] + cur["messages"])[:30]
-    SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    tmp = SETTINGS_FILE.with_suffix(".tmp")
+    sf = settings_file()
+    sf.parent.mkdir(parents=True, exist_ok=True)
+    tmp = sf.with_suffix(".tmp")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w") as f:
         json.dump({"statement": cur}, f, indent=2)
-    os.replace(tmp, SETTINGS_FILE)
+    os.replace(tmp, sf)
     return {"statement": cur}
 
 
@@ -750,8 +758,17 @@ class Sessions:
         with self.lock:
             for k in keys:
                 self.fails.pop(k, None)
-            self.live[tok] = {"user": user, "created": now, "last": now}
+            self.live[tok] = {"user": user, "created": now, "last": now, "company": None}
         return tok
+
+    def company(self, tok: str) -> str | None:
+        with self.lock:
+            return (self.live.get(tok) or {}).get("company")
+
+    def set_company(self, tok: str, name: str) -> None:
+        with self.lock:
+            if tok in self.live:
+                self.live[tok]["company"] = name
 
     def touch(self, tok: str) -> str | None:
         now = time.time()
@@ -775,6 +792,77 @@ class Sessions:
 
 
 SESSIONS = Sessions()
+
+
+# --------------------------------------------------------------------------
+# company files (EZClaim's EZ button: New Company / Open Company)
+# --------------------------------------------------------------------------
+#
+# In EZClaim a company file is a whole separate database: patients, claims,
+# every library and every setting. A billing service keeps one per office and
+# switches with Open Company; the title bar names the one that is open, and
+# each user is allowed into particular companies. Here each company is its
+# own vault directory. The first company is the original THUNDER_VAULT, so
+# nothing moves when this is switched on. Encryption key: the same vault key
+# for all of them (records are still encrypted one key per record).
+
+COMPANIES_FILE = Path(os.environ.get("THUNDER_CLAIMS_COMPANIES",
+                                     str(Path.home() / ".thunder" / "claims_companies.json")))
+COMPANY_DIR = Path(os.environ.get("THUNDER_CLAIMS_COMPANY_DIR", str(vault.VAULT.parent / "vault-companies")))
+COMPANY_RE = re.compile(r"^[A-Za-z0-9_]{2,40}$")  # EZClaim: letters, numbers and underscore only
+_ctx = threading.local()
+
+
+def load_companies() -> list[dict]:
+    try:
+        cs = json.loads(COMPANIES_FILE.read_text()).get("companies") or []
+    except (FileNotFoundError, ValueError):
+        cs = []
+    if not cs:
+        cs = [{"name": os.environ.get("THUNDER_CLAIMS_COMPANY", "Main"), "path": str(vault.VAULT), "default": True}]
+    return cs
+
+
+def save_companies(cs: list[dict]) -> None:
+    COMPANIES_FILE.parent.mkdir(parents=True, exist_ok=True)
+    tmp = COMPANIES_FILE.with_suffix(".tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        json.dump({"companies": cs}, f, indent=2)
+    os.replace(tmp, COMPANIES_FILE)
+
+
+def company(name: str) -> dict | None:
+    return next((c for c in load_companies() if c["name"].lower() == str(name or "").lower()), None)
+
+
+def new_company(name: str) -> dict:
+    name = str(name or "").strip()
+    if not COMPANY_RE.match(name):
+        raise ValueError("company names are letters, numbers and underscores only (2-40), e.g. Tampa_Office")
+    if company(name):
+        raise ValueError(f"there is already a company named {name}")
+    cs = load_companies()
+    path = COMPANY_DIR / name
+    path.mkdir(parents=True, exist_ok=True, mode=0o700)
+    c = {"name": name, "path": str(path), "created": time.strftime("%Y-%m-%d %H:%M")}
+    save_companies(cs + [c])
+    return c
+
+
+def allowed_companies(user: str) -> list[str]:
+    """A user's Company Permissions. Owners and users with no list (everyone
+    before company files existed) may open all of them."""
+    u = load_users().get(user) or {}
+    names = [c["name"] for c in load_companies()]
+    grant = u.get("companies")
+    if u.get("role") == "owner" or grant in (None, "*"):
+        return names
+    return [n for n in names if n in grant]
+
+
+def current_company() -> dict | None:
+    return getattr(_ctx, "company", None)
 
 
 PREFS_FILE = Path(os.environ.get("THUNDER_CLAIMS_PREFS",
@@ -822,8 +910,9 @@ def set_prefs(user: str, body: dict) -> dict:
 def access_log(who: str, ip: str, method: str, path: str, status: int) -> None:
     """Who asked for what, from where. Record ids only - no names, so the log
     is not itself PHI."""
+    c = current_company()
     line = json.dumps({"at": time.strftime("%Y-%m-%dT%H:%M:%S"), "who": who, "ip": ip,
-                       "method": method, "path": path[:200], "status": status})
+                       "company": c["name"] if c else "", "method": method, "path": path[:200], "status": status})
     path_ = vault.VAULT / "access.log"
     fd = os.open(path_, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
     with os.fdopen(fd, "a") as f:
@@ -893,6 +982,15 @@ class Handler(BaseHTTPRequestHandler):
                     who = "anonymous"
                     return self._send(401, {"error": "login required"})
             vault.set_actor(who)
+            if who != "anonymous":
+                name = SESSIONS.company(self._token())
+                ok = allowed_companies(who)
+                c = company(name) if name in ok else None
+                if c is None and not u.path.startswith("/api/compan") and u.path not in ("/api/whoami", "/api/logout"):
+                    return self._send(409, {"error": "open a company first", "companies": ok})
+                if c:
+                    _ctx.company = c
+                    vault.set_root(c["path"])
             (self._get if method == "GET" else self._post)(u, who, ip)
         except ValueError as e:
             self._send(400, {"error": str(e)})
@@ -900,8 +998,10 @@ class Handler(BaseHTTPRequestHandler):
             self._send(500, {"error": str(e).splitlines()[0] if str(e) else type(e).__name__})
         finally:
             vault.set_actor(None)
+            vault.set_root(None)
             if u.path not in ("/", "/index.html"):
                 access_log(who, ip, method, u.path + ("?" + u.query if u.query else ""), self._status)
+            _ctx.company = None
 
     def do_GET(self):
         self._handle("GET")
@@ -915,7 +1015,12 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/api/prefs":
             return self._send(200, get_prefs(who))
         if u.path == "/api/whoami":
-            return self._send(200, {"user": who, "idle_minutes": IDLE_SECONDS // 60})
+            c = current_company()
+            return self._send(200, {"user": who, "idle_minutes": IDLE_SECONDS // 60, "company": c["name"] if c else None})
+        if u.path == "/api/companies":
+            c = current_company()
+            return self._send(200, {"current": c["name"] if c else None, "companies": allowed_companies(who),
+                                    "can_create": (load_users().get(who) or {}).get("role") == "owner"})
         if u.path == "/api/list":
             kind = (parse_qs(u.query).get("kind") or ["claim"])[0]
             if kind not in KINDS:
@@ -966,10 +1071,32 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(401, {"error": "Wrong user name or password."})
             tok = SESSIONS.start(name, "u:" + name, "ip:" + ip)
             vault.set_actor(name)
-            return self._send(200, {"token": tok, "user": name, "idle_minutes": IDLE_SECONDS // 60})
+            ok = allowed_companies(name)
+            last = (load_users().get(name) or {}).get("last_company")
+            pick = last if last in ok else (ok[0] if ok else None)
+            SESSIONS.set_company(tok, pick)
+            return self._send(200, {"token": tok, "user": name, "idle_minutes": IDLE_SECONDS // 60,
+                                    "company": pick, "companies": ok})
         if u.path == "/api/logout":
             SESSIONS.end(self._token())
             return self._send(200, {"ok": True})
+        if u.path in ("/api/company/open", "/api/company/new"):
+            b = json.loads(self._body() or b"{}")
+            if u.path.endswith("/new"):
+                if (load_users().get(who) or {}).get("role") != "owner":
+                    return self._send(403, {"error": "only the owner can create a company"})
+                name = new_company(b.get("name"))["name"]
+            else:
+                c = company(b.get("name"))
+                if not c or c["name"] not in allowed_companies(who):
+                    return self._send(403, {"error": "you do not have permission for that company"})
+                name = c["name"]
+            SESSIONS.set_company(self._token(), name)
+            users = load_users()
+            if who in users:
+                users[who]["last_company"] = name
+                save_users(users)
+            return self._send(200, {"company": name})
         if u.path == "/api/prefs":
             return self._send(200, set_prefs(who, json.loads(self._body() or b"{}")))
         if u.path == "/api/settings":
@@ -1027,10 +1154,41 @@ def ask_password() -> str:
 
 def accounts(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="claims_web.py", description="Manage Thunder Claims logins.")
-    ap.add_argument("cmd", choices=["users", "adduser", "passwd", "disable", "enable"])
+    ap.add_argument("cmd", choices=["users", "adduser", "passwd", "disable", "enable",
+                                    "companies", "newcompany", "grant", "revoke"])
     ap.add_argument("name", nargs="?")
+    ap.add_argument("company", nargs="?", help="grant/revoke: a company name, or * for all")
     a = ap.parse_args(argv)
     users = load_users()
+    if a.cmd == "companies":
+        for c in load_companies():
+            who = [n for n in sorted(users) if c["name"] in allowed_companies(n)]
+            print(f"{c['name']:24} {c['path']}\n{'':24} users: {', '.join(who) or '-'}")
+        return 0
+    if a.cmd == "newcompany":
+        try:
+            c = new_company(a.name)
+        except ValueError as e:
+            raise SystemExit(str(e))
+        print(f"created company {c['name']} at {c['path']}")
+        return 0
+    if a.cmd in ("grant", "revoke"):
+        if a.name not in users or not a.company:
+            raise SystemExit(f"usage: {a.cmd} <user> <company|*>")
+        u = users[a.name]
+        if a.company == "*":
+            u["companies"] = "*" if a.cmd == "grant" else []
+        else:
+            c = company(a.company)
+            if not c:
+                raise SystemExit(f"no company {a.company}")
+            have = [n for n in allowed_companies(a.name)] if u.get("companies") in (None, "*") else list(u["companies"])
+            have = sorted(set(have) | {c["name"]}) if a.cmd == "grant" else [n for n in have if n != c["name"]]
+            u["companies"] = have
+        save_users(users)
+        print(f"{a.name}: {', '.join(allowed_companies(a.name)) or 'no companies'}"
+              + (" (owner - always all)" if u.get("role") == "owner" else ""))
+        return 0
     if a.cmd == "users":
         for n, u in sorted(users.items()):
             print(f"{n:16} {u.get('role', 'user'):6} {'DISABLED' if u.get('disabled') else 'active':8} changed {u.get('changed', '?')}")
@@ -1060,7 +1218,7 @@ def accounts(argv: list[str]) -> int:
 
 
 def main() -> int:
-    if len(sys.argv) > 1 and sys.argv[1] in ("users", "adduser", "passwd", "disable", "enable"):
+    if len(sys.argv) > 1 and sys.argv[1] in ("users", "adduser", "passwd", "disable", "enable", "companies", "newcompany", "grant", "revoke"):
         return accounts(sys.argv[1:])
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--host", default="127.0.0.1")
