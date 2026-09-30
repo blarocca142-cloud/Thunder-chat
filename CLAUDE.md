@@ -25,7 +25,12 @@ for. **That is Odris only:** on thunder-main `blayne` has passwordless sudo
 (`(ALL) NOPASSWD: ALL`, found 2026-09-28) - a standing security decision for
 the box that will hold claims data. Deploy by copying the file and `pkill`ing the process — `Restart=always`
 brings it back on the new code in 3s. The TTS service is a **systemd user**
-unit with lingering enabled, so `systemctl --user restart thunder-tts` works.
+unit, so `systemctl --user restart thunder-tts` works.
+**Lingering was in fact OFF until 2026-09-29** (`/var/lib/systemd/linger/` was
+empty; the user manager was alive only because Blayne was logged in at tty2) —
+so the user units would not have come back after a reboot or a logout. It is
+now on (`sudo loginctl enable-linger blayne`), which is what that claim always
+assumed.
 
 ## What runs where
 
@@ -35,7 +40,7 @@ unit with lingering enabled, so `systemctl --user restart thunder-tts` works.
   browser, for the Windows laptop on the LAN: http://10.168.168.10:8770/,
   user `blayne`. `thunder-claims/claims_web.py`, stdlib only, system
   `/usr/bin/python3` (3.14, cryptography 46.0.5). Runs as the **systemd user**
-  service `thunder-claims-web` (lingering, so no sudo:
+  service `thunder-claims-web` (no sudo to restart:
   `systemctl --user restart thunder-claims-web`); the unit is kept in the repo
   at `thunder-claims/thunder-claims-web.service`. HTTP basic auth, password in
   `~/.thunder/claims_web.env` (mode 600) — **never in the repo**, and
