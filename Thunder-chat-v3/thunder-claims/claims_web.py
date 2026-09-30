@@ -536,6 +536,47 @@ class Sessions:
 SESSIONS = Sessions()
 
 
+PREFS_FILE = Path(os.environ.get("THUNDER_CLAIMS_PREFS",
+                                 str(Path.home() / ".thunder" / "claims_prefs.json")))
+PRINT_DEFAULTS = {"form": "preview", "dx": 0.0, "dy": 0.0, "vshift": 0.0, "hshift": 0.0,
+                  "carrier_dx": 0.0, "carrier_dy": 0.0, "font": 12, "bottom_margin": False, "year4": False}
+
+
+def get_prefs(user: str) -> dict:
+    """Per-person printer settings for the red CMS-1500 forms (no patient data)."""
+    try:
+        allp = json.loads(PREFS_FILE.read_text())
+    except (FileNotFoundError, ValueError):
+        allp = {}
+    return {"print": {**PRINT_DEFAULTS, **(allp.get(user, {}).get("print") or {})}}
+
+
+def set_prefs(user: str, body: dict) -> dict:
+    pr = dict(PRINT_DEFAULTS)
+    src = (body or {}).get("print") or {}
+    if src.get("form") in ("preview", "always", "never"):
+        pr["form"] = src["form"]
+    for k in ("dx", "dy", "carrier_dx", "carrier_dy"):  # inches, a sheet's worth either way at most
+        pr[k] = max(-1.0, min(1.0, round(money(src.get(k)), 3)))
+    for k in ("vshift", "hshift"):                      # percent stretch across the page
+        pr[k] = max(-5.0, min(5.0, round(money(src.get(k)), 2)))
+    pr["font"] = int(src.get("font")) if str(src.get("font")) in ("10", "11", "12") else 12
+    pr["bottom_margin"] = bool(src.get("bottom_margin"))
+    pr["year4"] = bool(src.get("year4"))
+    try:
+        allp = json.loads(PREFS_FILE.read_text())
+    except (FileNotFoundError, ValueError):
+        allp = {}
+    allp.setdefault(user, {})["print"] = pr
+    PREFS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    tmp = PREFS_FILE.with_suffix(".tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        json.dump(allp, f, indent=2)
+    os.replace(tmp, PREFS_FILE)
+    return {"print": pr}
+
+
 def access_log(who: str, ip: str, method: str, path: str, status: int) -> None:
     """Who asked for what, from where. Record ids only - no names, so the log
     is not itself PHI."""
@@ -629,6 +670,8 @@ class Handler(BaseHTTPRequestHandler):
     def _get(self, u, who, ip):
         if u.path in ("/", "/index.html"):
             return self._send(200, PAGE.read_bytes(), "text/html; charset=utf-8")
+        if u.path == "/api/prefs":
+            return self._send(200, get_prefs(who))
         if u.path == "/api/whoami":
             return self._send(200, {"user": who, "idle_minutes": IDLE_SECONDS // 60})
         if u.path == "/api/list":
@@ -670,6 +713,8 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/api/logout":
             SESSIONS.end(self._token())
             return self._send(200, {"ok": True})
+        if u.path == "/api/prefs":
+            return self._send(200, set_prefs(who, json.loads(self._body() or b"{}")))
         if u.path == "/api/check":
             return self._send(200, assess(json.loads(self._body() or b"{}")))
         if u.path == "/api/save":

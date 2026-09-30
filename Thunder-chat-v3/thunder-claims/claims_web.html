@@ -254,6 +254,26 @@ label b, .pg td b { font-family: var(--mono); color: var(--block); font-weight: 
 .radios input { width: auto; height: auto; }
 .lines td.pd { font-variant-numeric: tabular-nums; text-align: right; padding: 0 6px; color: #333; }
 
+/* print preview, printer adjustment, red-form page */
+.modal { position: fixed; inset: 0; z-index: 90; background: rgba(40,30,10,.35); display: flex; align-items: flex-start; justify-content: center; padding: 20px 10px; overflow: auto; }
+.mwin { background: var(--pane); border: 1px solid var(--rib-edge); border-radius: 4px; box-shadow: 0 8px 30px rgba(0,0,0,.3); width: min(760px, 100%); }
+.mwin.wide { width: min(1000px, 100%); }
+.mwin .mt { background: linear-gradient(#d9892b, #b8621a); color: #fff; font-weight: 700; padding: 7px 12px; border-radius: 3px 3px 0 0; }
+.mwin .in { padding: 10px 12px; }
+.mbar { display: flex; gap: 8px; align-items: center; padding: 8px 10px; flex-wrap: wrap; }
+.mbar .spacer { flex: 1; }
+.mbar select { width: auto; }
+.adjform { grid-template-columns: max-content 170px 1fr; }
+.adjform .split button { flex: 0 0 30px; padding: 2px; }
+.pvpage { background: #8f8a7c; padding: 10px; overflow: auto; max-height: calc(100vh - 170px); }
+.pvpage .fpage { transform: scale(var(--pvscale, 1)); transform-origin: top left; margin-bottom: calc((var(--pvscale, 1) - 1) * 11in); box-shadow: 0 2px 8px rgba(0,0,0,.4); }
+.fpage { position: relative; width: 8.5in; height: 11in; background: #fff; overflow: hidden; }
+.fpage.plain { padding: 0.35in; font: 9pt/1.25 Arial, sans-serif; }
+.fpage .ft { position: absolute; font-family: "Courier New", Courier, monospace; line-height: 1; white-space: pre; color: #000; }
+.fpage .fr { position: absolute; height: 0; border-top: 1px solid #e0555a; }
+.fpage .fc { position: absolute; width: 0; border-left: 1px solid #e0555a; }
+#print .fpage { box-shadow: none; }
+
 /* login */
 .login { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center;
   background: radial-gradient(circle at 30% 20%, #fbf2dc, #e3d2a6); }
@@ -278,21 +298,21 @@ body.locked > :not(.login):not(#print) { display: none !important; }
 @media print {
   @page { size: letter; margin: 0.35in; }
   body { background: #fff; color: #000; display: block; }
-  .ribbon, .main, .statusbar, .ctxmenu { display: none !important; }
+  .ribbon, .main, .statusbar, .ctxmenu, .modal, .login { display: none !important; }
   #print { display: block; font: 9pt/1.25 Arial, Helvetica, sans-serif; color: #000; }
 }
-#print .ph { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 2px solid #000; padding-bottom: 4px; margin-bottom: 4px; }
-#print .ph h3 { margin: 0; font-size: 13pt; letter-spacing: 1px; }
-#print .carrier { font-size: 9pt; text-align: right; }
-#print .row { display: grid; border-left: 1px solid #000; }
-#print .c { border-right: 1px solid #000; border-bottom: 1px solid #000; padding: 2px 4px; min-height: 30px; }
-#print .c i { display: block; font-style: normal; font-size: 6.5pt; text-transform: uppercase; }
-#print .c span { font-family: "Courier New", monospace; font-size: 10pt; }
-#print .top { border-top: 1px solid #000; }
-#print table { border-collapse: collapse; width: 100%; margin: 0; }
-#print th, #print td { border: 1px solid #000; padding: 2px 4px; font-size: 8pt; }
-#print td { font-family: "Courier New", monospace; font-size: 9.5pt; height: 20px; }
-#print .note { font-size: 7pt; margin-top: 6px; }
+#print .ph, #pvPlain .ph { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 2px solid #000; padding-bottom: 4px; margin-bottom: 4px; }
+#print .ph h3, #pvPlain .ph h3 { margin: 0; font-size: 13pt; letter-spacing: 1px; }
+#print .carrier, #pvPlain .carrier { font-size: 9pt; text-align: right; }
+#print .row, #pvPlain .row { display: grid; border-left: 1px solid #000; }
+#print .c, #pvPlain .c { border-right: 1px solid #000; border-bottom: 1px solid #000; padding: 2px 4px; min-height: 30px; }
+#print .c i, #pvPlain .c i { display: block; font-style: normal; font-size: 6.5pt; text-transform: uppercase; }
+#print .c span, #pvPlain .c span { font-family: "Courier New", monospace; font-size: 10pt; }
+#print .top, #pvPlain .top { border-top: 1px solid #000; }
+#print table, #pvPlain table { border-collapse: collapse; width: 100%; margin: 0; }
+#print th, #print td, #pvPlain th, #pvPlain td { border: 1px solid #000; padding: 2px 4px; font-size: 8pt; }
+#print td, #pvPlain td { font-family: "Courier New", monospace; font-size: 9.5pt; height: 20px; }
+#print .note, #pvPlain .note { font-size: 7pt; margin-top: 6px; }
 </style>
 </head>
 <body class="locked">
@@ -443,6 +463,8 @@ body.locked > :not(.login):not(#print) { display: none !important; }
                   </tbody>
                   <tbody class="lockable">
                     <tr><th colspan="2">Insurance &amp; Injury</th></tr>
+                    <tr class="r"><td><b>1</b>Insurance type</td><td><select data-f="insurance_type"><option value="other">Other</option><option value="group">Group Health Plan</option>
+                      <option value="medicare">Medicare</option><option value="medicaid">Medicaid</option><option value="tricare">TRICARE</option><option value="champva">CHAMPVA</option><option value="feca">FECA Black Lung</option></select></td></tr>
                     <tr class="r"><td><b>1a</b>Insured's ID / Claim #</td><td><input data-f="claim_number"></td></tr>
                     <tr class="r"><td>Payer ID</td><td><input data-f="payer_id" class="code"></td></tr>
                     <tr class="r"><td>Carrier address</td><td><input data-f="insurer_address"></td></tr>
@@ -629,6 +651,25 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   <span class="r banner" style="margin:0">Synthetic patients only</span></div>
 <input type="file" id="scanFile" accept=".png,.jpg,.jpeg,.tif,.tiff,.bmp,.pdf" hidden>
 <div id="print"></div>
+<style id="pagestyle">@page { size: letter; margin: 0.35in; }</style>
+<div class="modal" id="pview" hidden>
+  <div class="mwin wide">
+    <div class="mt"><span id="pvTitle">Print Preview</span></div>
+    <div class="mbar"><button id="pvPrint" class="primary">🖨 Print</button>
+      <label>Print Form with Data: <select id="pvMode"><option value="preview">Preview Only (red forms)</option><option value="never">Never (red forms)</option><option value="always">Always (plain paper)</option></select></label>
+      <button id="pvAdjust">Printer Adjustment…</button><span class="spacer"></span><button id="pvClose">Close</button></div>
+    <div class="hint" id="pvNote" style="padding:0 10px 6px"></div>
+    <div class="pvpage" id="pvPage"></div>
+  </div>
+</div>
+<div class="modal" id="padj" hidden>
+  <div class="mwin">
+    <div class="mt">Printer Adjustment</div>
+    <div class="in"><p class="hint" style="margin-top:0">Only needed for pre-printed red CMS-1500 forms. Load a form, Print Test Page, and adjust until the X sits in the centre of the Medicare box. Re-feed the same sheet while adjusting. Then Save.</p>
+      <div class="form adjform" id="adjForm"></div></div>
+    <div class="mbar"><button id="adjTest">Print Test Page</button><span class="spacer"></span><button id="adjSave" class="primary">Save</button><button id="adjClose">Cancel</button></div>
+  </div>
+</div>
 
 <script>
 (function () {
@@ -971,7 +1012,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
       { cap: "List", items: [big("📄", "Claims", function () { listPatientClaims(cur()); })] }, help];
     if (S.rtab === "tools") return [
       { cap: "Import", items: [big("📷", "Claim from a Scan", scanCmd)] },
-      { cap: "Options", items: [big("⚙", "Program Setup", null, false, SOON)] },
+      { cap: "Options", items: [big("🖨", "Printer Adjustment", openAdjust), big("⚙", "Program Setup", null, false, SOON)] },
       { cap: "Security", small: 1, items: [small("🚪", "Log Out", function () { lock("Logged out."); }), small("👥", "Login as another user", function () { lock("Log in as another user."); }),
         small("🔑", "Change Password", null, false, "On Main: claims_web.py passwd <name>")] },
       { cap: "Company", items: [big("💾", "Backup", null, false, "Run vault.py backup on Main")] }, help];
@@ -1270,7 +1311,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   // ============ claim screen ============
   function renderClaim() {
     var d = cur(), c = d.data, t = c.tracking;
-    qa("#claimView [data-f]").forEach(function (el) { el.value = c[el.dataset.f] || (el.dataset.f === "place_of_service" ? "11" : ""); });
+    qa("#claimView [data-f]").forEach(function (el) { el.value = c[el.dataset.f] || ({ place_of_service: "11", insurance_type: "other" }[el.dataset.f] || ""); });
     qa("#claimView [data-t]").forEach(function (el) { if (el.type === "checkbox") el.checked = !!t[el.dataset.t]; else el.value = t[el.dataset.t] || ""; });
     $("claimId").value = d.id || "New";
     var dx = "";
@@ -1407,10 +1448,19 @@ body.locked > :not(.login):not(#print) { display: none !important; }
 
   // scrub
   var timer = null;
+  function ptrIdx(p) { return (String(p || "").toUpperCase().match(/\d+|[A-L]/g) || []).map(function (t) { return /\d/.test(t) ? +t - 1 : LETTERS.indexOf(t); }); }
   function cleaned(c) {
-    var x = clone(c);
+    // Blank diagnosis slots are dropped, so the later ones move up (E becomes C
+    // if C and D are empty). Every service line's pointer is renumbered to match,
+    // so it still points at the same code.
+    var x = clone(c), map = {}, n = 0;
+    x.diagnoses.forEach(function (dx, i) { if ((dx.code || dx.description || "").trim()) map[i] = n++; });
     x.diagnoses = x.diagnoses.filter(function (dx) { return (dx.code || dx.description || "").trim(); }).map(function (dx) { dx.code = dotted(dx.code); return dx; });
-    x.procedures = x.procedures.filter(function (p) { return (p.code || p.description || "").trim(); });
+    x.procedures = x.procedures.filter(function (p) { return (p.code || p.description || "").trim(); }).map(function (p) {
+      var raw = String(p.pointer || ""), idx = ptrIdx(raw).map(function (i) { return map[i]; }).filter(function (v) { return v != null; });
+      p.pointer = /\d/.test(raw) ? idx.map(function (i) { return i + 1; }).join(" ") : idx.map(function (i) { return LETTERS[i]; }).join("");
+      return p;
+    });
     return x;
   }
   function changed() { markDirty(); scrubSoon(); }
@@ -1701,8 +1751,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   }
 
   // ============ print (CMS-1500 layout) ============
-  function printClaim() {
-    var d = cur(); if (!d || d.kind !== "claim") return;
+  function replicaHtml(d) {
     var c = cleaned(d.data), t = c.tracking;
     var cell = function (label, val, extra) { return '<div class="c"' + (extra || "") + '><i>' + label + '</i><span>' + esc(val || "") + '</span></div>'; };
     var dx = c.diagnoses.map(function (x, i) { return LETTERS[i] + ". " + (x.code || ""); }); while (dx.length < 12) dx.push(LETTERS[dx.length] + ".");
@@ -1712,7 +1761,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
         '</td><td>' + esc(ptrLetters(p.pointer)) + '</td><td style="text-align:right">' + amt.toFixed(2) + '</td><td>' + units + '</td><td>' + esc(c.treating_npi) + '</td></tr>';
     });
     while (rows.length < 6) rows.push('<tr><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>');
-    $("print").innerHTML =
+    return (
       '<div class="ph"><div><h3>HEALTH INSURANCE CLAIM FORM</h3><div style="font-size:7pt">Plain-paper copy for review and filing (CMS-1500 layout)</div></div>' +
       '<div class="carrier">' + esc(c.insurer) + '<br>' + esc(c.insurer_address) + (c.payer_id ? '<br>Payer ID ' + esc(c.payer_id) : "") + '</div></div>' +
       '<div class="row top" style="grid-template-columns:2fr 1fr">' + cell("1a. Insured’s ID / claim number", c.claim_number) + cell("3. Patient birth date / sex", (c.dob || "") + "  " + (c.sex || "")) + '</div>' +
@@ -1726,16 +1775,202 @@ body.locked > :not(.login):not(#print) { display: none !important; }
       '<div class="row" style="grid-template-columns:1fr 1fr 1fr">' + cell("31. Signature of physician", c.treating_provider) + cell("32. Service facility", c.clinic_name) +
         cell("33. Billing provider &amp; phone", (c.clinic_name || "") + "  " + (c.clinic_address || "") + (c.clinic_npi ? "  NPI " + c.clinic_npi : "")) + '</div>' +
       '<div class="note">Status: ' + esc(BILL[t.billing] || "") + (t.sent_date ? " · billed " + esc(t.sent_date) : "") + (t.paid_amount ? " · paid " + fmt(money(t.paid_amount)) : "") +
-        '. Payers that take paper claims need the red-ink CMS-1500 form; this copy is for review and your files.</div>';
+        '. Payers that take paper claims need the red-ink CMS-1500 form; this copy is for review and your files.</div>');
+  }
+
+  // ============ red CMS-1500 forms (printing onto pre-printed forms) ============
+  // Positions measured from the official CMS-1500 (02/12) PDF at true scale,
+  // in inches from the sheet's top-left. The form is laid out on a 10-characters-
+  // per-inch, 6-lines-per-inch grid, so text is Courier New 12pt and every data
+  // line sits on a whole line (y = line / 6). Printer Adjustment corrects for the
+  // individual printer, as in EZClaim.
+  var FORM = {
+    box1: { medicare: 0.42, medicaid: 1.09, tricare: 1.79, champva: 2.69, group: 3.40, feca: 4.20, other: 4.80 },
+    sex3: { M: 4.50, F: 5.00 }, rel6: { self: 3.60, spouse: 4.11, child: 4.50, other: 5.00 },
+    yes10: 3.80, no10: 4.40, sex11a: { M: 7.10, F: 7.80 }, d11: { yes: 5.49, no: 6.00 }, lab20: { yes: 5.50, no: 6.01 },
+    ssn: 2.02, ein: 2.21, accept: { yes: 4.19, no: 4.69 },
+    // horizontal rules and the vertical box edges between them - only used to draw the red outline in the preview
+    rules: [8, 10, 12, 14, 18, 26, 28, 32, 34, 36, 38, 40, 42, 44, 46, 48, 50, 52, 54, 56, 58, 61.83, 63],
+    cols: [[8, 10, [0.34, 5.21, 8.23]], [10, 18, [0.34, 3.2, 5.21, 8.23]], [18, 26, [0.34, 3.2, 5.21, 8.23]], [26, 28, [0.34, 3.2, 5.21, 8.23]],
+      [28, 34, [0.34, 5.21, 8.23]], [34, 36, [0.34, 3.0, 5.21, 8.23]], [36, 42, [0.34, 5.21, 8.23]],
+      [42, 46, [0.34, 1.2, 2.1, 2.42, 2.72, 3.44, 4.7, 5.21, 6.1, 6.5, 6.7, 7.0, 8.23]], [46, 56, [0.34, 1.2, 2.1, 2.42, 2.72, 3.44, 4.7, 5.21, 6.1, 6.5, 6.7, 7.0, 8.23]],
+      [56, 58, [0.34, 2.1, 2.5, 3.97, 5.21, 6.33, 7.28, 8.23]], [58, 63, [0.34, 2.5, 5.21, 8.23]]]
+  };
+  var PR = { form: "preview", dx: 0, dy: 0, vshift: 0, hshift: 0, carrier_dx: 0, carrier_dy: 0, font: 12, bottom_margin: false, year4: false };
+  function loadPrefs() { return api("GET", "/api/prefs").then(function (r) { PR = r.print; }).catch(function () {}); }
+  function up(s) { return String(s == null ? "" : s).toUpperCase().replace(/[.,#]/g, " ").replace(/\s+/g, " ").trim(); }
+  function digits(s) { return String(s || "").replace(/\D/g, ""); }
+  function dparts(s) { var d = parseDate(s); return d ? [pad(d.getMonth() + 1), pad(d.getDate()), String(d.getFullYear())] : null; }
+  function mdyS(s, y4) { var p = dparts(s); return p ? p[0] + " " + p[1] + " " + (y4 ? p[2] : p[2].slice(2)) : ""; }
+  function parseAddr(s) {  // "123 Main St, Suite 4, Anytown, NY 12345" -> street / city / state / zip
+    var parts = String(s || "").split(",").map(function (x) { return x.trim(); }).filter(Boolean), out = { street: "", city: "", state: "", zip: "" };
+    if (!parts.length) return out;
+    var last = parts[parts.length - 1], m = last.match(/^(?:(.*?)\s+)?([A-Za-z]{2})\s+(\d{5}(?:-?\d{4})?)$/);
+    if (m) { out.state = m[2]; out.zip = m[3]; parts.pop(); if (m[1]) out.city = m[1]; else if (parts.length > 1) out.city = parts.pop(); }
+    else if (parts.length > 1) out.city = parts.pop();
+    out.street = parts.join(" ");
+    return out;
+  }
+  function phoneParts(s) { var d = digits(s).replace(/^1(?=\d{10}$)/, ""); return d.length === 10 ? [d.slice(0, 3), d.slice(3)] : ["", d]; }
+  function lastFirst(s) { return up(String(s || "").replace(/,/, " ")); }
+  function formItems(d, test) {
+    var it = [], add = function (x, line, text, max, opt) { text = up(text); if (!text) return; if (max) text = text.slice(0, max); it.push({ x: x, line: line, text: text, o: opt || {} }); };
+    var X = function (x, line) { it.push({ x: x - 0.05, line: line, text: "X", o: {} }); };
+    if (test) {
+      X(FORM.box1.medicare, 9); add(0.42, 11, "PATIENT NAME STARTS HERE", 28); add(5.29, 9, "INSURED ID 1A", 28);
+      add(0.40, 45, "01 02 26 01 02 26"); add(2.80, 45, "99213"); add(5.82 - 0.3, 45, "125"); add(5.86, 45, "00"); add(7.06, 45, "1234567893");
+      add(0.42, 57, "12-3456789"); add(5.29, 60, "BILLING PROVIDER LINE"); add(4.35, 2, "CARRIER NAME", 36, { carrier: 1 }); add(4.35, 3, "CARRIER ADDRESS", 36, { carrier: 1 });
+      add(0.42, 63.2, "TEST PAGE - THE X SHOULD SIT IN THE CENTER OF THE MEDICARE BOX", 70);
+      return it;
+    }
+    var c = cleaned(d.data), y4 = PR.year4, pa = parseAddr(c.address), ph = phoneParts(c.phone), ca = parseAddr(c.insurer_address), ba = parseAddr(c.clinic_address);
+    // carrier block, top right (window-envelope area)
+    add(4.35, 2, c.insurer, 36, { carrier: 1 }); add(4.35, 3, ca.street, 36, { carrier: 1 });
+    add(4.35, 4, [ca.city, ca.state, ca.zip].filter(Boolean).join(" "), 36, { carrier: 1 });
+    // 1 / 1a
+    X(FORM.box1[c.insurance_type || "other"] || FORM.box1.other, 9); add(5.29, 9, c.claim_number, 29);
+    // 2, 3, 4
+    add(0.42, 11, lastFirst(c.patient_name), 27);
+    var db = dparts(c.dob); if (db) { add(3.33, 11, db[0]); add(3.66, 11, db[1]); add(3.95, 11, db[2]); }
+    if (c.sex === "M" || c.sex === "F") X(FORM.sex3[c.sex], 11);
+    // 5, 6
+    add(0.42, 13, pa.street, 28); X(FORM.rel6.self, 13);
+    add(0.42, 15, pa.city, 24); add(2.93, 15, pa.state, 2);
+    add(0.42, 17, pa.zip, 12); add(1.84, 17, ph[0], 3); add(2.24, 17, ph[1], 9);
+    // 10 a-c: what the condition is related to, from "How it happened"
+    var how = String(c.accident_type || "").toLowerCase(), work = /work|job|employ|comp/.test(how), auto = /auto|motor|car|vehicle|mva|mvc|truck|motorcycle/.test(how);
+    X(work ? FORM.yes10 : FORM.no10, 21); X(auto ? FORM.yes10 : FORM.no10, 23); X(!work && !auto && how ? FORM.yes10 : FORM.no10, 25);
+    if (auto) add(4.62, 23, c.accident_state, 2);
+    // 11 d: another health benefit plan?
+    X(FORM.d11.no, 27);
+    // 12, 13
+    add(0.95, 31, "SIGNATURE ON FILE"); add(3.62, 31, mdyS(c.date_of_service, false)); add(5.70, 31, "SIGNATURE ON FILE");
+    // 14 date of injury, qualifier 431 (onset of current symptoms or illness)
+    if (c.date_of_injury) { add(0.44, 33, mdyS(c.date_of_injury, false)); add(2.30, 33, "431"); }
+    // 17 referring provider (qualifier DN) and 17b NPI
+    if (c.referring_provider) { add(0.42, 35, "DN"); add(0.72, 35, lastFirst(c.referring_provider), 22); }
+    add(3.35, 35, digits(c.referring_npi), 10);
+    // 21 diagnoses, ICD indicator 0 = ICD-10
+    add(4.95, 38, "0");
+    var dxx = [0.56, 1.86, 3.16, 4.46];
+    c.diagnoses.slice(0, 12).forEach(function (x, i) { add(dxx[i % 4], 39 + Math.floor(i / 4), String(x.code || "").replace(".", ""), 8); });
+    // 24 service lines
+    var total = 0;
+    c.procedures.slice(0, 6).forEach(function (p, i) {
+      var L = 45 + i * 2, ds = mdyS(p.date || c.date_of_service, false), units = money(p.units) || 1, amt = units * money(p.charge);
+      total += amt;
+      add(0.40, L, ds); add(1.27, L, ds); add(2.16, L, c.place_of_service, 2);
+      add(2.80, L, p.code, 5); [p.modifier, p.m2, p.m3, p.m4].forEach(function (m, k) { add([3.49, 3.84, 4.14, 4.44][k], L, m, 2); });
+      add(4.76, L, ptrLetters(p.pointer), 4);
+      var dol = String(Math.floor(amt + 0.0001)), cen = String(Math.round((amt - Math.floor(amt + 0.0001)) * 100)).padStart(2, "0");
+      add(5.82 - dol.length * 0.1, L, dol, 6); add(5.86, L, cen, 2);
+      add(6.16, L, String(units), 3); add(7.06, L, digits(c.treating_npi), 10);
+    });
+    // 25 - 28
+    add(0.42, 57, c.clinic_tax_id, 15); if (c.clinic_tax_id) X(FORM.ein, 57);
+    add(2.58, 57, c.account_number || String(d.id || "").slice(-12), 14);
+    X(FORM.accept.yes, 57);
+    var td = String(Math.floor(total + 0.0001)), tc = String(Math.round((total - Math.floor(total + 0.0001)) * 100)).padStart(2, "0");
+    add(6.04 - td.length * 0.1, 57, td, 7); add(6.09, 57, tc, 2);
+    // 31 - 33
+    var sm = PR.bottom_margin ? { small: 1 } : {};
+    add(0.42, 61, c.treating_provider, 11, sm); add(1.62, 61, mdyS(c.date_of_service, false), 8, sm);
+    add(2.58, 59, c.clinic_name, 26, sm); add(2.58, 60, ba.street, 26, sm); add(2.58, 61, [ba.city, ba.state, ba.zip].filter(Boolean).join(" "), 26, sm);
+    add(2.62, 62, digits(c.clinic_npi), 10, sm);
+    var bp = phoneParts(c.clinic_phone || "");
+    add(6.92, 58, bp[0], 3); add(7.28, 58, bp[1], 8);
+    add(5.29, 59, c.clinic_name, 29, sm); add(5.29, 60, ba.street, 29, sm); add(5.29, 61, [ba.city, ba.state, ba.zip].filter(Boolean).join(" "), 29, sm);
+    add(5.30, 62, digits(c.clinic_npi), 10, sm);
+    return it;
+  }
+  function place(x, line, o) {
+    var y = line / 6 - 0.025;
+    x = x * (1 + (PR.hshift || 0) / 100) + (PR.dx || 0);
+    y = y * (1 + (PR.vshift || 0) / 100) + (PR.dy || 0);
+    if (o.carrier) { x += PR.carrier_dx || 0; y += PR.carrier_dy || 0; }
+    return [x, y];
+  }
+  function formPage(items, outline) {
+    var h = '<div class="fpage">';
+    if (outline) {
+      FORM.rules.forEach(function (L) { var p = place(0.34, L - 0.09, {}), q = place(8.23, L - 0.09, {}); h += '<i class="fr" style="left:' + p[0] + 'in;top:' + (L / 6) + 'in;width:' + (q[0] - p[0]) + 'in"></i>'; });
+      FORM.cols.forEach(function (b) { b[2].forEach(function (x) { h += '<i class="fc" style="left:' + x + 'in;top:' + (b[0] / 6) + 'in;height:' + ((b[1] - b[0]) / 6) + 'in"></i>'; }); });
+    }
+    items.forEach(function (t) {
+      var p = place(t.x, t.line, t.o), fs = t.o.small ? Math.min(PR.font, 10) : PR.font;
+      h += '<span class="ft" style="left:' + p[0].toFixed(3) + 'in;top:' + p[1].toFixed(3) + 'in;font-size:' + fs + 'pt">' + esc(t.text) + '</span>';
+    });
+    return h + '</div>';
+  }
+  function setPageMargin(red) { $("pagestyle").textContent = "@page { size: letter; margin: " + (red ? "0" : "0.35in") + "; }"; }
+
+  // print preview window
+  var pv = { test: false };
+  function printClaim() {
+    var d = cur(); if (!d || d.kind !== "claim") return;
+    pv.test = false; loadPrefs().then(showPreview);
+  }
+  function showPreview() {
+    var d = cur(), red = PR.form !== "always";
+    $("pvMode").value = PR.form;
+    $("pvPage").innerHTML = pv.test ? formPage(formItems(d, true), true)
+      : red ? formPage(formItems(d, false), PR.form === "preview") : '<div class="fpage plain" id="pvPlain">' + replicaHtml(d) + '</div>';
+    $("pvTitle").textContent = pv.test ? "Printer test page" : "Print Preview - " + docTitle(d);
+    $("pvNote").textContent = pv.test ? "Load a red CMS-1500 form. The X should land in the centre of the Medicare box; if not, open Printer Adjustment."
+      : red ? "Red CMS-1500 forms: only the data prints. The red outline is for the preview only." : "Plain paper: the form lines and the data both print.";
+    $("pview").hidden = false; fitPreview();
+  }
+  function fitPreview() { var w = $("pvPage").clientWidth || 800; $("pvPage").style.setProperty("--pvscale", Math.min(1, (w - 20) / (8.5 * 96))); }
+  window.addEventListener("resize", function () { if (!$("pview").hidden) fitPreview(); });
+  $("pvMode").addEventListener("change", function () { PR.form = this.value; api("POST", "/api/prefs", JSON.stringify({ print: PR })).catch(function () {}); showPreview(); });
+  $("pvClose").onclick = function () { $("pview").hidden = true; };
+  $("pvAdjust").onclick = openAdjust;
+  $("pvPrint").onclick = function () {
+    var d = cur(), red = PR.form !== "always" || pv.test;
+    setPageMargin(red);
+    $("print").innerHTML = red ? formPage(formItems(d, pv.test), false) : replicaHtml(d);
     window.print();
+    if (pv.test || !d || d.kind !== "claim") return;
     // EZClaim: printing a claim sets Last Printed and moves Ready to Submit -> Submitted.
     var tr = d.data.tracking, today = mdy(new Date());
     tr.last_printed = today;
     var moved = tr.billing === "draft";
     if (moved) { tr.billing = "sent"; if (!tr.sent_date) tr.sent_date = today; }
-    markDirty(); renderClaim();
+    $("pview").hidden = true; markDirty(); renderClaim();
     setMsg(moved ? "Printed - marked Submitted. Save to keep it." : "Printed. Last Printed updated - Save to keep it.");
+  };
+
+  // Printer Adjustment (Home > Print > Printer Adjustment in EZClaim)
+  var ADJ = [["dy", "Printer Alignment - Up / Down", "inches; + moves everything down"], ["dx", "Printer Alignment - Left / Right", "inches; + moves everything right"],
+    ["vshift", "Vertical Shift Adjustment", "% - use when the top lines up but it drifts toward the bottom"],
+    ["hshift", "Horizontal Shift Adjustment", "% - use when the left lines up but it drifts toward the right"],
+    ["carrier_dy", "Carrier Area - Up / Down", "inches - lines the payer address up with a window envelope"], ["carrier_dx", "Carrier Area - Left / Right", "inches"]];
+  function openAdjust() {
+    loadPrefs().then(function () {
+      $("adjForm").innerHTML = '<label>Print Form with Data:</label><select id="adj_form"><option value="preview">Preview Only (red forms)</option><option value="never">Never (red forms)</option><option value="always">Always (plain paper)</option></select><span class="hint">Red forms: Preview Only or Never, or a black form prints over the red one.</span>' +
+        ADJ.map(function (a) { return '<label for="adj_' + a[0] + '">' + a[1] + ':</label><div class="split"><button type="button" data-step="' + a[0] + '" data-by="-1">▼</button><input id="adj_' + a[0] + '" value="' + PR[a[0]] + '" inputmode="decimal" style="text-align:center"><button type="button" data-step="' + a[0] + '" data-by="1">▲</button></div><span class="hint">' + a[2] + '</span>'; }).join("") +
+        '<label for="adj_font">Font:</label><select id="adj_font"><option value="12">Courier New 12 (10 per inch - the form\'s grid)</option><option value="11">Courier New 11</option><option value="10">Courier New 10</option></select><span></span>' +
+        '<label>Bottom Margin:</label><label style="text-align:left"><input type="checkbox" id="adj_bottom"> smaller font in boxes 31, 32 and 33</label><span class="hint">for printers that cut off the bottom of the page</span>';
+      $("adj_form").value = PR.form; $("adj_font").value = String(PR.font); $("adj_bottom").checked = !!PR.bottom_margin;
+      $("padj").hidden = false;
+    });
   }
+  function readAdjust() {
+    PR.form = $("adj_form").value; PR.font = +$("adj_font").value; PR.bottom_margin = $("adj_bottom").checked;
+    ADJ.forEach(function (a) { PR[a[0]] = money($("adj_" + a[0]).value); });
+  }
+  $("padj").addEventListener("click", function (e) {
+    var b = e.target.closest("[data-step]"); if (!b) return;
+    var inp = $("adj_" + b.dataset.step), step = /shift/.test(b.dataset.step) ? 0.1 : 0.01;
+    inp.value = (Math.round((money(inp.value) + step * +b.dataset.by) * 1000) / 1000).toString();
+  });
+  $("adjTest").onclick = function () { readAdjust(); pv.test = true; $("padj").hidden = true; showPreview(); };
+  $("adjSave").onclick = function () {
+    readAdjust();
+    api("POST", "/api/prefs", JSON.stringify({ print: PR })).then(function (r) { PR = r.print; $("padj").hidden = true; setMsg("Printer settings saved."); if (!$("pview").hidden) showPreview(); })
+      .catch(function (e) { setMsg("Not saved: " + e.message); });
+  };
+  $("adjClose").onclick = function () { $("padj").hidden = true; };
 
   // ============ start ============
   // ============ login, logoff ============
