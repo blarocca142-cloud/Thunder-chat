@@ -267,6 +267,12 @@ st, _, _ = req("POST", "/api/benefits", {"id": SPID, "data": {}})
 check("benefits need a login", st == 401)
 st, _, _ = req("POST", "/api/benefits", {"id": "../x", "data": {}}, token=TOK)
 check("benefits refuse a bad id", st == 400)
+st, j, _ = req("POST", "/api/save", {"kind": "claim", "data": {"patient_name": "DENIED, TEST", "date_of_injury": "01/01/2026", "accident_state": "FL",
+    "procedures": [{"code": "98941", "date": "01/05/2026", "charge": "100"}],
+    "tracking": {"billing": "denied", "sent_date": "01/20/2026", "denial_code": "ime", "demand_sent": "03/01/2026", "demand_received": "03/05/2026"}}}, token=TOK)
+p = req("GET", f"/api/rec/{j.get('id')}", token=TOK)[1].get("pip", {})
+check("a saved denial keeps its type, and the demand clock runs from the green card",
+      any(f["key"] == "denial" for f in p.get("flags", [])) and any(i["key"] == "demand" and i["date"] == "04/04/2026" for i in p.get("items", [])), p)
 row = [r for r in req("GET", "/api/list?kind=patient", token=TOK)[1]["records"] if r["id"] == SPID]
 check("patients list carries PIP left", row and "pip_left" in row[0], row)
 

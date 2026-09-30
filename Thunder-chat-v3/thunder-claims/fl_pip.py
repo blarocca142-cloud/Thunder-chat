@@ -30,6 +30,34 @@ NOTICE_DAYS = 21
 PAY_DAYS = 30
 PAY_DAYS_INVESTIGATED = 90
 SOON = 7  # days: "coming up" rather than "fine"
+DEMAND_DAYS = 30  # 627.736(10)(d): 30 days after the insurer receives the demand
+MAIL_DAYS = 5     # a guess at certified-mail delivery until the green card comes back
+
+# The usual PIP denials and the usual next step. Suggestions for the billing
+# desk, not legal advice - the attorney decides anything contested.
+DENIALS = {
+    "rrn": ("not reasonable, related or necessary",
+            "send the treatment notes and a narrative supporting necessity; once overdue, a demand letter."),
+    "ime": ("IME cut-off",
+            "get the IME report - payment for later treatment is withdrawn (627.736(7)(a)); services before the cut-off are still owed."),
+    "euo": ("EUO not attended",
+            "an EUO is a condition of benefits (627.736(6)(g)) - check the request was proper and talk to the attorney before re-billing."),
+    "exhausted": ("benefits exhausted",
+                  "ask the carrier in writing to confirm the limit was reached (627.736(6)(f)) and for its PIP payout log; check for other coverage."),
+    "no_emc": ("no EMC - $2,500 cap",
+               "get the EMC determination from an MD/DO, dentist, PA or APRN and mail it to the carrier."),
+    "late": ("bill late (35-day rule)",
+             "check the postmark and whether a notice of initiation made it 75 days; truly late services cannot be billed to PIP."),
+    "incomplete": ("missing or incomplete bill",
+                   "correct the CMS-1500 (and the disclosure and acknowledgment form if it was missing) and re-mail it."),
+    "fee": ("reduced to fee schedule",
+            "check the payment against the fee schedule in 627.736(5)(a)1; if it is short, a demand letter once overdue."),
+    "coverage": ("no coverage / policy not in force",
+                 "check the declarations page and any other auto policy in the household; talk to the attorney."),
+    "investigation": ("under investigation",
+                      "enter the investigation notice date (the carrier then has 90 days) and answer its records requests quickly."),
+    "other": ("other", "write the carrier's reason in Denial reason and decide the next step."),
+}
 
 # worst first; the claim's level is the worst of its items
 LEVELS = ("late", "overdue", "soon", "ok")
@@ -124,28 +152,57 @@ def deadlines(c: dict, today: date | None = None) -> dict:
     # 3. the carrier's clock: 30 days from receipt, 90 if they are investigating
     if billing == "sent" and not sent:
         flag("no_sent", "soon", "Submitted, but no Original Bill Date - the carrier's 30 days cannot be counted.")
-    if sent and billing == "sent":
+    demand_ok, demand_from = False, None
+    demand_sent = _d(tr.get("demand_sent"))
+    if sent and billing in ("sent", "partial", "denied"):
         rec = _d(tr.get("received_date"))
         investigated = _d(tr.get("fraud_notice"))
         base = rec or sent
-        due = base + timedelta(days=PAY_DAYS_INVESTIGATED if investigated else PAY_DAYS)
+        days = PAY_DAYS_INVESTIGATED if investigated else PAY_DAYS
+        due = base + timedelta(days=days)
         left = (due - today).days
-        note = (f"{PAY_DAYS_INVESTIGATED if investigated else PAY_DAYS} days from "
-                + ("receipt" if rec else "the bill date - enter the received date for the exact day"))
-        item("pay", "Carrier must pay by", due, "overdue" if left < 0 else "soon" if left <= SOON else "ok", note)
+        demand_from = due + timedelta(days=1)
+        demand_ok = left < 0
+        note = f"{days} days from " + ("receipt" if rec else "the bill date - enter the received date for the exact day")
+        if billing == "sent" and not demand_sent:
+            item("pay", "Carrier must pay by", due, "overdue" if left < 0 else "soon" if left <= SOON else "ok", note)
+            if left < 0:
+                flag("overdue", "overdue", f"Payment is {-left} days overdue. A demand letter (627.736(10)) may now be sent.")
+        elif not demand_sent and not demand_ok:
+            item("demand_wait", "Demand letter allowed from", demand_from, "ok",
+                 "627.736(10)(a): not before the claim is overdue - " + note)
+
+    # 4. the demand letter: the carrier has 30 days from receiving it
+    if demand_sent and billing != "paid":
+        got = _d(tr.get("demand_received"))
+        answer_by = (got or demand_sent + timedelta(days=MAIL_DAYS)) + timedelta(days=DEMAND_DAYS)
+        left = (answer_by - today).days
+        item("demand", "Carrier must answer demand by", answer_by, "overdue" if left < 0 else "soon" if left <= SOON else "ok",
+             f"{DEMAND_DAYS} days from " + ("the signed return receipt" if got else
+                                            f"an estimated {MAIL_DAYS}-day delivery - enter the date on the green card"))
         if left < 0:
-            flag("overdue", "overdue", f"Payment is {-left} days overdue. A demand letter (627.736(10)) may now be sent.")
+            flag("demand_expired", "overdue", "The demand period is over and the claim is still unpaid - "
+                                              "this is the point to take it to the attorney.")
+
+    # 5. a denial: what it was and the usual next step
+    code = str(tr.get("denial_code") or "")
+    if billing == "denied" or code:
+        d = DENIALS.get(code) or DENIALS["other"]
+        flag("denial", "soon", f"Denied ({d[0]}): {d[1]}")
 
     worst = [x["level"] for x in items + flags]
     level = next((lv for lv in LEVELS if lv in worst), "")
     return {"applies": True, "level": level, "items": items, "flags": flags, "text": short(items, flags),
-            "window": window}
+            "window": window, "demand_ok": demand_ok, "demand_from": _mdy(demand_from) if demand_from else ""}
 
 
 def short(items: list, flags: list) -> str:
     """One cell's worth for the claims grid, most urgent first."""
     by = {i["key"]: i for i in items}
     fk = {f["key"] for f in flags}
+    if "demand" in by:
+        d = by["demand"]["days"]
+        return "Demand expired" if d < 0 else f"Demand {d}d"
     if "pay" in by and by["pay"]["days"] < 0:
         return f"Overdue {-by['pay']['days']}d"
     if "file" in by:
@@ -153,7 +210,7 @@ def short(items: list, flags: list) -> str:
         return f"Late {-d}d" if d < 0 else f"Bill in {d}d"
     for key, text in (("billed_late", "Billed late"), ("initial", "Care >14d"), ("dates", "Check dates"),
                       ("no_doi", "No injury date"),
-                      ("no_sent", "No bill date")):
+                      ("no_sent", "No bill date"), ("denial", "Denied")):
         if key in fk:
             return text
     if "pay" in by:

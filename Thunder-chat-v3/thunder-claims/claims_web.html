@@ -288,6 +288,11 @@ td.pip-late, td.pip-overdue { color: var(--block); font-weight: 700; } td.pip-so
 .stpage td { padding: 2px 4px; border-bottom: 1px solid #ddd; vertical-align: top; }
 .stpage .n { text-align: right; font-variant-numeric: tabular-nums; }
 .stpage .due { border: 1.5px solid #000; padding: 6px 10px; }
+.stpage.letter { padding: 0.7in 0.8in; box-sizing: border-box; font: 11pt/1.4 "Times New Roman", Times, serif; }
+.stpage.letter p { margin: 0 0 9pt; }
+.stpage.letter h2 { font-size: 13pt; text-align: center; margin: 12pt 0; letter-spacing: 0.5px; }
+#print .stpage.letter table td, #print .stpage.letter table th, .stpage.letter table td, .stpage.letter table th { font: 10pt/1.3 "Times New Roman", Times, serif; border: 0; border-bottom: 1px solid #999; height: auto; padding: 2px 4px; }
+.stpage.letter table th { border-bottom: 1.5px solid #000; }
 .stpage .aging { width: 100%; border-collapse: collapse; }
 .stpage .aging td, .stpage .aging th { border: 1.5px solid #000; text-align: center; padding: 3px; }
 
@@ -484,7 +489,21 @@ body.locked > :not(.login):not(#print) { display: none !important; }
                     <tr class="r"><td>Posted payments</td><td><input id="c_posted" readonly title="From Payment Entry"></td></tr>
                     <tr class="r"><td>Other paid $ <span class="msg">(not via Payment Entry)</span></td><td><input data-t="paid_amount" inputmode="decimal"></td></tr>
                     <tr class="r"><td>Date paid</td><td><input data-t="paid_date" placeholder="MM/DD/YYYY"></td></tr>
-                    <tr class="r"><td>Denial reason</td><td><input data-t="denial_reason"></td></tr>
+                  </tbody>
+                  <tbody>
+                    <tr><th colspan="2">Denial &amp; Demand Letter</th></tr>
+                    <tr class="r"><td>Denial date <span class="msg">(on the EOB)</span></td><td><input data-t="denial_date" placeholder="MM/DD/YYYY"></td></tr>
+                    <tr class="r"><td>Denial type</td><td><select data-t="denial_code"><option value="">-</option><option value="rrn">Not reasonable / related / necessary</option>
+                      <option value="ime">IME cut-off</option><option value="euo">EUO not attended</option><option value="exhausted">Benefits exhausted</option>
+                      <option value="no_emc">No EMC - $2,500 cap</option><option value="late">Bill late (35-day rule)</option><option value="incomplete">Missing / incomplete bill</option>
+                      <option value="fee">Reduced to fee schedule</option><option value="coverage">No coverage / policy not in force</option>
+                      <option value="investigation">Under investigation</option><option value="other">Other</option></select></td></tr>
+                    <tr class="r"><td>Denial reason <span class="msg">(carrier's words)</span></td><td><input data-t="denial_reason"></td></tr>
+                    <tr class="r"><td>Demand letter to <span class="msg">(OIR address)</span></td><td><input data-t="demand_address" placeholder="carrier's designated demand address" title="627.736(10)(c): send to the person and address the carrier filed with the Florida Office of Insurance Regulation"></td></tr>
+                    <tr class="r"><td>Demand mailed</td><td><input data-t="demand_sent" placeholder="MM/DD/YYYY"></td></tr>
+                    <tr class="r"><td>Certified mail #</td><td><input data-t="demand_cert" class="code"></td></tr>
+                    <tr class="r"><td>Carrier signed <span class="msg">(green card)</span></td><td><input data-t="demand_received" placeholder="MM/DD/YYYY"></td></tr>
+                    <tr><td colspan="2" class="pipcell"><button id="demandBtn" type="button">✉ Demand Letter…</button> <span class="msg" id="demandWhy"></span></td></tr>
                   </tbody>
                   <tbody class="lockable">
                     <tr><th colspan="2">Insurance &amp; Injury</th></tr>
@@ -717,6 +736,13 @@ body.locked > :not(.login):not(#print) { display: none !important; }
     <div class="mt" id="spTitle">Statement Preview</div>
     <div class="mbar"><button id="spPrint" class="primary">🖨 Print</button><span class="hint" id="spNote"></span><span class="spacer"></span><button id="spClose">Close</button></div>
     <div class="pvpage" id="spPages"></div>
+  </div>
+</div>
+<div class="modal" id="dlview" hidden>
+  <div class="mwin wide">
+    <div class="mt">Demand Letter - s. 627.736(10)</div>
+    <div class="mbar"><button id="dlPrint" class="primary">🖨 Print</button><span class="hint">Mail it U.S. certified, return receipt requested. Have the attorney approve this wording once before the first one goes out.</span><span class="spacer"></span><button id="dlClose">Close</button></div>
+    <div class="pvpage" id="dlPages"></div>
   </div>
 </div>
 <div class="modal" id="sopts" hidden>
@@ -1578,7 +1604,14 @@ body.locked > :not(.login):not(#print) { display: none !important; }
       (b.open_ins ? '<div class="src">Open insurance balance ' + fmt(b.open_ins) + ' - at 80% the carrier would pay ~' + fmt(b.expected) + '</div>' : "");
     return html + b.flags.map(function (f) { return '<div class="' + f.level + '">⚠ ' + esc(f.text) + '</div>'; }).join("");
   }
+  function showDemandState(p) {
+    var ok = !!(p && p.applies && p.demand_ok), t = (cur() || {}).data ? cur().data.tracking : {};
+    $("demandBtn").disabled = !ok;
+    $("demandWhy").textContent = !p || !p.applies ? "" : ok ? (t.demand_sent ? "mailed " + t.demand_sent : "allowed - the claim is overdue")
+      : p.demand_from ? "not before " + p.demand_from + " (627.736(10)(a))" : "needs a bill date, and the claim must be overdue";
+  }
   function showPip(p) {
+    showDemandState(p);
     if (!p || !p.applies) { $("pipBox").innerHTML = '<span class="src">Accident is not in Florida - no PIP clocks.</span>'; return; }
     var when = function (i) { return i.days < 0 ? -i.days + " days ago" : i.days === 0 ? "today" : "in " + i.days + " days"; };
     var html = p.items.map(function (i) { return '<div class="' + i.level + '">' + esc(i.label) + " " + esc(i.date) + " (" + when(i) + ')</div>' +
@@ -2152,6 +2185,61 @@ body.locked > :not(.login):not(#print) { display: none !important; }
     return h + '</div>';
   }
   function setPageMargin(red) { $("pagestyle").textContent = "@page { size: letter; margin: " + (red ? "0" : "0.35in") + "; }"; }
+
+  // ============ demand letter (627.736(10)) ============
+  function demandPage(d, st) {
+    var c = d.data, t = c.tracking, today = mdy(new Date()), total = 0;
+    var lines = c.procedures.map(function (p, i) { return { p: p, i: i }; }).filter(function (x) { return (x.p.code || "").trim(); }).map(function (x) {
+      var l = postedLine(d, x.i), chg = (money(x.p.units) || 1) * money(x.p.charge), bal = chg - l.paid - l.adj; total += Math.max(bal, 0);
+      return '<tr><td>' + esc(x.p.date || c.date_of_service) + '</td><td>' + esc(x.p.code) + (x.p.modifier ? "-" + esc(x.p.modifier) : "") + '</td><td>' + esc(x.p.description || "") +
+        '</td><td class="n">' + fmt(chg) + '</td><td class="n">' + fmt(l.paid) + '</td><td class="n">' + fmt(Math.max(bal, 0)) + '</td></tr>'; }).join("");
+    var from = [st.return_name || c.clinic_name, st.return_addr1, st.return_addr2, [st.return_city, [st.return_state, st.return_zip].filter(Boolean).join(" ")].filter(Boolean).join(", "), st.return_phone]
+      .filter(function (x) { return String(x || "").trim(); }).map(esc).join("<br>");
+    var to = String(t.demand_address || c.insurer_address || "").split(/\s*[\n;]\s*|,\s*(?=[^,]*,\s*[A-Z]{2}\s+\d{5})/).filter(Boolean).map(esc).join("<br>");
+    var insured = c.insured_name || c.patient_name;
+    return '<div class="stpage letter">' +
+      '<p>' + from + '</p><p>' + today + '</p>' +
+      '<p><b>VIA U.S. CERTIFIED MAIL, RETURN RECEIPT REQUESTED</b>' + (t.demand_cert ? '<br>Article No. ' + esc(t.demand_cert) : "") + '</p>' +
+      '<p>' + esc(c.insurer || "") + '<br>' + to + '</p>' +
+      '<h2>DEMAND LETTER UNDER S. 627.736, FLORIDA STATUTES</h2>' +
+      '<p>Insured: <b>' + esc(insured) + '</b><br>Patient: ' + esc(c.patient_name) + '<br>Claim / Policy No.: <b>' + esc(c.claim_number || "") + '</b>' +
+        (c.date_of_injury ? '<br>Date of accident: ' + esc(c.date_of_injury) : "") + '<br>Provider: ' + esc([c.treating_provider, c.clinic_name].filter(function (x, i, a) { return x && a.indexOf(x) === i; }).join(", ")) +
+        '<br>Original bill date: ' + esc(t.sent_date || "") + '</p>' +
+      '<p>This is a demand letter under s. 627.736, Florida Statutes. Personal injury protection medical benefits for the services itemized below are overdue. ' +
+        'Demand is made for payment of the amounts due, together with interest under s. 627.736(4)(d) and the penalty under s. 627.736(10)(d) ' +
+        '(10 percent of the overdue amount, up to $250), and reimbursement of the postal costs of this notice.</p>' +
+      '<table><thead><tr><th>Date of service</th><th>Code</th><th>Service</th><th class="n">Billed</th><th class="n">Paid</th><th class="n">Amount due</th></tr></thead><tbody>' + lines +
+        '<tr><td colspan="5"><b>Type of benefit claimed: PIP medical benefits. Total due</b></td><td class="n"><b>' + fmt(total) + '</b></td></tr></tbody></table>' +
+      '<p style="margin-top:9pt">A copy of the CMS-1500 previously submitted is enclosed as the itemized statement' + (insured !== c.patient_name ? ', with a copy of the assignment of benefits' : "") + '.</p>' +
+      '<p>Sincerely,</p><p style="margin-top:36pt">______________________________<br>' + esc(st.return_name || c.clinic_name || "") + '</p>' +
+      '</div>';
+  }
+  function openDemand() {
+    var d = cur(); if (!d || d.kind !== "claim" || $("demandBtn").disabled) return;
+    var c = d.data, miss = [];   // what 627.736(10)(b)-(c) requires on the letter
+    if (!String(c.claim_number || "").trim()) miss.push("the claim or policy number (1a)");
+    if (!String(c.insurer || "").trim()) miss.push("the carrier");
+    if (!String(c.tracking.demand_address || "").trim()) miss.push("the carrier's demand address from the Florida OIR list");
+    if (!String(c.treating_provider || c.clinic_name || "").trim()) miss.push("the provider");
+    if (miss.length) return setMsg("Before a demand letter, fill in: " + miss.join("; ") + ".");
+    loadSettings().then(function () {
+      $("dlPages").innerHTML = demandPage(d, ST.statement || {});
+      $("dlview").hidden = false;
+      var w = $("dlPages").clientWidth || 800; $("dlPages").style.setProperty("--pvscale", Math.min(1, (w - 20) / (8.5 * 96)));
+    }).catch(function (e) { setMsg("Couldn’t build the letter: " + e.message); });
+  }
+  $("demandBtn").onclick = openDemand;
+  $("dlClose").onclick = function () { $("dlview").hidden = true; };
+  $("dlPrint").onclick = function () {
+    var d = cur(); if (!d || d.kind !== "claim") return;
+    setPageMargin(true); $("print").innerHTML = $("dlPages").innerHTML; window.print();
+    if (!confirm("Did the demand letter print properly?\n\nYes records today as the date it was mailed. Enter the certified mail number, and the green-card date when it comes back.")) return;
+    var t = d.data.tracking; t.demand_sent = mdy(new Date());
+    var n = new Date();
+    d.data.notes_log.push({ ts: mdy(n) + " " + n.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), user: (S.user || "user").toUpperCase(), note: "Demand letter (627.736(10)) printed for certified mail" + (t.demand_cert ? " #" + t.demand_cert : ""), balance: charges(d.data) - money(t.paid_amount) });
+    $("dlview").hidden = true; markDirty();
+    saveDoc(d).then(function (ok) { if (ok) setMsg("Demand letter recorded as mailed today."); });
+  };
 
   // print preview window
   var pv = { test: false };

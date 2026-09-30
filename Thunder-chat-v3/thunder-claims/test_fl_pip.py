@@ -112,5 +112,28 @@ check("EMC not on file: limit unknown, and past $2,500 is called out", b["limit"
 b = fl_pip.benefits({"pip_limit": "5000"}, 1000, 0)
 check("a policy-specific limit overrides the statute's", b["limit"] == 5000 and b["remaining"] == 4000, b)
 
+print("denials and demand letters")
+den = claim(tracking={"billing": "denied", "sent_date": "02/10/2026", "denial_code": "ime"})
+r = fl_pip.deadlines(den, TODAY)
+check("a denial names its type and the next step", any(f["key"] == "denial" and "IME cut-off" in f["text"] for f in r["flags"]), r["flags"])
+check("before day 30 a demand letter is not allowed, and says when it will be",
+      r["demand_ok"] is False and r["demand_from"] == "03/13/2026" and item(r, "demand_wait"), r)
+r = fl_pip.deadlines(den, date(2026, 3, 13))
+check("the day after the claim is overdue, a demand letter is allowed", r["demand_ok"] is True)
+r = fl_pip.deadlines(claim(tracking={"billing": "sent", "sent_date": "02/10/2026", "fraud_notice": "02/20/2026"}), date(2026, 4, 1))
+check("an investigation pushes the demand letter out to day 90", r["demand_ok"] is False and r["demand_from"] == "05/12/2026", r["demand_from"])
+check("no bill date, no demand letter", fl_pip.deadlines(claim(tracking={"billing": "denied"}), date(2026, 9, 1))["demand_ok"] is False)
+dem = claim(tracking={"billing": "sent", "sent_date": "01/02/2026", "demand_sent": "02/10/2026"})
+r = fl_pip.deadlines(dem, TODAY)
+a = item(r, "demand")
+check("demand sent: 30 days from an estimated delivery, until the green card is in", a and a["date"] == "03/17/2026" and "green card" in a["note"], a)
+check("once the demand is out, the plain 'overdue' nag stops", item(r, "pay") is None and r["text"] == "Demand 16d", r["text"])
+dem["tracking"]["demand_received"] = "02/13/2026"
+r = fl_pip.deadlines(dem, date(2026, 3, 20))
+check("green card date gives the exact day, then says take it to the attorney", item(r, "demand")["date"] == "03/15/2026"
+      and r["text"] == "Demand expired" and any(f["key"] == "demand_expired" for f in r["flags"]), r)
+dem["tracking"]["billing"] = "paid"
+check("a paid claim drops the demand clock", item(fl_pip.deadlines(dem, date(2026, 3, 20)), "demand") is None)
+
 print(f"\n{PASSED} passed, {FAILED} failed")
 sys.exit(1 if FAILED else 0)
