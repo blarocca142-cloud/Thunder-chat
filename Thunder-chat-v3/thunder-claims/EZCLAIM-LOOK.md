@@ -361,10 +361,59 @@ Opened via `Patient Statements` on the Home flowchart; document tab named
 checkbox · `Name` · `Account #` · `Classification` · `Pat Bal` · `Ins Bal` ·
 `Pri Payer` · `Last Sta Date` · `Pat Msg`
 
+In the newer capture (`uqRGjzNM-KE`) the `Classification` column is absent, so
+the set is: checkbox · `Name` · `Account #` · `Pat Bal` · `Ins Bal` ·
+`Pri Payer` · `Last Sta Date` · `Pat Msg`. **Columns are added by right-clicking
+any column header → "grid columns" chooser** (`uqRGjzNM-KE`).
+
 Sample row: `SAMPLE, PATI… | 1005 | GENERAL GR… | $10.00 | $30.00 |
 BLUE CROSS | 10/30/2016 | Please Pay within …`
 
 Footer: `Shown: 4. Checked: 4.` then `$60.00` and `$355.00`. (`DZ0spaFoFz4`)
+Newer: `Shown: 21. Checked: 0.` with `$1,395.50` and `$0.00` (`uqRGjzNM-KE`).
+
+**`Pat Msg` is a per-patient statement message** typed straight into the grid
+cell; `Global Message` at the bottom prints on *all* statements
+(`uqRGjzNM-KE`). Global message values seen: `Happy Holidays`,
+`***Stay Home, Stop the Spread, Save Lives***`.
+
+### What populates the grid (`uqRGjzNM-KE`)
+> "the grid will show a list of patients that have a balance greater than a
+> penny"
+
+- `Min. Pat. Bal.` defaults to **`$0.01`** — filters out patients who owe
+  nothing, and can be raised to suppress statements for trivial balances.
+- `Min. Sta. Cycle` = **days since a statement was last generated** (default
+  `30`). A patient who hasn't had one in 30 days is listed.
+- **Troubleshooting tip given:** if an expected patient is missing, set the
+  cycle to `0` and click `Refresh`.
+
+### The printed statement (Preview) — layout (`uqRGjzNM-KE`)
+Opens in a separate **`Preview`** window with its own menu bar (`File`,
+`View`, `Background`), a toolbar, a zoom box (`75%`), and a status bar
+`Page 1 of 1`.
+
+The page itself, top to bottom:
+- Top-left, the practice address block: `NAME / ADDRESS / ADDR2 /
+  CITY, ST 12345`
+- Top-right: the word **`Statement`**, then `05/11/2020`,
+  `Account No: 1030`, `Page:1/1`
+- A gap, then the **patient address block** positioned for a window envelope:
+  `JANE MORRISON / 803 WHITE HAGUE WAY / PONTIAC, MI 48311`
+- A ruled table with columns:
+  `Date` · `Description` · `Proc` · `Transaction Amount` ·
+  `Insurance Balance` · `Patient Balance`
+  Row: `4/24/20 | 15 Minute Office Visit (Established Patient) | 99213 |
+  $85.00 | $0.00 | $85.00`, with a second description line
+  `Patient Responsibility`
+- The free-text message near the bottom (`New Test Message`)
+- **A bottom aging-bucket strip, ruled above and below:**
+  `0-30` · `31-60` · `61-90` · `91-120` · `Over 120` · `Ins. Bal.` ·
+  `Please Pay`
+  with amounts under each (`$85.00 $0.00 $0.00 $0.00 $0.00 $0.00 $85.00`)
+
+**This aging strip is the classic medical-statement look and is what the
+office will expect at the bottom of a printed bill.**
 
 ### Right-hand panel, top to bottom
 - `Statement Format:` dropdown — value **`Statement`**
@@ -549,6 +598,283 @@ Portal features named in the narration: view patient balances and copays
 including current and past due, swipe cards with a terminal, payment plans,
 recurring payments, saved cards on file, and payments from **SMS reminders,
 email payment links, and QR codes on statements** — all auto-posting back.
+
+---
+
+## 9b. EDI Reports screen
+
+`View EDI Reports` on the Home flowchart, or the `EDI Reports (n NEW)`
+ribbon dropdown. Document tab `EDI Reports`. (`ciHa8ZgTTKE`, `vZb1Uzv7I7c`)
+
+- Top-left: `Connection:` dropdown (`TriZetto`).
+- Hint text under it: **`Double click to View`**.
+- Top-right: `Search for Keyword` box and a `Clear` button.
+- Grid columns: `Name` · `Date Created` · `Type` · `Payer` · `Pmt Amt` ·
+  `Date` · `Trace Number` · `Method` · `Note`, with checkboxes at the left.
+  `Type` value is `ERA - ANSI 835`; `Method` is `ACH`.
+- File names are literal, e.g. `835_Accepted.rmt`,
+  `835_Accepted_Deductible.rmt[ARCHIVED]`, `835_Denied.rmt[ARCHIVED]`,
+  `835_Payer_Not_Linked.rmt[ARCHIVED]`, `835_Service_Line_Not_Found.rmt`.
+  **Unopened files appear at the top of the list in bold** (`ciHa8ZgTTKE`).
+- A lower detail pane shows the check in monospace label/value form:
+  `Payer Name:`, `Payee Name:`, `Payment Total:`, `Payment Date:`,
+  `Payment Method:`, `Trace Number:`.
+- Right-hand button column: `Open` · `Save Notes` · `Export File` ·
+  **`Get Reports`** · **`Add Reports`** · `Refresh Reports` · `Close` ·
+  `Check All` (split, ▾).
+- Bottom right: ☑ `Show Archived`, then a caption **`Apply to Checked`** over
+  `Archive` (split, ▾) and `Delete`.
+
+`Get Reports` downloads from the clearinghouse; `Add Reports` opens a browse
+dialog for a file already on disk — **and then asks whether to delete the
+source file** (`vZb1Uzv7I7c`).
+
+---
+
+## 9c. Auto-posting workflow and the ANSI 835 Posting Options dialog
+
+### Posting workflow (`ciHa8ZgTTKE`)
+1. `View EDI Reports` → `Get Reports` (or `Add Reports` for a saved file).
+2. **Double-click the file to open it.** You are then **asked to confirm the
+   payer** — EZClaim matches by payer name, and asks you to pick when there is
+   no exact match or more than one. (Picking wrong is recoverable: close the
+   file and reopen, choosing the other payer.)
+3. **Nothing posts yet** — the whole screen is a review step.
+   *"We always give you a chance to review the data before posting."*
+4. Review the grid; `＋` drills into per-service-line adjustment detail;
+   `Open Claim` opens the claim itself.
+5. Set each adjustment's action: **`Apply` / `Track` / `Ignore`** (radio
+   columns in the lower grid).
+   **Guidance given verbatim:** *"only apply adjustments you intend to write
+   off; all other adjustments should be left to track, especially patient
+   responsibility amounts."*
+6. `Apply Payments and Adjustments` (top right) to post.
+7. **After posting, rows go green if everything posted; problem lines show
+   red with a warning message.**
+8. `Run Report` to print a posting report.
+9. `Close and Archive` — archives the file and returns you to `EDI Reports`.
+
+### ANSI 835 Posting Options dialog (`N2hFJQDke_I`, `ciHa8ZgTTKE`)
+Titled **`ANSI 835 Posting Options`**. Opened by the `Options` button.
+It is itself a grid with the standard group band and filter row.
+
+**Top grid — default action per adjustment reason code.** Columns:
+`Apply` · `Track` · `Ignore` (three radio columns) · `Reason` · `Description`.
+Rows are the CARC codes with their text, e.g.
+```
+1  Deductible Amount
+2  Coinsurance Amount
+3  Co-Pay Balance Due
+4  The procedure code is inconsistent with the modifier used or a r…
+5  The procedure code/type of bill is inconsistent with the place of…
+6  The procedure/revenue code is inconsistent with the patient's a…
+7  The procedure/revenue code is inconsistent with the patient's g…
+8  The procedure code is inconsistent with the provider type/spec…
+9  The diagnosis is inconsistent with the patient's age. Usage: Ref…
+10 The diagnosis is inconsistent with the patient's gender. Usage:…
+11 The diagnosis is inconsistent with the procedure. Usage: Refer t…
+12 The diagnosis is inconsistent with the provider type. Usage: Ref…
+13 The date of death precedes the date of service.
+14 The date of birth follows the date of service.
+```
+**Default: every adjustment except `45` is set to `Track`** — stated as *"the
+safest default action as it prevents accidental write-offs."* (`N2hFJQDke_I`)
+
+Buttons on the right: `Save & Close` · `Cancel`, then
+`Apply Selected` · `Track Selected` · `Ignore Selected` (bulk actions on a
+multi-row selection).
+
+**`Additional Options` block at the bottom (exact labels, in order):**
+- ☐ `Overwrite existing allowed amounts when posting the 835`
+  — seldom checked; only relevant if you enter payer allowed amounts manually
+  in the procedure code library.
+- ☑ `Use 835 payment date` — uses the check date; unchecked uses today's.
+  **Does not apply to the already-open file** — change the date by hand or
+  close and reopen.
+- ☑ `Apply zero dollar disbursements` — needed when claims must go on to a
+  secondary payer. Overridable per line via the `Apply Disbursement` checkbox
+  on the preview screen.
+- ☑ `Allow payments and adjustments greater than the balance to be applied`
+  — *"an option we frequently see checked"*; allows an overpayment to post and
+  take the line into a **credit / negative balance**. Without it, overpayments
+  must be entered manually. **This is the setting behind the "Balance
+  Exceeded" warning.**
+- ☐ `Don't apply reversals of previous payments and adjustments`
+- ☐ `Group adjustments by 'Claim Status' instead of 'Processed Status'`
+
+On `Save & Close` the program **asks whether to apply the new settings to the
+currently open file** — answer `Yes`.
+
+### Lower adjustment grid on the 835 screen (`ciHa8ZgTTKE`)
+Columns: `Apply Adjustment` · `Track Adjustment` · `Ignore Adjustment`
+(radios) · `Group Code` · `Reason Code` · `Adjustment Description` ·
+`Total Adjustments` · `Processed Status`.
+Sample rows:
+```
+CO - Contractual Obligations | 45  | Charge exceeds fee schedule/maximum allowable or contra… | $80.00  | Processed
+CO - Contractual Obligations | 181 | Procedure code was invalid on the date of service.       | $100.00 | Processed
+PR - Patient Responsibility   | 2   | Coinsurance Amount                                      | $40.00  | Processed
+```
+
+### Full 835 preview grid column list (`ciHa8ZgTTKE`, wider capture)
+`Status` · `Claim Invoice #` · `Claim Status` · `Patient Name` · `Procedure` ·
+`Service Date` · `Line Charged Amt` · `Line Payment Amt` ·
+`Apply Disbursement` (checkbox) · `Balance` · `CO Amt` · `PR Amt` ·
+`OA Amt` · `CR Amt` · `PI Amt`
+
+---
+
+## 9d. The three 835 warning screens
+
+These are worth knowing because they define EZClaim's *vocabulary for things
+going wrong*, which the office will already use.
+
+### "Balance Exceeded" (`puSJeow-pkk`)
+Status `BALANCE EXCEE…` on a **pink/red row**. Means posting would push the
+service line **negative**. Fixed by the `Allow payments and adjustments
+greater than the balance to be applied` option, or by correcting the claim.
+
+### "Payer Not Linked" (`m85vv2jh148`)
+A modal titled **`Payer Not Linked`** with `OK`:
+> "One or more service lines referenced by this 835 are not linked to the payer
+> you selected. Disbursement and adjustment information will not be applied to
+> these service lines."
+
+Causes given: duplicate payers in the payer library and the wrong one picked;
+or Medicare forwarded the claim to a secondary you didn't know about; or simply
+picking the wrong payer from the dropdown.
+Fix: **double-click the red status message to open the claim**, add the
+secondary payer or fix the payer ID, then click **`Recheck Payer Links`** (or
+close and reopen the file). You can still post without fixing it.
+
+### "Service Line Not Found" (`qG699P9sC0o`)
+> "One or more service lines referenced by this 835 could not be found in your
+> claims. Disbursement and adjustment information related to the missing
+> service lines won't be applied unless you match the service line manually."
+
+Affected lines show **`SRVC…` / "service line not found" in red**.
+Causes: the claim wasn't sent from EZClaim, the claim was changed afterwards,
+or the payer bundled/unbundled codes.
+
+**Fix — the `Find Service Line` dialog.** Double-click the red warning to open
+a modal titled `Find Service Line` with a header line of the 835's data:
+`Patient: JONES, TOM W    DOS: 12/17/2019    Procedure: 99999
+Charge: $50.00    Units: 1`
+Below it a grid with the usual group band and filter row, columns:
+`Name` · `Srvc Date` · `Place` · `Proc…` · `M1` · `Charges` · `Units` ·
+`Adjs` · `Paid` · `Balance`.
+**EZClaim pre-fills the filter row with name, service date and procedure code**
+to try to find the match. Footer reads `Shown: 0 (Filtered)` when nothing
+matches. The instruction given: *"remove some of the data in the filter row —
+put your cursor into a cell and back out the data until you find the service
+line"*, then click **`Select`**. Repeat until every line is matched.
+
+---
+
+## 9e. Payment Modification screen (modify or delete a payment)
+
+Document tab **`Payment Modification`**; title bar `Payment Modification -
+EZClaim Billing - 8.0.664`. (`Y_glBgEkSHs`)
+
+- Top left, same `Payment Source:` radio pair (`Patient` / `Payer`) and
+  `Payer:` dropdown, then a block captioned **`Payment Details`**:
+  `Amount:` (`$233.00`), `Pmt Date:` (`10/26/2020`), `Payment Method:` (`EFT`),
+  `Ref #:` (`8899776`), `Add Ref #:`, `Note:`.
+- Top right, caption **`Select the payment to be modified:`** over a grid with
+  columns `Name` · `Pmt Amt` · `Disbursed` · `Remaining` · `Date` · `Method` ·
+  `Ref #1`.
+- Lower grid (the disbursements of the selected payment), columns:
+  `Name` · `DOS` · `Proc Code` · `Mod` · `Line Charge` · `Line Balance` ·
+  `Applied` · `Reason`, each row with an **`✕`** button at the left to remove
+  that disbursement.
+- Right-hand button column: `Save & Close` · `Save` · `Close` · **`Reset`** ·
+  **`Delete`** · `Void / Refund EZClaimPay` (greyed).
+
+---
+
+## 9f. Physician / Facility Library
+
+Ribbon → Libraries group → `Physician Facility`. Document tab
+`Physician/Facility Library`. (`i-7SoiBCpjk`)
+
+**Left list, captioned `Physician / Facility Library Entries:`**, a two-column
+grid `Name` · `Classification`, whose first row is the literal
+**`Add new entry…`**:
+```
+Add new entry…
+DME PROVIDER         Ordering
+EZCLAIM MEDICAL CLINIC  Facility
+HEALTH CLINIC        Billing
+REFERRING JONES      Referring
+REFERRING MIKE       Referring
+RENDERING MATTHEWS   Rendering
+RENDERING ROBERTS    Rendering
+SUPERVISING DAVID    Supervising
+```
+**`Classification` values: `Billing`, `Facility`, `Ordering`, `Referring`,
+`Rendering`, `Supervising`.**
+Under the list is a `Type notes here…` free-text box.
+
+**Right-hand form, field by field:**
+- `Display Name (Required):` — `HEALTH CLINIC`
+- `Classification:` dropdown (`Billing`) and ☑ `Signature on File`
+- `Type:` — radio pair **`Person`** / **`Non-Person`**
+- `Last Name (if Person) or Organization Name (if Non-Person):`
+- `First Name:` and `Middle:`
+- `Address Line 1:` (`100 MAIN STREET`), `Address Line 2:` (`SUITE 200`)
+- `City, State, ZIP:` (`ROCHESTER` | `MI` | `555554444`)
+- `Telephone:` (`(444) 666-5555`) and `Fax:`
+- `Email:` with a small `Email` button
+- ☐ `Mark as Inactive` and **`Taxonomy Code:`** (`208D00000X`)
+- Section **`Primary ID Numbers:`** — `NPI:` (`1012023034`) with a
+  **`Lookup NPI`** hyperlink beside it, `Tax ID Type:` dropdown
+  (`24 - Tax ID`), `Tax ID:` (`987654312`)
+- Section **`Additional ID Numbers:`** — a grid `Payer` · `ID Type` ·
+  `ID Number` with the placeholder row **`Click here to add a new row`**
+- Right buttons: `Save & New` · `Save & Close` · `Close` · `Delete` ·
+  **`Pay to Address`**
+- Bottom right, a radio group captioned **`Entries That Are:`** —
+  ⦿ `Active` / ○ `Inactive` / ○ `All`
+
+The video also shows the **raw ANSI 837 text** with loop annotations
+(`Loop 1000A - SUBMITTER NAME`, `Loop 2010AA - BILLING PROVIDER NAME`,
+`Loop 2310B - RENDERING PROVIDER NAME`, `Loop 2400 - Service Line`) to show
+where the taxonomy code lands (`PRV*BI*PXC*208D00000X`).
+
+---
+
+## 9g. Tasks
+
+Fourth grid tab, `Tasks`. (`h8BdQO3FuPw`)
+
+**Grid columns:** two narrow icon columns (`O…`, `O…`) · `Due Date` ·
+`Subject` · `Assigned To` · `Status`.
+Sample subjects: `Update BCBS …`, `Check On Hold Claims`, `Rejected Claim`,
+`CO-181`. `Status` values seen: **`Not Started`**.
+Under the grid: `Include:` ☐ `Completed` ☐ `Assigned to Others` (checked).
+
+**Detail pane below, captioned `Task Information`**, label/value rows:
+`Subject` · `Start Date` · `Due Date` · `Show Reminder` (checkbox) ·
+`Reminder Date` · `Reminder Time` · `Status` · `Priority` (`Normal`) ·
+`Progress` · `Created By` (`USER`) · `Assigned To` (`USER`).
+
+**Creating tasks in bulk from rejections** — from a rejection report tab
+(e.g. `Rejections - 20181012.1.277`) with columns `Rejection Date` ·
+`Report` · `Name` · `1st DOS` · `Bill Date` · `Total Charge` ·
+`Total Balance` · `Bill To`, and right-hand buttons `Check All` (split, ▾),
+**`Create Tasks`**, `Close`.
+
+`Create Tasks` opens a modal **`Create New Task from Rejections`**:
+- `Subject:` (pre-filled `Rejected Claim`)
+- `Assigned To:` dropdown
+- `Start date:` (`None`) and `Status:` (`Not Started`)
+- `Due date:` (`None`) and `Priority:` (`Normal`)
+- `Associated Payer:` (`<Claim Bill-To Payer>`) with a picker and an `✕`
+- ☐ `Reminder:`
+- A radio pair ⦿ `Use Rejection Note` / ○ `Other` over a large notes box
+- `OK` / `Cancel`
+
+Confirmation toast: **`Task(s) Created — 1 task has been created.`** with `OK`.
 
 ---
 
