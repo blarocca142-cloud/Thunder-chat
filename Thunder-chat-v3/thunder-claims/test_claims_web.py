@@ -439,6 +439,13 @@ check("revoking the company cuts off a live session on its next request", st == 
 acc = [json.loads(x) for x in (Path(os.environ["THUNDER_VAULT"]) / "access.log").read_text().splitlines()]
 check("the access log names the company", any(a.get("company") == "Tampa_Office" and a["who"] == "clerk" for a in acc))
 
+print("demo company")
+r = subprocess.run([sys.executable, str(Path(__file__).parent / "demo_data.py"), "Demo_Test"], capture_output=True, text=True, env=os.environ, timeout=120)
+check("the demo filler makes a separate company full of made-up records", r.returncode == 0 and "12 patients" in r.stdout, r.stdout + r.stderr)
+r2 = subprocess.run([sys.executable, str(Path(__file__).parent / "demo_data.py"), "Demo_Test"], capture_output=True, text=True, env=os.environ, timeout=60)
+check("and refuses to write into a company that already has records", r2.returncode == 1 and "not touching" in r2.stdout, r2.stdout)
+check("Main is untouched by it", "SAMPLE" not in json.dumps([x["patient_name"] for x in req("GET", "/api/list?kind=patient", token=TOK)[1]["records"]]))
+
 print("network guard")
 r = subprocess.run([sys.executable, str(Path(__file__).parent / "claims_web.py"), "--host", "0.0.0.0", "--port", "1"],
                    capture_output=True, text=True, env=os.environ, timeout=30)

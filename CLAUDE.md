@@ -55,7 +55,7 @@ assumed.
   adduser <name>` (also `users`, `passwd`, `disable`, `enable`). Lockout after
   5 wrong tries (15 min), auto-logoff after 15 idle minutes, sessions in memory
   only. `access.log` in the vault dir records who/ip/path/status (ids only),
-  and the vault audit credits the logged-in person. `test_claims_web.py` = 110
+  and the vault audit credits the logged-in person. `test_claims_web.py` = 113
   checks, mostly attacks. **Synthetic patients only**; nothing is ever
   submitted to a payer. The UI mimics EZClaim on purpose - see
   `thunder-claims/EZCLAIM-LOOK.md` (EZClaim's videos studied frame by frame).
@@ -110,6 +110,10 @@ assumed.
   OPEN button per row, filter row, sort, totals (`reports.find`). **Make
   Recurring is left out on purpose**: a PIP claim must only exist for a visit
   that happened, so nothing generates claims ahead of time.
+  **Demo company**: `python3 demo_data.py Demo_Office` fills a NEW company
+  with made-up patients/carriers/claims in every state (dates relative to
+  today, 555 phones, generated NPIs that belong to nobody). Refuses a company
+  that already has records; never touches Main.
 - `/status`'s `gpu` block now reads the **real** GPU — nvidia-smi plus Ollama's
   `/api/ps` (`gpu_state()` in `app.py`). It used to ask thunder-genai on :9010,
   so once that was disabled `gpu.up` was stuck false and the phone showed the

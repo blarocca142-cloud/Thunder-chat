@@ -2757,6 +2757,8 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   function renderReport() {
     var d = cur(); if (!d || d.kind !== "report") return;
     $("repOut").innerHTML = reportHtml(d.out);
+    var avail = $("repView").clientWidth || 800, page = (d.out.landscape ? 11 : 8.5) * 96;   // shrink to fit the screen; prints full size
+    $("repOut").style.zoom = Math.min(1, (avail - 8) / page);
     $("repmsg").textContent = d.out.rows.length + " line(s)" + (d.out.landscape ? " · prints landscape" : "");
   }
   $("repOut").addEventListener("click", function (e) {
