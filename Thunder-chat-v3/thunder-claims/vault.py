@@ -307,6 +307,22 @@ def get(record_id: str) -> dict:
     return json.loads(plaintext)
 
 
+def retire(record_id: str) -> Path:
+    """Delete, the recoverable way: the still-encrypted record moves to
+    deleted/ with a timestamp, and the audit log says who did it. Nothing is
+    decrypted and nothing is shredded - a mistaken delete can be put back."""
+    src = record_path(record_id)
+    if not src.exists():
+        audit("delete", record_id, False, "no such record")
+        raise SystemExit(f"no such record: {record_id}")
+    dest_dir = root() / "deleted"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / f"{record_id}.{datetime.now().strftime('%Y%m%d-%H%M%S')}.rec"
+    os.replace(src, dest)
+    audit("delete", record_id, True, dest.name)
+    return dest
+
+
 def find(field: str, value: str) -> list[str]:
     """Exact-match lookup with nothing decrypted."""
     keys, gen = keys_load()

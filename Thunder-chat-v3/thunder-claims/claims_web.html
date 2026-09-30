@@ -297,6 +297,14 @@ td.pip-late, td.pip-overdue { color: var(--block); font-weight: 700; } td.pip-so
 .stpage .due { border: 1.5px solid #000; padding: 6px 10px; }
 .left.rep .gridwrap.replist { flex: 0 1 auto; } .left.rep .detail { flex: 1 1 60%; }
 .repcrit .rc input[type=checkbox] { justify-self: start; width: auto; }
+.setup { display: grid; grid-template-columns: 170px 1fr; gap: 10px; }
+.setup .optlist { background: var(--white); border: 1px solid var(--edge); padding: 2px 0; align-self: start; }
+.setup .optlist button { display: block; width: 100%; text-align: left; border: 0; border-radius: 0; background: none; padding: 4px 10px; }
+.setup .optlist button.on { background: var(--sel); color: var(--sel-ink); }
+.setup .supane { background: var(--white); border: 1px solid var(--edge); padding: 8px 14px; }
+.setup .supane h2 { text-align: center; margin: 0 0 10px; font-size: 14px; }
+.setup .form { grid-template-columns: 260px 1fr; }
+body.altrows table.g tbody tr.item:nth-child(even) td { background: #f5f1e6; }
 .replist table { width: 100%; border-collapse: collapse; } .replist th { text-align: left; background: linear-gradient(var(--bar1), var(--bar2)); padding: 3px 6px; font-weight: 700; border-bottom: 1px solid var(--edge); }
 .replist td { padding: 3px 6px; border-bottom: 1px solid #eeeae0; cursor: default; } .replist tr.sel td { background: var(--sel); color: var(--sel-ink); }
 .replist td.ic { width: 44px; white-space: nowrap; } .replist td.ic button { border: 0; background: none; padding: 0 2px; cursor: pointer; }
@@ -396,6 +404,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
       <button data-k="provider">🩺<br>Providers</button>
       <button data-k="payment">💵<br>Payments</button>
       <button data-k="procedure" title="Procedure Code Library">🧾<br>Codes</button>
+      <button data-k="task">☑<br>Tasks</button>
       <button data-k="reports">📊<br>Reports</button>
     </div>
     <div class="band" id="band"></div>
@@ -491,7 +500,8 @@ body.locked > :not(.login):not(#print) { display: none !important; }
                     <option value="22">22 Outpatient hospital</option><option value="23">23 Emergency room</option><option value="02">02 Telehealth</option></select></span></h2>
                 <div class="in">
                   <div class="form"><label for="c_dos"><b>24A</b>1st DOS:</label><input id="c_dos" data-f="date_of_service" placeholder="MM/DD/YYYY">
-                    <span></span><span class="hint">Click a date below to add a service line.</span></div>
+                    <label for="c_tpl">Claim Template:</label><div class="split"><select id="c_tpl"></select><button type="button" id="c_tpl_del" title="Delete this template" hidden>✕</button></div>
+                    <span></span><span class="hint" id="calHint">Click a date below to add a service line.</span></div>
                   <div class="cals" id="cals"></div>
                 </div>
               </div>
@@ -726,6 +736,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
         </div>
 
         <!-- PATIENT STATEMENTS -->
+        <div id="setupView" hidden><div class="setup"><div class="optlist" id="suList"></div><div class="supane"><h2 id="suTitle"></h2><div class="form" id="suForm"></div><p class="hint" id="suHint"></p></div></div></div>
         <div id="repView" hidden><div class="status"><span class="msg" id="repmsg"></span></div><div id="repOut"></div></div>
         <div id="stmtView" hidden>
           <div class="status"><span class="msg" id="stmsg"></span></div>
@@ -774,6 +785,17 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   </div>
 </div>
 <datalist id="pxLib"></datalist>
+<div class="modal" id="pwdlg" hidden>
+  <div class="mwin">
+    <div class="mt">Change Password</div>
+    <div class="in"><div class="form">
+      <label for="pw_old">Current Password:</label><input id="pw_old" type="password" class="span3" autocomplete="current-password">
+      <label for="pw_new">New Password:</label><input id="pw_new" type="password" class="span3" autocomplete="new-password">
+      <label for="pw_new2">Confirm New Password:</label><input id="pw_new2" type="password" class="span3" autocomplete="new-password">
+    </div><p class="hint">At least 12 characters. A short sentence is easiest to remember.</p><p class="msg" id="pw_msg"></p></div>
+    <div class="mbar"><span class="spacer"></span><button id="pwOk" class="primary">Change</button><button id="pwCancel">Cancel</button></div>
+  </div>
+</div>
 <div class="modal" id="newco" hidden>
   <div class="mwin">
     <div class="mt">New Company</div>
@@ -824,11 +846,15 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   var LETTERS = "ABCDEFGHIJKL";
   var BILL = { draft: "Ready to Submit", sent: "Submitted", hold: "On Hold", partial: "Partly Paid", paid: "Paid", denied: "Denied" };
   var OWING = { sent: 1, hold: 1, partial: 1, denied: 1 };
-  var KIND_ICON = { patient: "👤", claim: "📄", payer: "🏛", provider: "🩺", payment: "💵", procedure: "🧾", report: "📊", statements: "✉", help: "❓" };
+  var KIND_ICON = { task: "☑", setup: "⚙", patient: "👤", claim: "📄", payer: "🏛", provider: "🩺", payment: "💵", procedure: "🧾", report: "📊", statements: "✉", help: "❓" };
   var DIR = {
     payer: { title: "Payer Library", name: "name", fields: [
       ["name", "Insurer Name:", 1], ["address", "Claims Mailing Address:", 1], ["payer_id", "Payer ID:"], ["phone", "Phone #:"],
       ["fax", "Fax #:"], ["demand_address", "PIP Demand Letter Address (Florida OIR):", 1], ["notes", "Notes:", 1]] },
+    task: { title: "Task Information", name: "subject", fields: [
+      ["subject", "Subject:", 1], ["about", "Regarding (claim / patient):", 1], ["start", "Start Date:"], ["due", "Due Date:"],
+      ["status", "Status:", 0, ["Not Started", "In Progress", "Waiting on Someone Else", "Deferred", "Completed"]],
+      ["priority", "Priority:", 0, ["Normal", "High", "Low"]], ["assigned", "Assigned To:", 0, "users"], ["created_by", "Created By:", 0, "ro"], ["notes", "Notes:", 1]] },
     procedure: { title: "Procedure Code Library", name: "code", fields: [
       ["code", "Procedure Code:"], ["modifier", "Modifier:"], ["description", "Description:", 1], ["charge", "Charge:"],
       ["units", "Units:"], ["pointer", "Dx Pointer:"], ["notes", "Notes:", 1]] },
@@ -839,11 +865,11 @@ body.locked > :not(.login):not(#print) { display: none !important; }
 
   // ============ state ============
   var S = {
-    tab: "claim", data: { claim: [], patient: [], payer: [], provider: [], payment: [], procedure: [] },
+    tab: "claim", data: { claim: [], patient: [], payer: [], provider: [], payment: [], procedure: [], template: [], task: [] },
     grids: {}, docs: [], active: -1, rtab: "home", dtab: "details", widget: "owed", user: "", seq: 0, loadedAt: null,
     token: null, idle: 15
   };
-  ["claim", "patient", "payer", "provider", "payment", "procedure"].forEach(function (k) { S.grids[k] = { f: {}, sort: [], group: null, shut: {}, sel: null }; });
+  ["claim", "patient", "payer", "provider", "payment", "procedure", "task"].forEach(function (k) { S.grids[k] = { f: {}, sort: [], group: null, shut: {}, sel: null }; });
 
   // ============ helpers ============
   function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
@@ -885,10 +911,12 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   function owes(c) { return !!OWING[c.billing] && c.balance > 0.004; }
   function patBal(p) { return claimsOf(p).reduce(function (s, c) { return s + (c.balance || 0); }, 0); }
   function loadAll() {
-    return Promise.all(["claim", "patient", "payer", "provider", "payment", "procedure"].map(function (k) {
+    loadSettings().then(applySetup).catch(function () {});
+    api("GET", "/api/users").then(function (r) { S.users = r.users; }).catch(function () {});
+    return Promise.all(["claim", "patient", "payer", "provider", "payment", "procedure", "template", "task"].map(function (k) {
       return api("GET", "/api/list?kind=" + k).then(function (r) { S.data[k] = r.records; });
     })).then(function () {
-      S.loadedAt = new Date(); fillPickers(); fillLibList(); if (typeof RP !== "undefined") RP.cat = null; renderGridBody(); renderDetail(); renderRibbon();
+      S.loadedAt = new Date(); fillPickers(); fillLibList(); if (typeof RP !== "undefined") RP.cat = null; var cd = cur(); if (cd && cd.kind === "claim") fillTplSelect(); renderGridBody(); renderDetail(); renderRibbon();
       if (S.active < 0) renderHome();
     }).catch(function (e) { $("gbody").innerHTML = '<tr class="empty"><td colspan="6">Couldn’t load: ' + esc(e.message) + '</td></tr>'; });
   }
@@ -917,6 +945,11 @@ body.locked > :not(.login):not(#print) { display: none !important; }
       { k: "name", t: "Name", v: function (r) { return r.name; } },
       { k: "role", t: "Type", w: "76px", v: function (r) { return r.role; } },
       { k: "npi", t: "NPI", w: "96px", v: function (r) { return r.npi; } }],
+    task: [
+      { k: "due", t: "Due Date", w: "76px", d: 1, v: function (r) { return r.due; }, cls: function (r) { var dd = parseDate(r.due); return !r.done && dd && dd < new Date(new Date().toDateString()) ? "pip-late" : ""; } },
+      { k: "subj", t: "Subject", v: function (r) { return r.subject; } },
+      { k: "who", t: "Assigned To", w: "80px", v: function (r) { return (r.assigned || "").toUpperCase(); } },
+      { k: "st", t: "Status", w: "86px", v: function (r) { return r.status; } }],
     procedure: [
       { k: "code", t: "Code", w: "70px", v: function (r) { return r.code; } },
       { k: "mod", t: "Mod", w: "40px", v: function (r) { return r.modifier; } },
@@ -1123,6 +1156,13 @@ body.locked > :not(.login):not(#print) { display: none !important; }
           ["Date", pm.date], ["Method", pm.method], ["Ref #", pm.ref], ["Amount", fmt(pm.amount)], ["Applied", fmt(pm.applied)], ["Remaining", fmt(pm.remaining)]]);
       return;
     }
+    if (S.tab === "task") {
+      var tk = S.data.task.filter(function (x) { return x.id === S.grids.task.sel; })[0];
+      $("dbody").innerHTML = !tk ? '<div class="dempty">Click a task to see it here; double-click to open it.</div>'
+        : sec("Task Information", [["Subject", tk.subject], ["Regarding", tk.about], ["Due Date", tk.due], ["Status", tk.status], ["Priority", tk.priority],
+          ["Created By", (tk.created_by || "").toUpperCase()], ["Assigned To", (tk.assigned || "").toUpperCase()]]);
+      return;
+    }
     if (S.tab === "procedure") {
       var pc = S.data.procedure.filter(function (x) { return x.id === S.grids.procedure.sel; })[0];
       $("dbody").innerHTML = !pc ? '<div class="dempty">Click a code to see it here; double-click to open it.<br><br>Codes here fill in the description, charge and units when typed on a claim.</div>'
@@ -1169,35 +1209,37 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   function ribbonConfig() {
     var d = cur(), isRec = d && d.kind !== "help", isClaim = d && d.kind === "claim";
     var blocked = S.data.claim.filter(function (c) { return c.status === "BLOCK"; }).length;
+    var today0 = new Date(new Date().toDateString()), tasksDue = S.data.task.filter(function (t) { var dd = parseDate(t.due); return !t.done && (!t.assigned || t.assigned === S.user) && dd && dd <= today0; }).length;
     var file = { cap: "File", items: [big("🏠", "Home", goHome), big("🖨", "Print", printClaim, isClaim), big("💾", "Save", function () { saveDoc(cur()); }, isRec),
-      big("✖", "Close", function () { closeDoc(S.active); }, !!d), big("🗑", "Delete", null, false, SOON)] };
+      big("✖", "Close", function () { closeDoc(S.active); }, !!d), big("🗑", "Delete", deleteDoc, !!(d && d.id && DELETABLE[d.kind]))] };
     var edit = { cap: "Edit", small: 1, items: [small("📋", "Paste", editCmd("paste")), small("⧉", "Copy", editCmd("copy")), small("✂", "Cut", editCmd("cut")),
       small("↶", "Undo", editCmd("undo")), small("▣", "Select All", editCmd("selectAll")), small("⌫", "Clear", editCmd("clear"))] };
     var find = { cap: "Find", items: [big("🔎", "Find", findCmd)] };
     var help = { cap: "Support", items: [big("❓", "Help Topics", openHelp)] };
     if (S.rtab === "claim" && isClaim) return [file, edit,
       { cap: "New", items: [big("📄", "Claim", newClaim), big("👤", "Patient", newPatient), big("💵", "Payment", newPaymentForClaim)] },
-      { cap: "Actions", small: 1, items: [small("⧉", "Copy Claim", copyClaim), small("🔁", "Make Recurring", null, false, SOON), small("📑", "Save as Template", null, false, SOON),
-        small("✎", "Write Off Claim", null, false, SOON), small("✔", "Pay Off Claim", payOff), small("🧹", "Scrub", scrub)] },
+      { cap: "Actions", small: 1, items: [small("⧉", "Copy Claim", copyClaim), small("☑", "New Task", function () { newTask(cur()); }), small("📑", "Save as Template", saveTemplate),
+        small("✎", "Write Off Claim", writeOffClaim), small("✔", "Pay Off Claim", payOff), small("🧹", "Scrub", scrub)] },
       { cap: "Patient", items: [big("👤", "Save to Patient List", savePatientFromClaim)] }, help];
     if (S.rtab === "patient" && d && d.kind === "patient") return [file, edit,
       { cap: "New", items: [big("📄", "Claim", function () { newClaimForDoc(cur()); }), big("👤", "Patient", newPatient)] },
-      { cap: "Actions", small: 1, items: [small("⧉", "Copy Patient", copyPatient), small("🔀", "Merge Patient", null, false, SOON), small("📑", "Apply Template", null, false, SOON)] },
+      { cap: "Actions", small: 1, items: [small("⧉", "Copy Patient", copyPatient), small("🔀", "Merge Patient", mergePatient), small("☑", "New Task", function () { newTask(cur()); })] },
       { cap: "List", items: [big("📄", "Claims", function () { listPatientClaims(cur()); })] }, help];
     if (S.rtab === "tools") return [
       { cap: "Import", items: [big("📷", "Claim from a Scan", scanCmd)] },
       { cap: "Patients", items: [big("✉", "Patient Statements", openStatements, true, "Not used for PIP billing - patients are never billed")] },
-      { cap: "Options", items: [big("🖨", "Printer Adjustment", openAdjust), big("⚙", "Program Setup", null, false, SOON)] },
+      { cap: "Options", items: [big("🖨", "Printer Adjustment", openAdjust), big("⚙", "Program Setup", openSetup)] },
       { cap: "Security", small: 1, items: [small("🚪", "Log Out", function () { lock("Logged out."); }), small("👥", "Login as another user", function () { lock("Log in as another user."); }),
-        small("🔑", "Change Password", null, false, "On Main: claims_web.py passwd <name>")] },
+        small("🔑", "Change Password", function () { $("pw_old").value = $("pw_new").value = $("pw_new2").value = ""; $("pw_msg").textContent = ""; $("pwdlg").hidden = false; $("pw_old").focus(); })] },
       { cap: "Company", items: [big("💾", "Backup", null, false, "Run vault.py backup on Main")] }, help];
     if (S.rtab === "support") return [help, { cap: "About", items: [big("⚡", "Thunder Claims", openHelp)] }];
     return [file, edit, find,
       { cap: "New", items: [big("👤", "Patient", newPatient), big("📄", "Claim", newClaim), big("💵", "Payment", function () { newPayment(); }),
-        big("☑", "Task", null, false, SOON)] },
+        big("☑", "Task", function () { newTask(); })] },
       { cap: "Libraries", items: [big("🏛", "Payer", function () { selectLeftTab("payer"); }), big("🩺", "Physician Facility", function () { selectLeftTab("provider"); }),
         big("🧾", "Procedure Code", function () { selectLeftTab("procedure"); })] },
-      { cap: "Alerts", items: [big("⚠", "Needs Fixing (" + blocked + ")", function () { showWidget("block"); })] }, help];
+      { cap: "Alerts", items: [big("⚠", "Needs Fixing (" + blocked + ")", function () { showWidget("block"); }),
+        big("⏰", "Tasks Due (" + tasksDue + ")", function () { selectLeftTab("task"); })] }, help];
   }
   var ribbonFns = [];
   function renderRibbon() {
@@ -1247,6 +1289,8 @@ body.locked > :not(.login):not(#print) { display: none !important; }
     if (d.kind === "statements") return "Statements";
     if (d.kind === "payment") return d.id ? "Payment - " + ((x.source === "payer" ? x.payer : x.patient_name) || "?") + " " + (x.date || "") : "Payment Entry";
     if (d.kind === "report") return d.name;
+    if (d.kind === "setup") return "Setup";
+    if (d.kind === "task") return x.subject ? "Task - " + x.subject : "New Task";
     if (d.kind === "procedure") return x.code ? "Code " + x.code + (x.modifier ? "-" + x.modifier : "") : "New Procedure Code";
     return x.name || (d.kind === "payer" ? "New Payer" : "New Physician/Facility");
   }
@@ -1287,7 +1331,13 @@ body.locked > :not(.login):not(#print) { display: none !important; }
 
   // ============ record shapes ============
   function blankClaim() {
-    return { place_of_service: "11", diagnoses: [], procedures: [], tracking: { billing: "draft", method: "paper" }, notes_log: [] };
+    var su = (ST && ST.setup) || {}, c = { place_of_service: su.initial_pos || "11", diagnoses: [], procedures: [], tracking: { billing: su.initial_status || "draft", method: "paper" }, notes_log: [],
+      accident_state: su.initial_state || "", insurance_type: su.initial_insurance_type || "other" };
+    var byName = function (n) { return S.data.provider.filter(function (p) { return p.name === n; })[0]; };
+    if (su.default_billing && byName(su.default_billing)) PICK.billing(byName(su.default_billing), c);
+    if (su.default_rendering && byName(su.default_rendering)) PICK.treating(byName(su.default_rendering), c);
+    if (su.default_referring && byName(su.default_referring)) PICK.referring(byName(su.default_referring), c);
+    return c;
   }
   function blankLine(date, d) { return { date: date || (d && d.data.date_of_service) || "", code: "", modifier: "", m2: "", m3: "", m4: "", description: "", units: "1", charge: "", pointer: "1", resp: "" }; }
   function composeName(p) {
@@ -1317,7 +1367,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
         x.last_name = parts[0].trim(); x.mi = rest.length > 1 && rest[rest.length - 1].length <= 2 ? rest.pop() : ""; x.first_name = rest.join(" ");
       }
       if (x.active == null) x.active = true;
-      if (!x.relationship) x.relationship = "Self"; if (!x.accept_assignment) x.accept_assignment = "Yes";
+      if (!x.relationship) x.relationship = "Self"; if (!x.accept_assignment) x.accept_assignment = (ST && ST.setup && ST.setup.accept_assignment) || "Yes";
     }
     return x;
   }
@@ -1371,11 +1421,12 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   function renderWork() {
     var d = cur(), k = d ? d.kind : "home";
     $("homeView").hidden = k !== "home"; $("helpView").hidden = k !== "help"; $("claimView").hidden = k !== "claim";
-    $("patView").hidden = k !== "patient"; $("dirView").hidden = !DIR[k]; $("payView").hidden = k !== "payment"; $("stmtView").hidden = k !== "statements"; $("repView").hidden = k !== "report";
+    $("patView").hidden = k !== "patient"; $("dirView").hidden = !DIR[k]; $("payView").hidden = k !== "payment"; $("stmtView").hidden = k !== "statements"; $("repView").hidden = k !== "report"; $("setupView").hidden = k !== "setup";
     $("work").classList.toggle("nobtn", k === "home" || k === "help");
     renderButtons();
     if (k === "home") renderHome();
     if (k === "report") renderReport();
+    if (k === "setup") renderSetup();
     if (k === "claim") renderClaim();
     if (k === "patient") renderPatient();
     if (DIR[k]) renderDir();
@@ -1386,14 +1437,15 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   function renderButtons() {
     var d = cur(), k = d ? d.kind : "home", h = "";
     if (k === "claim") h = '<button class="primary" data-b="saveClose">Save &amp; Close</button><button data-b="save">Save</button><button data-b="close">Close</button>' +
-      '<button disabled title="' + SOON + '">Delete</button><div class="gap"></div><button data-b="notes">' + (notesHidden ? "Show Notes" : "Hide Notes") + '</button>' +
+      '<button data-b="delete">Delete</button><div class="gap"></div><button data-b="notes">' + (notesHidden ? "Show Notes" : "Hide Notes") + '</button>' +
       '<button data-b="scrub">Scrub</button><button data-b="print">Print</button><button data-b="savePatient" title="Save this patient to the patient list">Save Patient</button>';
     if (k === "patient") h = '<button class="primary" data-b="saveClose">Save &amp; Close</button><button data-b="save">Save</button><button data-b="close">Close</button>' +
-      '<button disabled title="' + SOON + '">Delete</button><div class="gap"></div><button data-b="newClaim">New Claim</button>' +
+      '<button data-b="delete">Delete</button><div class="gap"></div><button data-b="newClaim">New Claim</button>' +
       '<label class="' + (d.data.active !== false ? "act" : "") + '"><input type="checkbox" data-b="active"' + (d.data.active !== false ? " checked" : "") + '> Active</label>';
+    if (k === "setup") h = '<button class="primary" data-b="saveClose">Save &amp; Close</button><button data-b="save">Save</button><button data-b="close">Close</button>';
     if (k === "report") h = '<button class="primary" data-b="repPrint">Print</button><button data-b="repRefresh">Refresh</button><button data-b="repCsv">Export (.csv)</button><button data-b="close">Close</button>' +
       '<div class="gap"></div><div class="hint" style="padding:0 4px">Click a line to open that record.</div>';
-    if (DIR[k]) h = '<button class="primary" data-b="saveClose">Save &amp; Close</button><button data-b="save">Save</button><button data-b="close">Close</button>';
+    if (DIR[k]) h = '<button class="primary" data-b="saveClose">Save &amp; Close</button><button data-b="save">Save</button><button data-b="close">Close</button><button data-b="delete">Delete</button>';
     if (k === "statements") h = '<label style="display:block">Statement Format:<select id="st_format" style="margin-top:2px"><option>Statement</option></select></label>' +
       '<button class="primary" data-b="stPrint">Print</button><button data-b="stPreview">Preview</button><button data-b="stOptions">Options</button><button data-b="close">Close</button>' +
       '<div class="gap"></div><button data-b="stAll">Check All</button><button data-b="stNone">Uncheck All</button><div class="gap"></div>' +
@@ -1401,7 +1453,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
       '<label style="display:block">Min. Pat. Bal.:<input id="st_min" value="' + esc(d.opts.min) + '" inputmode="decimal"></label>' +
       '<label style="display:block">Min. Sta. Cycle (days):<input id="st_cycle" value="' + esc(d.opts.cycle) + '" inputmode="numeric"></label>' +
       '<button data-b="stRefresh">Refresh</button>';
-    if (k === "payment") h = '<button class="primary" data-b="saveClose">Save &amp; Close</button><button data-b="save">Save</button><button data-b="close">Close</button>' +
+    if (k === "payment") h = '<button class="primary" data-b="saveClose">Save &amp; Close</button><button data-b="save">Save</button><button data-b="close">Close</button><button data-b="delete">Delete</button>' +
       '<button data-b="newPmt">New Pmt</button><div class="gap"></div>' +
       '<div class="fsum">Filter Settings:<br>Ignore Responsible Party - ' + (d.opts.ignore ? "Checked" : "Unchecked") +
       '<br>Include $0.00 Balance Lines - ' + (d.opts.zero ? "Checked" : "Unchecked") + '</div>' +
@@ -1423,6 +1475,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
       case "scrub": scrub(); break;
       case "print": printClaim(); break;
       case "repPrint": printReport(d); break;
+      case "delete": deleteDoc(); break;
       case "repRefresh": runReport(d.name, d.crit, d); break;
       case "repCsv": reportCsv(d); break;
       case "savePatient": savePatientFromClaim(); break;
@@ -1514,6 +1567,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   // ============ claim screen ============
   function renderClaim() {
     var d = cur(), c = d.data, t = c.tracking;
+    fillTplSelect();
     qa("#claimView [data-f]").forEach(function (el) { el.value = c[el.dataset.f] || ({ place_of_service: "11", insurance_type: "other" }[el.dataset.f] || ""); });
     qa("#claimView [data-t]").forEach(function (el) { if (el.type === "checkbox") el.checked = !!t[el.dataset.t]; else el.value = t[el.dataset.t] || ""; });
     $("claimId").value = d.id || "New";
@@ -1620,6 +1674,12 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   }
   $("claimView").addEventListener("change", function (e) {
     var t = e.target, d = cur(); if (!d || d.kind !== "claim") return;
+    if (t.id === "c_tpl") {
+      d.tpl = t.value; if (!d.tpl) return tplHint();
+      (tplCache[d.tpl] ? Promise.resolve() : api("GET", "/api/rec/" + d.tpl).then(function (r) { tplCache[d.tpl] = r.data; })).then(tplHint)
+        .catch(function (err) { setMsg("Couldn’t load the template: " + err.message); });
+      return;
+    }
     if (t.dataset.px != null && t.dataset.k === "code") {
       var pl = d.data.procedures[+t.dataset.px];
       if (pl && libFill(pl)) { renderLines(); paintCodes(); totals(); changed(); setMsg("Filled from the Procedure Code Library: " + pl.code + "."); }
@@ -1634,14 +1694,30 @@ body.locked > :not(.login):not(#print) { display: none !important; }
     var th = t.closest("#pg th"); if (th) th.closest("tbody").classList.toggle("shut");
     var cb = t.closest("#cals button"); if (cb && !cb.disabled) {
       if (cb.dataset.calmove) { d.cal.setMonth(d.cal.getMonth() + +cb.dataset.calmove); renderCals(); }
-      else if (cb.dataset.day) addLine(cb.dataset.day);
+      else if (cb.dataset.day) {
+        if (e.shiftKey && d.lastDay) {   // EZClaim: Shift+click enters one line (or one template) per date in the range
+          var a = parseDate(d.lastDay), b = parseDate(cb.dataset.day), step = a <= b ? 1 : -1, days = [];
+          for (var x = new Date(a); step > 0 ? x <= b : x >= b; x.setDate(x.getDate() + step)) if (mdy(x) !== d.lastDay) days.push(mdy(x));
+          days.forEach(function (dd) { addLine(dd, true); }); d.lastDay = cb.dataset.day; renderLines(); renderCals(); paintCodes(); totals(); changed();
+        } else { d.lastDay = cb.dataset.day; addLine(cb.dataset.day); }
+      }
     }
   });
   $("addPx").addEventListener("click", function () { addLine(); });
-  function addLine(date) {
-    var d = cur(), c = d.data;
-    if (c.procedures.length >= 6) return setMsg("A claim form holds 6 service lines. Start a second claim for more.");
-    c.procedures.push(blankLine(date, d)); syncDos(); renderLines(); renderCals(); paintCodes(); totals(); changed();
+  $("c_tpl_del").addEventListener("click", function () {
+    var d = cur(), t = S.data.template.filter(function (x) { return x.id === d.tpl; })[0]; if (!t) return;
+    if (!confirm("Delete the template " + t.name + "? Claims already made from it are not changed.")) return;
+    api("POST", "/api/delete", JSON.stringify({ id: t.id })).then(function () { d.tpl = ""; delete tplCache[t.id]; loadAll().then(fillTplSelect); setMsg("Template deleted."); });
+  });
+  function addLine(date, quiet) {
+    var d = cur(), c = d.data, tl = date && tplLines(d.tpl);
+    var add = tl ? tl.map(function (p) { var l = blankLine(date, d); Object.keys(p).forEach(function (k) { if (p[k] !== "") l[k] = p[k]; }); l.date = date; return l; }) : [blankLine(date, d)];
+    if (c.procedures.length + add.length > 6) return setMsg("A claim form holds 6 service lines. Start a second claim for more.");
+    add.forEach(function (l) { c.procedures.push(l); });
+    if (tl && !c.diagnoses.some(function (x) { return x.code; }) && tplCache[d.tpl].diagnoses.length) c.diagnoses = clone(tplCache[d.tpl].diagnoses).map(function (x) { return { code: x.code, description: "" }; });
+    syncDos(); if (quiet) return;
+    if (tl) { renderClaim(); scrubSoon(); markDirty(); return; }
+    renderLines(); renderCals(); paintCodes(); totals(); changed();
     var ins = qa('#pxRows input[data-k="code"]'); if (ins.length) ins[ins.length - 1].focus();
   }
   function syncDos() {  // 1st DOS follows the earliest line date, as EZClaim's does
@@ -1811,18 +1887,29 @@ body.locked > :not(.login):not(#print) { display: none !important; }
     $("dirTitle").textContent = def.title;
     $("dirForm").innerHTML = def.fields.map(function (f) {
       var id = "d_" + f[0], v = d.data[f[0]] || "";
+      var opts = f[3] === "users" ? (S.users || []) : f[3];
+      if (f[3] === "ro") return '<label>' + esc(f[1]) + '</label><input value="' + esc(v) + '" readonly>';
+      if (opts) return '<label for="' + id + '">' + esc(f[1]) + '</label><select id="' + id + '" data-dk="' + f[0] + '">' + ['<option value=""></option>'].concat(opts.map(function (o) {
+        return '<option' + (o === v ? " selected" : "") + '>' + esc(o) + '</option>'; })).join("") + '</select>';
       var input = f[0] === "notes" || (f[0] === "address" && d.kind === "payer") ? '<textarea id="' + id + '" data-dk="' + f[0] + '"' + (f[2] ? ' class="span3"' : "") + '>' + esc(v) + '</textarea>'
         : '<input id="' + id + '" data-dk="' + f[0] + '" value="' + esc(v) + '" class="' + (/npi|tax_id|payer_id|^code$|modifier|pointer/.test(f[0]) ? "code" : "") + (f[2] ? " span3" : "") + '">';
       return '<label for="' + id + '">' + esc(f[1]) + '</label>' + input;
     }).join("");
+    if (d.kind === "task" && d.data.about_id) $("dirForm").insertAdjacentHTML("beforeend", '<label></label><div><button type="button" data-openabout="' + esc(d.data.about_id) + '">Open ' + esc(kind_label(d.data.about_id)) + '</button></div>');
     setMsg(d.id ? "Saved as " + d.id : "New - not saved yet.");
   }
+  function kind_label(id) { return /^pt-/.test(id) ? "the patient" : "the claim"; }
+  $("dirForm").addEventListener("click", function (e) { var id = e.target.dataset.openabout; if (id) openRec(/^pt-/.test(id) ? "patient" : "claim", id); });
+  $("dirForm").addEventListener("change", function (e) { var d = cur(); if (d && e.target.tagName === "SELECT" && e.target.dataset.dk) { d.data[e.target.dataset.dk] = e.target.value; markDirty(); } });
   $("dirForm").addEventListener("input", function (e) { var d = cur(); if (d && e.target.dataset.dk) { d.data[e.target.dataset.dk] = e.target.value; markDirty(); if (/^(name|code|modifier)$/.test(e.target.dataset.dk)) renderDocTabs(); } });
 
   // ============ save ============
   function saveDoc(d) {
     if (!d || d.kind === "help") return Promise.resolve(false);
     if (d.kind === "payment") return savePayment(d);
+    if (d.kind === "setup") return api("POST", "/api/settings", JSON.stringify(d.data)).then(function (r) {
+      ST = r; d.data = clone(r); d.dirty = false; applySetup(); renderDocTabs(); setMsg("Setup saved."); return true;
+    }).catch(function (e) { setMsg("Not saved: " + e.message); return false; });
     setMsg("Saving…");
     var data = d.kind === "claim" ? cleaned(d.data) : clone(d.data);
     if (d.kind !== "claim") Object.keys(data).forEach(function (k) { if (typeof data[k] === "string") data[k] = data[k].trim(); });
@@ -2288,6 +2375,134 @@ body.locked > :not(.login):not(#print) { display: none !important; }
     return h + '</div>';
   }
   function setPageMargin(red) { $("pagestyle").textContent = "@page { size: letter; margin: " + (red ? "0" : "0.35in") + "; }"; }
+
+  // ============ tasks, templates, merge ============
+  function newTask(from) {
+    var t = { status: "Not Started", priority: "Normal", assigned: S.user, start: mdy(new Date()) };
+    if (from && from.id && (from.kind === "claim" || from.kind === "patient")) {
+      t.about_id = from.id; t.about = from.kind === "claim" ? (from.data.patient_name || "") + " - claim " + (from.data.date_of_service || "") : (from.data.patient_name || "") + " (patient)";
+    }
+    addDoc({ kind: "task", id: null, data: t, dirty: true }); setMsg("New task - type a subject and a due date.");
+  }
+  function saveTemplate() {
+    var d = cur(); if (!d || d.kind !== "claim") return;
+    var lines = d.data.procedures.filter(function (p) { return (p.code || "").trim(); });
+    if (!lines.length) return setMsg("Add the service lines first - a template is a set of service lines.");
+    var name = prompt("Save these " + lines.length + " service line(s) as a claim template.\n\nTemplate name:", "");
+    if (!name || !name.trim()) return;
+    var same = S.data.template.filter(function (x) { return (x.name || "").toLowerCase() === name.trim().toLowerCase(); })[0];
+    if (same && !confirm("Replace the template called " + same.name + "?")) return;
+    api("POST", "/api/save", JSON.stringify({ kind: "template", id: same ? same.id : null, data: { name: name.trim(), procedures: lines, diagnoses: d.data.diagnoses, place_of_service: d.data.place_of_service } }))
+      .then(function () { setMsg("Saved template " + name.trim() + ". Pick it from Claim Template on any claim."); loadAll(); })
+      .catch(function (e) { alert("Not saved: " + e.message); });
+  }
+  var tplCache = {};
+  function tplLines(id) { return id && tplCache[id] ? tplCache[id].procedures : null; }
+  function fillTplSelect() {
+    var d = cur(); if (!d || d.kind !== "claim") return;
+    $("c_tpl").innerHTML = '<option value="">&lt;No Template&gt;</option>' + S.data.template.filter(function (x) { return !x.error; }).map(function (x) {
+      return '<option value="' + esc(x.id) + '"' + (d.tpl === x.id ? " selected" : "") + '>' + esc(x.name) + '</option>'; }).join("");
+    tplHint();
+  }
+  function tplHint() {
+    var d = cur(), t = d && d.tpl && S.data.template.filter(function (x) { return x.id === d.tpl; })[0];
+    $("calHint").textContent = t ? "Click a date on the calendars above to enter the " + t.lines + " service line" + (t.lines === 1 ? "" : "s") + " from the selected template."
+      : "Click a date below to add a service line. Shift+click adds one per date in a range.";
+    $("c_tpl_del").hidden = !t;
+  }
+  function mergePatient() {
+    var d = cur(); if (!d || d.kind !== "patient" || !d.id) return setMsg("Open a saved patient first - that is the one kept.");
+    var others = S.data.patient.filter(function (p) { return p.id !== d.id && !p.error; });
+    var pick = prompt("Merge a duplicate INTO " + (d.data.patient_name || "this patient") + ".\nIts claims move here and the duplicate is deleted.\n\nType the duplicate's account number:\n" +
+      others.map(function (p) { return (p.account_number || "?") + "  " + p.patient_name + (p.dob ? "  " + p.dob : ""); }).join("\n"), "");
+    if (!pick) return;
+    var dup = others.filter(function (p) { return String(p.account_number) === pick.trim(); })[0];
+    if (!dup) return alert("No other patient has account number " + pick);
+    if (!confirm("Move every claim of " + dup.patient_name + " (" + dup.account_number + ") to " + d.data.patient_name + " and delete " + dup.patient_name + "?")) return;
+    api("POST", "/api/merge", JSON.stringify({ keep: d.id, drop: dup.id })).then(function (r) { setMsg("Merged: " + r.moved + " claim(s) moved."); loadAll(); })
+      .catch(function (e) { alert("Not merged: " + e.message); });
+  }
+
+  // ============ Program Setup (Tools > Program Setup), as in EZClaim ============
+  var POS = [["11", "11 Office"], ["12", "12 Home"], ["22", "22 Outpatient hospital"], ["23", "23 Emergency room"], ["02", "02 Telehealth"]];
+  var SETUP = {
+    General: [["alt_rows", "Alternate Grid Row Colors", "check"]],
+    Patient: [["auto_account", "Automatic Account Numbers", "check"], ["next_account", "Next Account Number", "text"],
+      ["account_prefix", "Next Account Number Prefix", "text"], ["unique_account", "Require Account Numbers Entered to be Unique", "check"],
+      ["accept_assignment", "Initial Accept Assignment", ["Yes", "No"]]],
+    Claim: [["initial_status", "Initial Claim Status", [["draft", "Ready to Submit"], ["hold", "On Hold"]]], ["initial_pos", "Initial Place of Service", POS],
+      ["initial_state", "Initial Accident State (10b)", "text"], ["initial_insurance_type", "Initial Insurance Type (Box 1)", [["other", "Other"], ["group", "Group Health Plan"]]],
+      ["default_billing", "Default Billing Provider (33)", "billing"], ["default_rendering", "Default Rendering Provider (24J)", "treating"], ["default_referring", "Default Referring Provider (17)", "referring"]],
+    "Printing Claims": [],
+    Company: [["return_name", "Company Name", "stext"], ["return_addr1", "Address 1", "stext"], ["return_addr2", "Address 2", "stext"],
+      ["return_city", "City", "stext"], ["return_state", "State", "stext"], ["return_zip", "Zip", "stext"], ["return_phone", "Phone #", "stext"]]
+  };
+  function openSetup() {
+    for (var i = 0; i < S.docs.length; i++) if (S.docs[i].kind === "setup") return activate(i);
+    loadSettings().then(function () { addDoc({ kind: "setup", id: "setup", pane: "General", data: clone(ST), dirty: false }); });
+  }
+  function provNames(role) { return S.data.provider.filter(function (p) { return !p.role || p.role.toLowerCase().indexOf(role.slice(0, 5)) >= 0; }).map(function (p) { return p.name; }); }
+  function renderSetup() {
+    var d = cur(), su = d.data.setup, st = d.data.statement;
+    $("suList").innerHTML = Object.keys(SETUP).map(function (k) { return '<button data-sup="' + k + '"' + (k === d.pane ? ' class="on"' : "") + '>' + k + '</button>'; }).join("");
+    $("suTitle").textContent = d.pane;
+    $("suForm").innerHTML = SETUP[d.pane].map(function (f) {
+      var k = f[0], t = f[2], v = t === "stext" ? st[k] : su[k], id = "su_" + k, ctl;
+      if (t === "check") ctl = '<div><input type="checkbox" id="' + id + '" data-su="' + k + '"' + (v ? " checked" : "") + '></div>';
+      else if (t === "text" || t === "stext") ctl = '<input id="' + id + '" data-su="' + k + '"' + (t === "stext" ? ' data-st="1"' : "") + ' value="' + esc(v == null ? "" : v) + '">';
+      else {
+        var opts = Array.isArray(t) ? t : [["", "(none)"]].concat(provNames(t).map(function (n) { return [n, n]; }));
+        ctl = '<select id="' + id + '" data-su="' + k + '">' + opts.map(function (o) { o = Array.isArray(o) ? o : [o, o]; return '<option value="' + esc(o[0]) + '"' + (String(v) === String(o[0]) ? " selected" : "") + '>' + esc(o[1]) + '</option>'; }).join("") + '</select>';
+      }
+      return '<label for="' + id + '">' + esc(f[1]) + ':</label>' + ctl;
+    }).join("") + (d.pane === "Printing Claims" ? '<label>Printer Alignment:</label><div><button type="button" id="suPrinter">Printer Adjustment…</button></div>' : "");
+    $("suHint").textContent = { General: "Applies to everyone using this company.", Patient: "Account numbers are assigned when a new patient is saved.",
+      Claim: "New claims start with these. Provider defaults come from the Physician / Facility Library.",
+      "Printing Claims": "Printer alignment is saved per person, because each desk has its own printer.",
+      Company: "Printed at the top of reports, demand letters and statements." }[d.pane] || "";
+  }
+  $("setupView").addEventListener("click", function (e) {
+    var d = cur(); if (!d || d.kind !== "setup") return;
+    if (e.target.dataset.sup) { d.pane = e.target.dataset.sup; renderSetup(); }
+    if (e.target.id === "suPrinter") openAdjust();
+  });
+  $("setupView").addEventListener("change", function (e) {
+    var d = cur(), t = e.target; if (!d || d.kind !== "setup" || !t.dataset.su) return;
+    (t.dataset.st ? d.data.statement : d.data.setup)[t.dataset.su] = t.type === "checkbox" ? t.checked : t.value; markDirty();
+  });
+  function applySetup() { document.body.classList.toggle("altrows", !!(ST.setup && ST.setup.alt_rows)); }
+
+  // ============ delete / write off / change password ============
+  var DELETABLE = { claim: 1, patient: 1, payment: 1, payer: 1, provider: 1, procedure: 1 };
+  function deleteDoc() {
+    var d = cur(); if (!d || !DELETABLE[d.kind]) return;
+    if (!d.id) { d.dirty = false; return closeDoc(S.active); }
+    if (!confirm("Delete " + docTitle(d) + "?\n\nIt is kept, encrypted, in the deleted-records folder on Main, and the audit log records who deleted it.")) return;
+    api("POST", "/api/delete", JSON.stringify({ id: d.id })).then(function () {
+      d.dirty = false; closeDoc(S.docs.indexOf(d)); setMsg("Deleted."); loadAll();
+    }).catch(function (e) { alert("Not deleted: " + e.message); });
+  }
+  function writeOffClaim() {
+    var d = cur(); if (!d || d.kind !== "claim") return;
+    if (!d.id || d.dirty) return setMsg("Save the claim first.");
+    var code = prompt("Write off everything still open on this claim.\n\nAdjustment group and reason code (CARC):", "CO-45");
+    if (code == null) return;
+    var m = String(code).toUpperCase().match(/^\s*(CO|OA|PI|CR|PR)\s*-?\s*([A-Z0-9]{1,5})\s*$/);
+    if (!m) return alert("Type it like CO-45 (group, dash, reason code).");
+    api("POST", "/api/writeoff", JSON.stringify({ id: d.id, group: m[1], reason: m[2] })).then(function () {
+      return api("GET", "/api/rec/" + d.id);
+    }).then(function (r) {
+      d.data = prep("claim", r.data); d.ledger = r.ledger; d.check = r; d.codes = r.codes || d.codes; d.dirty = false;
+      if (cur() === d) renderWork(); renderDocTabs(); loadAll(); setMsg("Written off as " + m[1] + "-" + m[2] + ". It shows as a $0.00 payment; delete that payment to undo it.");
+    }).catch(function (e) { alert("Not written off: " + e.message); });
+  }
+  $("pwCancel").onclick = function () { $("pwdlg").hidden = true; };
+  $("pwOk").onclick = function () {
+    if ($("pw_new").value !== $("pw_new2").value) { $("pw_msg").textContent = "The two new passwords don’t match."; return; }
+    api("POST", "/api/password", JSON.stringify({ old: $("pw_old").value, new: $("pw_new").value })).then(function () {
+      $("pwdlg").hidden = true; setMsg("Password changed.");
+    }).catch(function (e) { $("pw_msg").textContent = e.message; });
+  };
 
   // ============ reports (EZClaim's Reports tab) ============
   var RP = { cat: null, sel: null, crit: {} };

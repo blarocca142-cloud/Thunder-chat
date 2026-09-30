@@ -74,6 +74,8 @@ KINDS = {
     "provider": {"prefix": "pv-",  "index": []},
     "payment":  {"prefix": "pay-", "index": []},
     "procedure": {"prefix": "px-", "index": []},
+    "template": {"prefix": "tpl-", "index": []},
+    "task":     {"prefix": "tk-", "index": []},
 }
 BILLING = ("draft", "sent", "hold", "paid", "partial", "denied")
 METHODS = ("CHECK", "EFT", "CASH", "CREDIT CARD", "MONEY ORDER", "OTHER")
@@ -81,7 +83,7 @@ FIRST_ACCOUNT = 1000  # EZClaim numbers patients from 1000 up
 
 
 def kind_of(record_id: str) -> str:
-    for k in ("patient", "payer", "provider", "payment", "procedure"):
+    for k in ("patient", "payer", "provider", "payment", "procedure", "template", "task"):
         if record_id.startswith(KINDS[k]["prefix"]):
             return k
     return "claim"
@@ -239,6 +241,14 @@ def summary(kind: str, rid: str, r: dict, led: dict | None = None, claims: list 
                 "reminder": r.get("reminder", ""),
                 **({"pip_left": b["remaining"], "pip_limit": b["limit"], "pip_level": b["level"]}
                    if claims is not None and (b := patient_benefits(rid, r, claims, led)) else {})}
+    if kind == "template":
+        return {"id": rid, "name": r.get("name", ""), "lines": len(r.get("procedures") or []),
+                "codes": " ".join(str(p.get("code") or "") for p in r.get("procedures") or [])}
+    if kind == "task":
+        return {"id": rid, "subject": r.get("subject", ""), "due": r.get("due", ""), "assigned": r.get("assigned", ""),
+                "done": bool(r.get("done")) or r.get("status") == "Completed", "status": r.get("status") or "Not Started",
+                "priority": r.get("priority", "Normal"), "about": r.get("about", ""),
+                "about_id": r.get("about_id", ""), "created_by": r.get("created_by", "")}
     if kind == "procedure":
         return {"id": rid, "code": r.get("code", ""), "modifier": r.get("modifier", ""), "description": r.get("description", ""),
                 "charge": money(r.get("charge")), "units": r.get("units", ""), "pointer": r.get("pointer", ""),
@@ -322,6 +332,17 @@ STATEMENT_DEFAULTS = {"return_name": "", "return_addr1": "", "return_addr2": "",
                       "hide_proc": False, "global_message": "", "messages": []}
 
 
+SETUP_DEFAULTS = {
+    # General
+    "alt_rows": False,
+    # Patient
+    "auto_account": True, "next_account": "", "account_prefix": "", "unique_account": True, "accept_assignment": "Yes",
+    # Claim
+    "initial_status": "draft", "initial_pos": "11", "initial_state": "FL", "initial_insurance_type": "other",
+    "default_billing": "", "default_rendering": "", "default_referring": "",
+}
+
+
 def settings_file() -> Path:
     """Each company file has its own options, as in EZClaim. The first
     company keeps the original settings file so nothing moves on upgrade."""
@@ -335,11 +356,24 @@ def get_settings() -> dict:
         s_ = json.loads(settings_file().read_text())
     except (FileNotFoundError, ValueError):
         s_ = {}
-    return {"statement": {**STATEMENT_DEFAULTS, **(s_.get("statement") or {})}}
+    return {"statement": {**STATEMENT_DEFAULTS, **(s_.get("statement") or {})},
+            "setup": {**SETUP_DEFAULTS, **(s_.get("setup") or {})}}
 
 
 def set_settings(body: dict) -> dict:
-    cur = get_settings()["statement"]
+    allset = get_settings()
+    cur, setup = allset["statement"], allset["setup"]
+    for k, v in ((body or {}).get("setup") or {}).items():
+        if k not in SETUP_DEFAULTS:
+            continue
+        if isinstance(SETUP_DEFAULTS[k], bool):
+            setup[k] = bool(v)
+        elif k == "initial_status":
+            setup[k] = v if v in ("draft", "hold") else "draft"
+        elif k == "next_account":
+            setup[k] = str(int(money(v))) if money(v) else ""
+        else:
+            setup[k] = str(v or "")[:80]
     src = (body or {}).get("statement") or {}
     for k in ("return_name", "return_addr1", "return_addr2", "return_city", "return_state", "return_zip", "return_phone", "global_message"):
         if k in src:
@@ -357,9 +391,9 @@ def set_settings(body: dict) -> dict:
     tmp = sf.with_suffix(".tmp")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w") as f:
-        json.dump({"statement": cur}, f, indent=2)
+        json.dump({"statement": cur, "setup": setup}, f, indent=2)
     os.replace(tmp, sf)
-    return {"statement": cur}
+    return {"statement": cur, "setup": setup}
 
 
 def _norm(x) -> str:
@@ -569,19 +603,88 @@ def procedures_from_claims(user: str) -> dict:
     return {"added": len(seen)}
 
 
+def delete_record(rid: str, user: str) -> dict:
+    """EZClaim's Delete, with the guards a billing office needs: a claim with
+    money posted to it, or a patient with claims, cannot be deleted until
+    those are dealt with. Deleting a payment re-works its claims' balances
+    and statuses. Deleted records are kept, encrypted, under deleted/."""
+    if not ID_RE.match(rid) or not vault.record_path(rid).exists():
+        raise ValueError("no such record")
+    kind = kind_of(rid)
+    r = vault.get(rid)
+    if kind == "claim":
+        posted = ledger().get(rid)
+        if posted and (posted["paid"] or posted["adj"] or posted["pr"]):
+            raise ValueError("this claim has payments or adjustments posted - delete or change those payments first")
+    if kind == "patient":
+        linked = patient_claims(rid, r, list(records("claim")))
+        if linked:
+            raise ValueError(f"this patient has {len(linked)} claim(s) - delete or move those first")
+    vault.retire(rid)
+    if kind == "payment":
+        touched = {a.get("claim_id") for a in r.get("lines") or [] if a.get("claim_id")}
+        after_payment(rid, {**r, "lines": []}, {c for c in touched if vault.record_path(c).exists()}, user)
+    return {"deleted": rid, "kind": kind}
+
+
+def merge_patients(keep: str, drop: str, user: str) -> dict:
+    """EZClaim's Merge Patient: every claim of the duplicate moves to the
+    patient being kept, then the duplicate is deleted (recoverably)."""
+    for x in (keep, drop):
+        if not ID_RE.match(x) or kind_of(x) != "patient" or not vault.record_path(x).exists():
+            raise ValueError("choose two saved patients")
+    if keep == drop:
+        raise ValueError("choose two different patients")
+    k, dp = vault.get(keep), vault.get(drop)
+    moved = 0
+    for cid, c in patient_claims(drop, dp, list(records("claim"))):
+        c.update(patient_id=keep, patient_name=k.get("patient_name", ""), account_number=k.get("account_number", ""))
+        c.setdefault("notes_log", []).append(note(f"Moved here when patient {dp.get('account_number') or drop} was merged into {k.get('account_number') or keep}",
+                                                  user, total_charges(c)))
+        vault.put(cid, c, KINDS["claim"]["index"])
+        moved += 1
+    vault.retire(drop)
+    return {"kept": keep, "moved": moved}
+
+
+def write_off(cid: str, group: str, reason: str, user: str) -> dict:
+    """EZClaim's Write Off Claim: an adjustment for whatever is still open on
+    every line, posted as a $0.00 payment so it shows up - and can be undone -
+    like any other."""
+    if not ID_RE.match(cid) or kind_of(cid) != "claim" or not vault.record_path(cid).exists():
+        raise ValueError("no such claim")
+    c = vault.get(cid)
+    lines = [{"claim_id": cid, "line": x["line"], "paid": "0",
+              "adjustments": [{"amt": f"{x['balance']:.2f}", "group": (group or "CO")[:2].upper(), "reason": (reason or "45")[:5].upper()}]}
+             for x in claim_lines(cid, c, ledger()) if x["balance"] > 0.004]
+    if not lines:
+        raise ValueError("nothing left to write off on this claim")
+    pay = {"source": "payer", "payer": c.get("insurer") or "WRITE-OFF", "date": time.strftime("%m/%d/%Y"), "method": "OTHER",
+           "ref": "WRITE-OFF", "amount": "0", "lines": lines, "note": "Write Off Claim"}
+    return save("payment", None, pay, user)
+
+
 def new_id(kind: str) -> str:
     return KINDS[kind]["prefix"] + time.strftime("%Y%m%d-%H%M%S-") + secrets.token_hex(2)
 
 
 def next_account_number() -> str:
-    """One more than the highest account number on file, EZClaim-style."""
+    """EZClaim's Program Setup > Patient: prefix + the Next Account Number,
+    never lower than one more than the highest already on file."""
+    su = get_settings()["setup"]
+    pre = su.get("account_prefix") or ""
     top = FIRST_ACCOUNT - 1
     for p in list_records("patient"):
+        a = str(p.get("account_number") or "").strip()
+        if pre and a.startswith(pre):
+            a = a[len(pre):]
         try:
-            top = max(top, int(str(p.get("account_number") or "").strip()))
+            top = max(top, int(a))
         except ValueError:
             pass
-    return str(top + 1)
+    n = max(top + 1, int(money(su.get("next_account")) or 0))
+    set_settings({"setup": {"next_account": n + 1}})
+    return pre + str(n)
 
 
 def note(text: str, user: str, balance: float) -> dict:
@@ -623,13 +726,40 @@ def save(kind: str, record_id: str | None, data: dict, user: str = "user") -> di
         extra = a
     elif kind == "procedure":
         data = clean_procedure(data, rid)
+    elif kind == "template":
+        name = str(data.get("name") or "").strip()[:60]
+        if not name:
+            raise ValueError("a template needs a name")
+        for oid, o in records("template"):
+            if oid != rid and str(o.get("name") or "").strip().lower() == name.lower():
+                raise ValueError(f"there is already a template called {name}")
+        keep = ("code", "modifier", "m2", "m3", "m4", "description", "charge", "units", "pointer")
+        data = {"name": name, "procedures": [{k: str((p or {}).get(k) or "") for k in keep} for p in (data.get("procedures") or [])[:6]
+                                              if str((p or {}).get("code") or "").strip()],
+                "diagnoses": [{"code": str((x or {}).get("code") or "")} for x in (data.get("diagnoses") or [])[:12] if (x or {}).get("code")],
+                "place_of_service": str(data.get("place_of_service") or "")[:2]}
+        if not data["procedures"]:
+            raise ValueError("a template needs at least one service line with a code")
+    elif kind == "task":
+        if not str(data.get("subject") or "").strip():
+            raise ValueError("a task needs a subject")
+        if record_id is None:
+            data["created_by"] = user
+            data["created"] = time.strftime("%m/%d/%Y")
+        data["done"] = data.get("status") == "Completed"
     else:
         if kind == "patient":
             last, first, mi = (str(data.get(k) or "").strip() for k in ("last_name", "first_name", "mi"))
             if last or first:
                 data["patient_name"] = (last + ", " + first + (" " + mi if mi else "")).upper().strip(", ")
-            if not str(data.get("account_number") or "").strip():
+            acct = str(data.get("account_number") or "").strip()
+            su = get_settings()["setup"]
+            if not acct and su.get("auto_account", True):
                 data["account_number"] = next_account_number()
+            elif acct and su.get("unique_account", True):
+                dup = [p for p in list_records("patient") if p.get("id") != rid and str(p.get("account_number") or "").strip() == acct]
+                if dup:
+                    raise ValueError(f"account number {acct} is already used by another patient")
         name = data.get("patient_name") if kind == "patient" else data.get("name")
         if not str(name or "").strip():
             raise ValueError("a name is required")
@@ -1029,6 +1159,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"records": list_records(kind)})
         if u.path == "/api/settings":
             return self._send(200, get_settings())
+        if u.path == "/api/users":
+            return self._send(200, {"users": sorted(n for n, x in load_users().items() if not x.get("disabled"))})
         if u.path == "/api/reports":
             return self._send(200, reports.catalogue(sys.modules[__name__]))
         if u.path == "/api/statements":
@@ -1113,6 +1245,24 @@ class Handler(BaseHTTPRequestHandler):
             if pid and not (ID_RE.match(pid) and kind_of(pid) == "patient"):
                 return self._send(400, {"error": "bad record id"})
             return self._send(200, patient_benefits(pid, b.get("data") or {}))
+        if u.path == "/api/delete":
+            b = json.loads(self._body() or b"{}")
+            return self._send(200, delete_record(str(b.get("id") or ""), who))
+        if u.path == "/api/merge":
+            b = json.loads(self._body() or b"{}")
+            return self._send(200, merge_patients(str(b.get("keep") or ""), str(b.get("drop") or ""), who))
+        if u.path == "/api/writeoff":
+            b = json.loads(self._body() or b"{}")
+            return self._send(200, write_off(str(b.get("id") or ""), str(b.get("group") or "CO"), str(b.get("reason") or "45"), who))
+        if u.path == "/api/password":
+            b = json.loads(self._body() or b"{}")
+            if SESSIONS.locked("u:" + who):
+                return self._send(429, {"error": "too many wrong passwords - try again later"})
+            if not verify_password(who, str(b.get("old") or "")):
+                SESSIONS.failed("u:" + who)
+                return self._send(403, {"error": "the current password is wrong"})
+            set_password(who, str(b.get("new") or ""))
+            return self._send(200, {"ok": True})
         if u.path == "/api/report":
             b = json.loads(self._body() or b"{}")
             return self._send(200, reports.run(sys.modules[__name__], str(b.get("name") or ""), b.get("criteria") or {}))

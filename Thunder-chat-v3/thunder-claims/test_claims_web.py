@@ -316,6 +316,66 @@ check("reports need a login", st == 401)
 st, j, _ = req("POST", "/api/report", {"name": "../etc", "criteria": {}}, token=TOK)
 check("an unknown report is refused", st == 400)
 
+print("delete, write off, change password")
+st, j, _ = req("POST", "/api/delete", {"id": SCID}, token=TOK)
+check("a claim with payments posted cannot be deleted", st == 400 and "payments" in j.get("error", ""), j)
+st, j, _ = req("POST", "/api/delete", {"id": SPID}, token=TOK)
+check("a patient with claims cannot be deleted", st == 400 and "claim" in j.get("error", ""), j)
+st, j, _ = req("POST", "/api/save", {"kind": "claim", "data": {"patient_name": "WRITE, OFF", "insurer": "Test Mutual",
+    "procedures": [{"code": "98941", "date": "01/05/2026", "charge": "100"}, {"code": "97140", "date": "01/05/2026", "charge": "40"}],
+    "tracking": {"billing": "sent", "sent_date": "01/10/2026"}}}, token=TOK)
+WID = j["id"]
+st, j, _ = req("POST", "/api/writeoff", {"id": WID, "group": "CO", "reason": "45"}, token=TOK)
+rec = req("GET", f"/api/rec/{WID}", token=TOK)[1]
+check("Write Off Claim zeroes the balance with a CO-45 adjustment and marks it Paid",
+      st == 200 and rec["ledger"]["adj"] == 140 and rec["data"]["tracking"]["billing"] == "paid", (j, rec.get("ledger")))
+WPAY = j["id"]
+st, j, _ = req("POST", "/api/writeoff", {"id": WID}, token=TOK)
+check("writing off twice is refused (nothing left)", st == 400)
+st, j, _ = req("POST", "/api/delete", {"id": WPAY}, token=TOK)
+rec = req("GET", f"/api/rec/{WID}", token=TOK)[1]
+check("deleting the write-off payment puts the balance back", st == 200 and rec["ledger"]["adj"] == 0 and rec["data"]["tracking"]["billing"] == "sent", rec.get("ledger"))
+st, j, _ = req("POST", "/api/delete", {"id": WID}, token=TOK)
+deleted = list((Path(os.environ["THUNDER_VAULT"]) / "deleted").glob(WID + ".*.rec"))
+check("a deleted claim is gone from the list but kept, still encrypted, under deleted/",
+      st == 200 and WID not in [r["id"] for r in req("GET", "/api/list?kind=claim", token=TOK)[1]["records"]]
+      and deleted and b"WRITE" not in deleted[0].read_bytes(), j)
+aud = [json.loads(x) for x in (Path(os.environ["THUNDER_VAULT"]) / "audit.log").read_text().splitlines()]
+check("the audit log records who deleted it", any(a["action"] == "delete" and a["record"] == WID and a["who"] == "blayne" for a in aud))
+st, j, _ = req("POST", "/api/delete", {"id": "../../etc/passwd"}, token=TOK)
+check("delete refuses a bad id", st == 400)
+st, j, _ = req("POST", "/api/password", {"old": "wrong wrong wrong", "new": "brand new passphrase 9"}, token=TOK)
+check("changing password needs the current one", st == 403)
+st, j, _ = req("POST", "/api/password", {"old": PW, "new": "short"}, token=TOK)
+check("a weak new password is refused", st == 400)
+
+print("templates, tasks, merge, program setup")
+st, j, _ = req("POST", "/api/save", {"kind": "template", "data": {"name": "Adjustment visit", "procedures": [{"code": "98941", "charge": "65", "date": "01/01/2026"}, {"code": ""}]}}, token=TOK)
+check("a claim template keeps codes and charges, never dates", st == 200 and j["data"]["procedures"] == [{"code": "98941", "modifier": "", "m2": "", "m3": "", "m4": "", "description": "", "charge": "65", "units": "", "pointer": ""}], j)
+st, j, _ = req("POST", "/api/save", {"kind": "template", "data": {"name": "adjustment VISIT", "procedures": [{"code": "98940"}]}}, token=TOK)
+check("template names are unique", st == 400)
+st, j, _ = req("POST", "/api/save", {"kind": "task", "data": {"subject": "Call the adjuster", "due": "10/01/2026", "status": "Not Started"}}, token=TOK)
+TK = j.get("id")
+check("a task records who created it", st == 200 and j["data"]["created_by"] == "blayne" and j["data"]["done"] is False, j)
+st, j, _ = req("POST", "/api/save", {"kind": "task", "id": TK, "data": {**j["data"], "status": "Completed"}}, token=TOK)
+row = [r for r in req("GET", "/api/list?kind=task", token=TOK)[1]["records"] if r["id"] == TK]
+check("completing a task marks it done in the list", row and row[0]["done"] is True and row[0]["status"] == "Completed", row)
+check("the users list has names only", set(req("GET", "/api/users", token=TOK)[1]["users"]) >= {"blayne"}
+      and "hash" not in json.dumps(req("GET", "/api/users", token=TOK)[1]))
+a = req("POST", "/api/save", {"kind": "patient", "data": {"last_name": "MERGE", "first_name": "KEEP"}}, token=TOK)[1]["id"]
+bdup = req("POST", "/api/save", {"kind": "patient", "data": {"last_name": "MERGE", "first_name": "DUPE"}}, token=TOK)[1]["id"]
+cid = req("POST", "/api/save", {"kind": "claim", "data": {"patient_id": bdup, "patient_name": "MERGE, DUPE", "procedures": [{"code": "98941", "charge": "10"}]}}, token=TOK)[1]["id"]
+st, j, _ = req("POST", "/api/merge", {"keep": a, "drop": bdup}, token=TOK)
+moved = req("GET", f"/api/rec/{cid}", token=TOK)[1]["data"]
+check("Merge Patient moves the duplicate's claims and deletes it", st == 200 and j["moved"] == 1 and moved["patient_id"] == a
+      and moved["patient_name"] == "MERGE, KEEP" and not vault.record_path(bdup).exists(), (j, moved.get("patient_id")))
+req("POST", "/api/settings", {"setup": {"account_prefix": "FL-", "next_account": "5000"}}, token=TOK)
+j = req("POST", "/api/save", {"kind": "patient", "data": {"last_name": "PREFIX", "first_name": "TEST"}}, token=TOK)[1]
+check("Program Setup's prefix and Next Account Number are used", j["data"]["account_number"] == "FL-5000", j["data"].get("account_number"))
+st, j, _ = req("POST", "/api/save", {"kind": "patient", "data": {"last_name": "DUP", "first_name": "ACCT", "account_number": "FL-5000"}}, token=TOK)
+check("a duplicate account number is refused (Require Unique)", st == 400 and "already used" in j.get("error", ""), j)
+req("POST", "/api/settings", {"setup": {"account_prefix": "", "next_account": ""}}, token=TOK)
+
 print("company files")
 st, j, _ = req("GET", "/api/companies", token=TOK)
 check("one company to start with, and it is open", st == 200 and j["companies"] == ["Main"] and j["current"] == "Main", j)
