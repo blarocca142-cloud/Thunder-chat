@@ -52,6 +52,15 @@ selected. (`oZBevrOFRwY`, `gO7UQeKlmFM`)
 Note the **alert counts are baked into the button label** — `EDI Reports
 (3 NEW)`, `Review Incoming (8 Files)`. (`DZ0spaFoFz4`)
 
+**`Help Topics` is on the ribbon of every tab and is always available
+regardless of which screen you're on** (`ikUIM2AVURQ`). It opens a real help
+system with a **topic tree on one side and keyword search** — there is a
+topic called `Grids` that documents exactly the behaviour in §2. Support is
+also surfaced in-product as a phone number and address:
+**877-650-0904 / support@ezclaim.com**. EZClaim is **Windows-only**, and the
+webinar tells Mac users on emulation that missing right-click menus are
+expected and to call support.
+
 ### Tools ribbon — groups and buttons
 | Group caption | Buttons |
 |---|---|
@@ -170,11 +179,65 @@ EZClaim's own names for the parts: **grouping panel** (the drag band),
 - **Drag a column edge to resize, or double-click the edge to auto-fit.**
 - **Right-click a heading → `Restore Grid`** to undo all customisation.
 
-**Right-click menu on a column heading — items seen across the videos:**
-`Conditional Formatting` (→ `Highlight Cell Rules`, `Custom Condition`,
-`Manage Rules`) · `Filter Editor` · `Save Layout` · `Add as Widget` ·
-`Column Chooser` · `Clear Sorting` · `Restore Grid` · `Set Payment Matching
-Key` (on the payer grid, with rows selected).
+### Column-heading right-click menu — the complete list, in exact order
+
+Captured whole and unoccluded in `ikUIM2AVURQ`. **This one menu is the entire
+grid feature set**, and it is the same on every grid in the program:
+
+```
+Sort Ascending              (A→Z icon)
+Sort Descending             (Z→A icon)
+Clear Sorting
+Group By This Column
+Hide Group By Box
+Hide This Column
+Column Chooser
+Best Fit
+Best Fit (all columns)
+Filter Editor...
+Show Find Panel
+Hide Auto Filter Row
+Conditional Formatting     ▸
+Hide Footer
+Save Layout
+Restore Grid
+Print Grid
+Export to                  ▸
+Add as Widget
+```
+
+Note what that implies and earlier videos only hinted at: the grouping band,
+the filter row and the footer are all **toggleable from this menu**
+(`Hide Group By Box`, `Hide Auto Filter Row`, `Hide Footer`), and
+**`Export to`** is a submenu (PDF, Excel, "and some other various file").
+`Set Payment Matching Key` appears additionally on the payer grid when rows
+are selected.
+
+### The four areas of a grid — EZClaim's own teaching order (`ikUIM2AVURQ`)
+
+The webinar names exactly four:
+
+1. **Group-by area** (top) — drag a column header up into it to group; e.g.
+   dragging `Primary Payer` up groups all claims under collapsible payer
+   headings. Drag the header back down to ungroup.
+2. **Column headers.**
+3. **Filter row.**
+4. **Footer area** (bottom) — shows **totals for any *numeric* column that is
+   visible**, and the **bottom-left always shows the row count**
+   (`Shown: 11 (Filtered)`).
+
+**The visual tell that something is a grid:** *"all of my column headers change
+colour as I hover over them with the mouse."* If headers highlight on hover,
+every feature above is available.
+
+### Where grids appear — it is nearly everywhere (`ikUIM2AVURQ`)
+
+*"Premier is a SQL-based program and so it makes extensive use of this grid
+technology."* Named as grids: the **patient quick-access pane**, the **claim
+tab** beside it, the **`Details` / `Claims` / `Services` / `Payments` detail
+tabs** below, **every `Find` window**, the **service-line grid inside a claim**,
+and the **patient statement screen**. Effectively every list of data in the
+program is the same control with the same nineteen-item menu.
 
 **Rows**
 - **Double-click a row to open the item** in the work area.
@@ -751,6 +814,38 @@ Interface
 ```
 (`gO7UQeKlmFM`)
 
+### Custom fields — `Patient Custom Fields` / `Claim Custom Fields` ★
+
+(`ikUIM2AVURQ`) Two of those Options entries are user-defined columns, and
+they matter more than their position in the list suggests.
+
+- Each entity (patient, claim) gets a fixed set of typed slots. Until renamed
+  they appear in the column chooser under their generic names —
+  **`Custom Text Value`, `Custom Number Value`, `Custom Date Value`,
+  `Custom Currency Value`, `Custom True / False Value`**.
+- In Program Setup you **rename a slot and set its type**. The worked example
+  renames a claim slot to **`Family Size`** and sets it to number.
+- The renamed field then appears **in the column chooser under its new name,
+  in alphabetical order**, and can be added to any grid, filtered, sorted and
+  conditionally formatted like any other column. (Confirmed on screen: the
+  `Customization` panel lists `Family Size` between `Facility` and
+  `First Name`.)
+- **Hard warning given, verbatim:** *"Those are for internal only — none of the
+  custom fields export onto claims, either electronically or if you're printing
+  paper claims."*
+
+So EZClaim's answer to "we need to track something the form doesn't have" is a
+handful of typed, renameable, grid-visible internal columns. That is a small
+feature with a large footprint, and it is the reason a practice can run its
+whole follow-up process inside the grids.
+
+### Audit columns available on every grid (`ikUIM2AVURQ`)
+`Created User` · `Created Timestamp` · `Modified User` · `Modified Timestamp`
+— pulled from the **workstation's system clock**, and blank for records created
+before user accounts were set up. Also on `Find Patient`: **`Last Seen`**
+(pulls from EZClaim's **scheduling** program) and **`Last Date of Service`**
+(from the patient record).
+
 ### General pane
 - `Theme:` dropdown — value **`Caramel`**. (This is why the whole app is
   orange/tan. Themes are a first-class setting.)
@@ -1245,6 +1340,41 @@ So the look to copy is: **"patient balance > 0" → Red Fill, applied to the
 entire row.** That single rule produces the salmon rows that dominate every
 EZClaim screenshot.
 
+### The rest of the conditional-formatting submenu (`ikUIM2AVURQ`)
+
+`Highlight Cell Rules → Custom Condition` is only the first entry. The submenu
+also offers, Excel-style:
+
+- **Colour scales** — a gradient across the column, so low balances shade
+  differently from high ones.
+- **Data bars** — an in-cell bar proportional to the value; the bar's extent is
+  adjustable.
+- **Icon sets.**
+- **`Manage Rules`** — lists every rule on the grid with **up/down ordering,
+  and higher rules supersede lower ones**. This is how you control which rule
+  wins when two match.
+- **`Clear Rules`.**
+
+Two behaviours worth copying:
+
+1. **A rule survives hiding the column it tests.** The worked example sets
+   `[Pat. Unapplied Bal.] Is greater than $0.00 → Green Fill, entire row`, then
+   **removes the `Pat. Unapplied Bal.` column from the grid** — the green rows
+   stay. *"Now you just have a visual indicator that we have some unapplied
+   money for these patients."* Colour becomes a way to surface a fact you don't
+   have screen width to show as a column.
+2. **It changes display only.** *"It's not changing or harming your data in any
+   way — please feel free to play around with the filter editors and custom
+   conditions."* Encouraging experimentation is part of how the product is
+   taught.
+
+Confirmed on screen at `8.0.600`: the dialog is exactly as documented above —
+`Custom Condition` title bar, `Format cells that match the following
+condition:`, an `And` node with a `＋`, the clause
+`[Pat. Unapplied Bal.] Is greater than $0.00` with pencil and `⊗` icons, a
+`with [Bold Text ▾]` dropdown, `☐ Apply formatting to an entire row`, and
+`OK` / `Cancel`.
+
 ---
 
 ## 9j. Find grids (`Find Claim`, `Find Service Line`, `Find Payer`)
@@ -1276,6 +1406,67 @@ Entries seen: `1st DOS`, `Bill To`, `Billing Phy`, `Claim ID`,
 `Custom Number Value`, `Custom Text Value`, `Custom True / False Value`,
 `Diagnosis`, `Exported`, `Facility`, `Invoice #`, `Last DOS`, `Modified Date`…
 (`PsLZgSmi_qs`)
+
+Seen again in `ikUIM2AVURQ` with its furniture clear: the panel is titled
+**`Customization`**, has a **`Search for a column...`** box with a magnifier at
+the top, and is a **scrollable alphabetical list** (`Diag. 5` … `Diag. 9`,
+`Facility`, `Family Size`, `First Name`, `Ins Amt Paid`, `Insurance Balance`,
+`Invoice #`). **Double-click an entry to add it**, or drag it — two white
+arrows mark the drop point. Removing a column is the reverse: drag the header
+out until a **black `X`** appears and drop. *"This doesn't delete your data —
+removing a column is just hiding it from your view."*
+
+### `Find Claim` grid, second column set (`ikUIM2AVURQ`)
+`OPEN` · `Name` · `Active` (checkbox) · `Billing Physician` · `1st DOS` ·
+`Total Charge` · `Total Balance` · `Primary Payer` · `Rendering Physician` ·
+`Account #`
+
+### `Find Adjustment` grid columns (`ikUIM2AVURQ`)
+`OPEN` · `Patient Name` · `Code (Group Code)` · `Reason` · `Remark Codes` ·
+`Adj Amount` · `Adj Date` · `Payer` · `Svc Date` · `Procedure Code` ·
+`Svc Balance`
+
+---
+
+## 9j2. Bulk actions — the row right-click menu, per grid ★
+
+(`ikUIM2AVURQ`) Distinct from the *column-header* menu above: **right-clicking
+a row** gives actions, and **they differ by grid**. Select a range first —
+*"click the top one, hold shift, click the bottom, then right-click and the
+action applies in bulk."*
+
+| Grid | Row right-click actions |
+|---|---|
+| `Find Patient` | Change status (Active / Inactive) · Create Tasks · Quick Reports |
+| `Find Claim` | Set Claim Status · Write Off Selected Claims (posts an adjustment) · Pay Off Selected Claims (opens payment entry) · Create Task · Create Claim Notes · Quick Reports |
+| `Find Service` | `Select All` · `Write Off Service Line(s)...` · `Create Claim Notes Linked to Selected Claim(s)...` · `Set Responsible Party ▸` |
+| `Find Payment` | Change Payor Name · Modify Payment · Disburse Payment |
+| `Find Task` | Mark Claim Progress · Change Priority · Change Assigned To · Remove Reminders · Delete Task |
+| `Find Adjustment` | Write Off Service Line · Create Task · Create Claim Note · Delete Adjustments (bulk) |
+| `Find Disbursement` | **none** — only `Copy Text` / `Select All` |
+| `Find Claim Note` | Set Claim Status · Write Off · Pay Off · Quick Reports |
+
+**Greying rules observed on `Find Payment`:** `Disburse` and `Modify` grey out
+once a payment is **fully disbursed**; `Change Payor Name` greys out when the
+payment is a **patient** payment rather than a payer payment.
+
+This is a real workflow, not a convenience: writing off forty stale claims is
+select-all → right-click → write off, and it posts the adjustments for you.
+
+### Per-user vs company-wide — the rule ★
+Stated twice and explicitly:
+
+- **Per user:** column layouts, added/removed columns, sorting, filters, saved
+  layouts, conditional-formatting rules. *"If you wanted this done on all of
+  your Premier workstations it would have to be done for every user."*
+- **Company-file-wide:** **widgets.** *"Once you create a widget all of the
+  other users will be able to see them."*
+
+There is **no way to copy conditional-formatting rules between users** — the
+vendor's own suggestion is *"take a screenshot of your rules and save them for
+reference when you're building them for the next user."* Worth knowing: if we
+build the equivalent, making rules shareable is a genuine improvement, not
+just parity.
 
 ---
 
@@ -1313,6 +1504,25 @@ three inline buttons per row at the right: **`EDIT`** · **`COPY`** ·
 
 So each tile is: a name, a row cap, a click action, and a column layout —
 and the big number on the Home screen is that widget's row count.
+
+### What widgets are *for* (`ikUIM2AVURQ`)
+
+Asked directly in the webinar Q&A, and the answer is design intent worth
+copying:
+
+- They are **a glimpse of your data**, and *"some people use them as work lists
+  for the day."*
+- **The goal is to drive each widget's count to zero.** *"Some of the main
+  thought behind these widgets is that you really want to have their count
+  down to one or zero."* A tile reading `7` on `Claims Over 120 Days` means
+  seven claims to chase today — aging, timely-filing risk.
+- Created from any filtered grid by **right-click → `Add as Widget`**: name,
+  description, `# of Rows`, click action. Rows are unlimited but
+  *"I would suggest putting in a limit if you have thousands — it does take
+  quite a bit of processing power."*
+- **Widgets are the one thing that is company-file-wide**, so one person builds
+  the worklist and the whole office sees it. Everything else about a grid is
+  per user.
 
 ---
 
@@ -1503,6 +1713,20 @@ feel.
   and persist when the grid is closed and reopened.
 - **They update in real time** as charges and payments are entered.
 - **Layouts are per user and per grid.**
+
+Confirmed and extended by `ikUIM2AVURQ`: they render as a **row of buttons
+along the bottom-left of the grid, below the footer** — a single button reading
+`KR Claims` (named for the rendering provider's initials) sits under the
+`Find Claim` grid. **Unlimited buttons**, and *"they are dynamic — real time —
+so when more claims are added that fit the criteria they will display."*
+**Right-click a saved-layout button to move, update or rename it.** An **`✕` in
+the upper-left of the filter row clears all filters** and returns the grid to
+full at any time.
+
+This is the feature to steal wholesale. A saved layout is a named, live,
+one-click work queue built by the user out of filters they already understand —
+no query language, no admin, no report builder. It is how an EZClaim user makes
+their morning worklist.
 
 Worked examples given: private-pay patients (`Primary Payer` `is blank`),
 and service lines where `Claim Status equals Ready to Submit` — the latter
@@ -1707,6 +1931,32 @@ would notice first** on day one.
    blank/non-blank. We have one `Filter by name` box across all columns.
    **This is cheap to add and is how EZClaim users search for everything.**
 
+3b. **No saved layouts, and this is the one I under-rated.** In EZClaim you
+    filter a grid however you like, right-click → `Save Layout`, name it, and
+    it becomes a **button under the grid** that is live from then on — new
+    claims matching the criteria appear in it automatically. Unlimited
+    buttons, renameable, per user. It is how an EZClaim biller builds their
+    own morning worklist without asking anyone for a report. We have nothing
+    in this shape, and it is mostly a filter-serialisation problem — small
+    code for a feature the office would use hourly. (`ikUIM2AVURQ`,
+    `p4sCfOq7ftc`)
+
+3c. **No bulk row actions.** EZClaim: shift-select forty rows, right-click,
+    and write them all off (posting the adjustments), set their claim status,
+    pay them off, create tasks or claim notes against them, or change the
+    responsible party — with a different action set per grid (see §9j2). We
+    have single-record editing only. For a practice cleaning up aged A/R this
+    is the difference between an afternoon and a minute. (`ikUIM2AVURQ`)
+
+3d. **No group-by, no `Print Grid`, no `Export to`.** EZClaim's column-header
+    menu is nineteen items (§2) and three of them matter a lot: dragging a
+    column into the group-by band to collapse claims under each payer;
+    printing the grid as it currently stands; and exporting it to PDF or
+    Excel. Export in particular is how EZClaim users answer any question the
+    thirteen built-in reports don't — they filter a grid and send it to Excel.
+    Without it every unanticipated question becomes a feature request to us.
+    (`ikUIM2AVURQ`)
+
 4. **No account numbers.** EZClaim auto-assigns them (`Next Account Number`,
    optional prefix, require-unique, all in Program Setup), shows `Account #`
    in the patients grid, on statements and on reports, and the office refers
@@ -1796,6 +2046,22 @@ would notice first** on day one.
     `Refresh`. **The tiles are cheap for us to build and are the first thing
     the office looks at each morning.**
 
+    EZClaim's design intent for them, stated in `ikUIM2AVURQ`: each tile is a
+    worklist whose **count you are trying to drive to zero**, and widgets are
+    the **only** grid customisation that is company-wide rather than per user,
+    so one person builds the list and everyone works it. If we copy one thing
+    about the Home screen, copy that.
+
+16b. **No custom fields.** EZClaim gives every patient and claim a handful of
+     renameable typed slots (`Custom Text / Number / Date / Currency /
+     True-False Value`), configured in Program Setup, which then behave as
+     ordinary grid columns — filterable, sortable, conditionally formattable.
+     It is the pressure valve that stops every practice-specific need becoming
+     a code change, and EZClaim is explicit that they are **internal only and
+     never exported onto a claim, paper or electronic**. Cheap for us, and it
+     would absorb a lot of future "can it also track…" requests.
+     (`ikUIM2AVURQ`)
+
 17. **Claim screen is missing several things EZClaim users expect:**
     - a **`Bill To`** selector with sequence (`Primary (1/1) - GEICO - …`) —
       we have a flat `Bill To` text field
@@ -1837,17 +2103,25 @@ would notice first** on day one.
 
 ## Coverage
 
-**37 of the 38 videos** in the list were downloaded, frame-sampled and read
-(plus captions wherever YouTube served them — some caption fetches returned
+**All 38 videos** in the list were downloaded, frame-sampled and read (plus
+captions wherever YouTube served them — some caption fetches returned
 `429 Too Many Requests` even when the video downloaded fine).
 
-Not captured: **`ikUIM2AVURQ`** (How Find Grids Improves Efficiency, 37 min).
-Its subject is covered in depth by `p4sCfOq7ftc` (How to Use Find Grids) and
-`B2WenGr6fcQ` (Navigation and Grids), both of which were read in full — see
-§1b, §2 and §9n.
-
 Several videos needed retries with backoff; `403 Forbidden` and `429` from
-YouTube were transient and cleared on a later attempt.
+YouTube were transient and cleared on a later attempt. The two longest
+(`QiiFx0hCFMU`, 60 min; `ikUIM2AVURQ`, 37 min) were sampled at 15-second
+intervals rather than on scene changes, because scene detection under-samples
+a screencast where the screen barely changes.
+
+`ikUIM2AVURQ` ("Working with Grids in EZClaim Premier") turned out to be the
+single most useful video of the 38 and was read last: it is the source for the
+complete nineteen-item column-header menu (§2), the per-grid bulk row actions
+(§9j2), the per-user-vs-company-wide rule, custom fields (§7), and the rest of
+the conditional-formatting submenu (§9i). It is captured at **8.0.600**, an
+older build than the 8.0.665–8.0.670 seen elsewhere, but nothing in it
+contradicts the newer captures — the grid behaviour is unchanged across the
+range, which is itself worth knowing: **the grids are the stable part of
+EZClaim's look.**
 
 Frames and captions live in `~/ezclaim-study/frames/<video-id>/` on
 thunder-main and are **deliberately not in this repo** — they are EZClaim's
@@ -1861,4 +2135,4 @@ copyrighted material.
 `p4sCfOq7ftc` `h-EzAeOTDlQ` `5aJQBFSmkbU` `2ZgChe2rNnE` `CN2twFAShj0`
 `N9QcUnB5kkY` `sTZilSPX-Fc` `b1AJePNYbcs` `hfhR0DsWxaY` `7Sl9bwm3CxU`
 `JX5Esi1Vzp0` `5mj4eSiGSv0` `B2WenGr6fcQ` `Q6ytCiouF4I` `sEgz49YE1lI`
-`QiiFx0hCFMU`
+`QiiFx0hCFMU` `ikUIM2AVURQ`
