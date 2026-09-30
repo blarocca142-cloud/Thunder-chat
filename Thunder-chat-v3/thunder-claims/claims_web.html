@@ -232,6 +232,25 @@ label b, .pg td b { font-family: var(--mono); color: var(--block); font-weight: 
 .updated { display: flex; gap: 8px; align-items: center; color: var(--mute); padding: 6px 0; }
 .help p, .help li { max-width: 720px; }
 
+/* payment entry */
+.paygrid { overflow-x: auto; background: var(--white); border: 1px solid var(--edge-soft); }
+.paygrid table { width: 100%; border-collapse: collapse; min-width: 1180px; }
+.paygrid th { background: linear-gradient(#fbfaf4, #e7e3d3); border: 1px solid var(--edge-soft); font-weight: 400; padding: 3px 4px; text-align: left; white-space: nowrap; }
+.paygrid th.grp { text-align: center; font-weight: 700; color: var(--bar-ink); background: linear-gradient(var(--bar1), var(--bar2)); }
+.paygrid td { border: 1px solid #eeeae0; padding: 1px 4px; white-space: nowrap; }
+.paygrid td input, .paygrid td select { border-color: transparent; height: 22px; }
+.paygrid td input:hover, .paygrid td select:hover { border-color: var(--edge-soft); }
+.paygrid .n { text-align: right; font-variant-numeric: tabular-nums; }
+.paygrid .red { color: var(--block); font-weight: 700; }
+.paygrid tfoot td { background: #f3f1e8; font-weight: 700; }
+.paygrid .hit td { background: #fffbe9; }
+.remain { font-size: 14px; font-weight: 700; padding: 4px 10px; border: 1px solid var(--edge); background: var(--white); border-radius: 3px; font-variant-numeric: tabular-nums; }
+.remain.off { color: var(--block); border-color: #e7aaa5; background: var(--block-soft); }
+.remain.ok { color: var(--ok); border-color: #a9d6bc; background: var(--ok-soft); }
+.radios { display: flex; gap: 14px; align-items: center; } .radios label { display: flex; gap: 4px; align-items: center; }
+.radios input { width: auto; height: auto; }
+.lines td.pd { font-variant-numeric: tabular-nums; text-align: right; padding: 0 6px; color: #333; }
+
 /* login */
 .login { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center;
   background: radial-gradient(circle at 30% 20%, #fbf2dc, #e3d2a6); }
@@ -300,6 +319,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
       <button data-k="claim" class="on">📄 Claims</button>
       <button data-k="payer">🏛 Insurers</button>
       <button data-k="provider">🩺 Providers</button>
+      <button data-k="payment">💵 Payments</button>
     </div>
     <div class="band" id="band"></div>
     <div class="gridwrap" id="gridwrap"><table class="g" id="grid"><colgroup id="gcols"></colgroup>
@@ -328,7 +348,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
               <button class="fbox" disabled title="Not built yet"><span class="i">✉</span>Patient<br>Statements</button>
               <button class="fbox" data-go="editPatient"><span class="i">✏</span>Edit<br>Patient</button>
               <button class="fbox" data-go="scan"><span class="i">📷</span>Claim from<br>a Scan</button>
-              <button class="fbox" disabled title="Not built yet"><span class="i">💵</span>Enter<br>Payment</button>
+              <button class="fbox" data-go="newPayment"><span class="i">💵</span>Enter<br>Payment</button>
               <button class="fbox" disabled title="Nothing is ever sent to a payer from Thunder"><span class="i">📤</span>Send<br>Claims</button>
             </div>
           </div>
@@ -413,7 +433,8 @@ body.locked > :not(.login):not(#print) { display: none !important; }
                   </tbody>
                   <tbody>
                     <tr><th colspan="2">Payment</th></tr>
-                    <tr class="r"><td>Amount paid $</td><td><input data-t="paid_amount" inputmode="decimal"></td></tr>
+                    <tr class="r"><td>Posted payments</td><td><input id="c_posted" readonly title="From Payment Entry"></td></tr>
+                    <tr class="r"><td>Other paid $ <span class="msg">(not via Payment Entry)</span></td><td><input data-t="paid_amount" inputmode="decimal"></td></tr>
                     <tr class="r"><td>Date paid</td><td><input data-t="paid_date" placeholder="MM/DD/YYYY"></td></tr>
                     <tr class="r"><td>Denial reason</td><td><input data-t="denial_reason"></td></tr>
                   </tbody>
@@ -448,14 +469,14 @@ body.locked > :not(.login):not(#print) { display: none !important; }
 
           <div class="lines lockable"><table>
             <thead><tr><th>Srvc Date</th><th>Place</th><th>Procedure</th><th>M1</th><th>M2</th><th>M3</th><th>M4</th><th>Diag. #</th><th>Description</th>
-              <th class="n">Charges</th><th class="n">Units</th><th class="n">Line Total</th><th>Code check</th><th></th></tr></thead>
+              <th class="n">Charges</th><th class="n">Units</th><th class="n">Line Total</th><th class="n">Paid</th><th class="n">Adj</th><th class="n">Balance</th><th>Code check</th><th></th></tr></thead>
             <tbody id="pxRows"></tbody>
-            <tfoot><tr><td colspan="9" id="svcCount">Services: 0</td><td></td><td></td><td class="n" id="total">$0.00</td><td colspan="2"></td></tr></tfoot>
+            <tfoot><tr><td colspan="9" id="svcCount">Services: 0</td><td></td><td></td><td class="n" id="total">$0.00</td><td class="n" id="t_paid"></td><td class="n" id="t_adj"></td><td class="n" id="t_bal"></td><td colspan="2"></td></tr></tfoot>
           </table></div>
           <div class="addrow"><button id="addPx">ADD</button><span class="hint">Click a date on the calendars above to enter a new service line.</span></div>
           <div class="gb" style="margin-top:8px"><h2>Balance</h2>
             <div class="money"><div><span>Charges</span> <b id="m_billed">$0.00</b></div><div><span>Paid</span> <b id="m_paid">$0.00</b></div>
-              <div><span>Balance</span> <b id="m_balance">$0.00</b></div></div></div>
+              <div><span>Adjusted</span> <b id="m_adj">$0.00</b></div><div><span>Balance</span> <b id="m_balance">$0.00</b></div></div></div>
           <div class="gb notes" id="notesBox"><h2>Notes</h2>
             <div class="in" style="padding:0">
               <input id="noteIn" placeholder="Click here to add a new note" style="border:0;border-bottom:1px solid var(--edge-soft);height:28px;font-style:italic">
@@ -544,6 +565,51 @@ body.locked > :not(.login):not(#print) { display: none !important; }
           </div>
         </div>
 
+        <!-- PAYMENT ENTRY -->
+        <div id="payView" hidden>
+          <div class="status"><span class="msg" id="paymsg"></span></div>
+          <div class="cols2">
+            <div class="gb"><h2>Payment</h2>
+              <div class="in form">
+                <label>Payment Source:</label>
+                <div class="span3 radios"><label><input type="radio" name="psrc" value="patient"> Patient</label><label><input type="radio" name="psrc" value="payer"> Payer</label></div>
+                <label for="pay_who" id="pay_who_lbl">Payer:</label>
+                <div class="span3 split"><select id="pay_who" aria-label="Payer or patient"></select></div>
+                <label for="pay_amt">Amount:</label><input id="pay_amt" data-y="amount" inputmode="decimal" placeholder="0.00">
+                <label for="pay_date">Pmt Date:</label><input id="pay_date" data-y="date" placeholder="MM/DD/YYYY">
+                <label for="pay_method">Payment Method:</label>
+                <select id="pay_method" data-y="method"><option>CHECK</option><option>EFT</option><option>CASH</option><option>CREDIT CARD</option><option>MONEY ORDER</option><option>OTHER</option></select>
+                <label for="pay_ref">Ref #:</label><input id="pay_ref" data-y="ref" placeholder="check / EFT number">
+                <label for="pay_note">Note:</label>
+                <div class="span3 split"><input id="pay_note" data-y="note"><button id="autoApply" type="button" style="flex:0 0 auto">Auto Apply</button></div>
+              </div>
+            </div>
+            <div class="gb"><h2 id="openPaysTitle">Payments with a balance:</h2>
+              <div class="gridwrap" style="margin:0;border:0;min-height:90px;max-height:220px"><table class="g" id="openPays"></table></div></div>
+          </div>
+          <div class="status" style="gap:12px">
+            <span class="remain" id="payRemain">Remaining: $0.00</span>
+            <span class="hint">Type a minus sign for a refund, takeback or reversal. Pay fills a line's whole balance.</span>
+          </div>
+          <div class="paygrid"><table>
+            <thead>
+              <tr><th colspan="9"></th><th class="grp">Payment</th><th class="grp" colspan="3">Adjustment 1</th><th class="grp" colspan="3">Adjustment 2</th><th></th></tr>
+              <tr><th>Name</th><th>Claim</th><th>Proc</th><th>DOS</th><th class="n">Charge</th><th>Responsible</th><th class="n">Applied</th><th class="n">Balance</th><th></th>
+                <th class="n">Amt</th><th class="n">Amt</th><th>Group</th><th>Reason</th><th class="n">Amt</th><th>Group</th><th>Reason</th><th></th></tr>
+            </thead>
+            <tbody id="payRows"></tbody>
+            <tfoot id="payFoot"></tfoot>
+          </table></div>
+          <datalist id="carc">
+            <option value="1">Deductible</option><option value="2">Coinsurance</option><option value="3">Co-payment</option>
+            <option value="45">Charge exceeds fee schedule / maximum allowable</option><option value="97">Paid in another service (bundled)</option>
+            <option value="16">Missing information</option><option value="18">Duplicate claim/service</option><option value="22">Covered by another payer (COB)</option>
+            <option value="23">Prior payer's adjudication</option><option value="29">Time limit for filing expired</option><option value="50">Not medically necessary</option>
+            <option value="96">Non-covered charge</option><option value="197">Precertification/authorization absent</option><option value="242">Services not provided by network provider</option>
+            <option value="253">Sequestration</option><option value="B7">Provider not certified for this service</option>
+          </datalist>
+        </div>
+
         <!-- PAYER / PROVIDER -->
         <div id="dirView" hidden>
           <div class="status"><span class="msg" id="dmsg"></span></div>
@@ -569,7 +635,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   var LETTERS = "ABCDEFGHIJKL";
   var BILL = { draft: "Ready to Submit", sent: "Submitted", hold: "On Hold", partial: "Partly Paid", paid: "Paid", denied: "Denied" };
   var OWING = { sent: 1, hold: 1, partial: 1, denied: 1 };
-  var KIND_ICON = { patient: "👤", claim: "📄", payer: "🏛", provider: "🩺", help: "❓" };
+  var KIND_ICON = { patient: "👤", claim: "📄", payer: "🏛", provider: "🩺", payment: "💵", help: "❓" };
   var DIR = {
     payer: { title: "Payer Library", name: "name", fields: [
       ["name", "Insurer Name:", 1], ["address", "Claims Mailing Address:", 1], ["payer_id", "Payer ID:"], ["phone", "Phone #:"],
@@ -581,11 +647,11 @@ body.locked > :not(.login):not(#print) { display: none !important; }
 
   // ============ state ============
   var S = {
-    tab: "claim", data: { claim: [], patient: [], payer: [], provider: [] },
+    tab: "claim", data: { claim: [], patient: [], payer: [], provider: [], payment: [] },
     grids: {}, docs: [], active: -1, rtab: "home", dtab: "details", widget: "owed", user: "", seq: 0, loadedAt: null,
     token: null, idle: 15
   };
-  ["claim", "patient", "payer", "provider"].forEach(function (k) { S.grids[k] = { f: {}, sort: [], group: null, shut: {}, sel: null }; });
+  ["claim", "patient", "payer", "provider", "payment"].forEach(function (k) { S.grids[k] = { f: {}, sort: [], group: null, shut: {}, sel: null }; });
 
   // ============ helpers ============
   function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
@@ -618,7 +684,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   // ICD-10 codes may be typed EZClaim-style without the decimal point.
   function dotted(code) { code = String(code || "").trim().toUpperCase(); return /^[A-Z][0-9][0-9A-Z][0-9A-Z]{1,4}$/.test(code) ? code.slice(0, 3) + "." + code.slice(3) : code; }
   function ptrLetters(p) { return String(p || "").split(/[\s,]+/).filter(Boolean).map(function (x) { return /^\d+$/.test(x) ? (LETTERS[+x - 1] || x) : x.toUpperCase(); }).join(""); }
-  function setMsg(t) { ["msg", "pmsg", "dmsg"].forEach(function (id) { $(id).textContent = t; }); }
+  function setMsg(t) { ["msg", "pmsg", "dmsg", "paymsg"].forEach(function (id) { $(id).textContent = t; }); }
 
   // ============ data ============
   function claimsOf(p) {
@@ -627,7 +693,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   function owes(c) { return !!OWING[c.billing] && c.balance > 0.004; }
   function patBal(p) { return claimsOf(p).reduce(function (s, c) { return s + (c.balance || 0); }, 0); }
   function loadAll() {
-    return Promise.all(["claim", "patient", "payer", "provider"].map(function (k) {
+    return Promise.all(["claim", "patient", "payer", "provider", "payment"].map(function (k) {
       return api("GET", "/api/list?kind=" + k).then(function (r) { S.data[k] = r.records; });
     })).then(function () {
       S.loadedAt = new Date(); fillPickers(); renderGridBody(); renderDetail(); renderRibbon();
@@ -655,7 +721,13 @@ body.locked > :not(.login):not(#print) { display: none !important; }
     provider: [
       { k: "name", t: "Name", v: function (r) { return r.name; } },
       { k: "role", t: "Type", w: "76px", v: function (r) { return r.role; } },
-      { k: "npi", t: "NPI", w: "96px", v: function (r) { return r.npi; } }]
+      { k: "npi", t: "NPI", w: "96px", v: function (r) { return r.npi; } }],
+    payment: [
+      { k: "name", t: "From", v: function (r) { return r.source === "payer" ? r.payer : (r.patient_name || "Patient"); } },
+      { k: "date", t: "Date", w: "76px", d: 1, v: function (r) { return r.date; } },
+      { k: "method", t: "Method", w: "62px", v: function (r) { return r.method; } },
+      { k: "amt", t: "Pmt Amt", w: "70px", m: 1, v: function (r) { return r.amount; } },
+      { k: "rem", t: "Remaining", w: "72px", m: 1, v: function (r) { return r.remaining; } }]
   };
   function cellText(c, r) { var v = c.v(r); return c.m ? fmt(v) : String(v == null ? "" : v); }
   function matches(f, text) {
@@ -704,6 +776,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
     if (kind === "claim" && owes(r)) cls += " owe";
     if (kind === "patient" && claimsOf(r).some(owes)) cls += " owe";
     if (kind === "patient" && r.active === false) cls += " inactive";
+    if (kind === "payment" && Math.abs(r.remaining) > 0.004) cls += " owe";
     if (r.id === g.sel) cls += " on";
     var ic = kind === "patient" ? '<button class="icb" data-addclaim="' + esc(r.id) + '" title="Add Claim">📄</button>' : KIND_ICON[kind];
     return '<tr class="' + cls + '" data-id="' + esc(r.id) + '" tabindex="0"><td class="ic">' + ic + '</td>' + cols.map(function (c) {
@@ -831,6 +904,13 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   }
   function renderDetail() {
     var out = "";
+    if (S.tab === "payment") {
+      var pm = S.data.payment.filter(function (x) { return x.id === S.grids.payment.sel; })[0];
+      $("dbody").innerHTML = !pm ? '<div class="dempty">Click a payment to see it here; double-click to open it.</div>'
+        : sec("Payment", [["From", pm.source === "payer" ? pm.payer : pm.patient_name], ["Source", pm.source === "payer" ? "Payer" : "Patient"],
+          ["Date", pm.date], ["Method", pm.method], ["Ref #", pm.ref], ["Amount", fmt(pm.amount)], ["Applied", fmt(pm.applied)], ["Remaining", fmt(pm.remaining)]]);
+      return;
+    }
     if (S.tab === "payer" || S.tab === "provider") {
       var r = S.data[S.tab].filter(function (x) { return x.id === S.grids[S.tab].sel; })[0];
       out = !r ? '<div class="dempty">Click a row to see it here; double-click to open it.</div>'
@@ -878,7 +958,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
     var find = { cap: "Find", items: [big("🔎", "Find", findCmd)] };
     var help = { cap: "Support", items: [big("❓", "Help Topics", openHelp)] };
     if (S.rtab === "claim" && isClaim) return [file, edit,
-      { cap: "New", items: [big("📄", "Claim", newClaim), big("👤", "Patient", newPatient), big("💵", "Payment", null, false, SOON)] },
+      { cap: "New", items: [big("📄", "Claim", newClaim), big("👤", "Patient", newPatient), big("💵", "Payment", newPaymentForClaim)] },
       { cap: "Actions", small: 1, items: [small("⧉", "Copy Claim", copyClaim), small("🔁", "Make Recurring", null, false, SOON), small("📑", "Save as Template", null, false, SOON),
         small("✎", "Write Off Claim", null, false, SOON), small("✔", "Pay Off Claim", payOff), small("🧹", "Scrub", scrub)] },
       { cap: "Patient", items: [big("👤", "Save to Patient List", savePatientFromClaim)] }, help];
@@ -894,7 +974,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
       { cap: "Company", items: [big("💾", "Backup", null, false, "Run vault.py backup on Main")] }, help];
     if (S.rtab === "support") return [help, { cap: "About", items: [big("⚡", "Thunder Claims", openHelp)] }];
     return [file, edit, find,
-      { cap: "New", items: [big("👤", "Patient", newPatient), big("📄", "Claim", newClaim), big("💵", "Payment", null, false, SOON),
+      { cap: "New", items: [big("👤", "Patient", newPatient), big("📄", "Claim", newClaim), big("💵", "Payment", function () { newPayment(); }),
         big("☑", "Task", null, false, SOON), big("✉", "Statement", null, false, SOON)] },
       { cap: "Libraries", items: [big("🏛", "Payer", function () { selectLeftTab("payer"); }), big("🩺", "Physician Facility", function () { selectLeftTab("provider"); })] },
       { cap: "Alerts", items: [big("⚠", "Needs Fixing (" + blocked + ")", function () { showWidget("block"); })] }, help];
@@ -944,6 +1024,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
     if (d.kind === "help") return "Help Topics";
     if (d.kind === "patient") { var n = composeName(x) || "New Patient"; var a = age(x.dob); return n + (a !== "" ? " (Age: " + a + ")" : ""); }
     if (d.kind === "claim") return (x.patient_name || "New Claim") + (x.date_of_service ? " - " + x.date_of_service : "");
+    if (d.kind === "payment") return d.id ? "Payment - " + ((x.source === "payer" ? x.payer : x.patient_name) || "?") + " " + (x.date || "") : "Payment Entry";
     return x.name || (d.kind === "payer" ? "New Payer" : "New Physician/Facility");
   }
   function renderDocTabs() {
@@ -972,8 +1053,9 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   function openRec(kind, id) {
     for (var i = 0; i < S.docs.length; i++) if (S.docs[i].id === id) return activate(i);
     api("GET", "/api/rec/" + id).then(function (r) {
-      var d = { kind: r.kind, id: r.id, data: prep(r.kind, r.data), codes: r.codes || {}, check: r.kind === "claim" ? r : null, dirty: false };
+      var d = { kind: r.kind, id: r.id, data: prep(r.kind, r.data), codes: r.codes || {}, check: r.kind === "claim" ? r : null, ledger: r.ledger || null, dirty: false };
       if (d.kind === "claim") calTo(d, d.data.date_of_service);
+      if (d.kind === "payment") { d.rows = null; d.alloc = null; d.opts = { ignore: false, zero: false }; }
       addDoc(d);
     }).catch(function (e) { setMsg("Couldn’t open it: " + e.message); });
   }
@@ -1000,6 +1082,11 @@ body.locked > :not(.login):not(#print) { display: none !important; }
       b.notes_log = b.notes_log || [];
       if (b.tracking.notes) { b.notes_log.unshift({ ts: "", user: "", note: b.tracking.notes, balance: "" }); delete b.tracking.notes; }
       return b;
+    }
+    if (kind === "payment") {
+      if (!x.source) x.source = "payer"; if (!x.date) x.date = mdy(new Date()); if (!x.method) x.method = "CHECK";
+      x.lines = x.lines || [];
+      return x;
     }
     if (kind === "patient") {
       if (!x.last_name && !x.first_name && x.patient_name) {
@@ -1060,13 +1147,14 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   function renderWork() {
     var d = cur(), k = d ? d.kind : "home";
     $("homeView").hidden = k !== "home"; $("helpView").hidden = k !== "help"; $("claimView").hidden = k !== "claim";
-    $("patView").hidden = k !== "patient"; $("dirView").hidden = !(k === "payer" || k === "provider");
+    $("patView").hidden = k !== "patient"; $("dirView").hidden = !(k === "payer" || k === "provider"); $("payView").hidden = k !== "payment";
     $("work").classList.toggle("nobtn", k === "home" || k === "help");
     renderButtons();
     if (k === "home") renderHome();
     if (k === "claim") renderClaim();
     if (k === "patient") renderPatient();
     if (k === "payer" || k === "provider") renderDir();
+    if (k === "payment") renderPayment();
     $("work").scrollTop = 0;
   }
   function renderButtons() {
@@ -1078,6 +1166,10 @@ body.locked > :not(.login):not(#print) { display: none !important; }
       '<button disabled title="' + SOON + '">Delete</button><div class="gap"></div><button data-b="newClaim">New Claim</button>' +
       '<label><input type="checkbox" data-b="active"' + (d.data.active !== false ? " checked" : "") + '> Active</label>';
     if (k === "payer" || k === "provider") h = '<button class="primary" data-b="saveClose">Save &amp; Close</button><button data-b="save">Save</button><button data-b="close">Close</button>';
+    if (k === "payment") h = '<button class="primary" data-b="saveClose">Save &amp; Close</button><button data-b="save">Save</button><button data-b="close">Close</button>' +
+      '<button data-b="newPmt">New Pmt</button><div class="gap"></div><b style="padding:2px">Filter Settings</b>' +
+      '<label><input type="checkbox" data-b="ignore"' + (d.opts.ignore ? " checked" : "") + '> Ignore Responsible Party</label>' +
+      '<label><input type="checkbox" data-b="zero"' + (d.opts.zero ? " checked" : "") + '> Include $0.00 balance lines</label>';
     $("btncol").innerHTML = h;
   }
   var notesHidden = false;
@@ -1092,9 +1184,14 @@ body.locked > :not(.login):not(#print) { display: none !important; }
       case "print": printClaim(); break;
       case "savePatient": savePatientFromClaim(); break;
       case "newClaim": newClaimForDoc(d); break;
+      case "newPmt": newPayment(); break;
     }
   });
-  $("btncol").addEventListener("change", function (e) { if (e.target.dataset.b === "active") { cur().data.active = e.target.checked; markDirty(); } });
+  $("btncol").addEventListener("change", function (e) {
+    var d = cur(), b = e.target.dataset.b;
+    if (b === "active") { d.data.active = e.target.checked; markDirty(); }
+    if ((b === "ignore" || b === "zero") && d.kind === "payment") { d.opts[b] = e.target.checked; d.rows = null; renderPayment(); }
+  });
   document.addEventListener("keydown", function (e) {  // Alt-S saves and closes, as in EZClaim
     if (e.altKey && (e.key === "s" || e.key === "S")) { var b = document.querySelector('#btncol [data-b="saveClose"]'); if (b) { e.preventDefault(); b.click(); } }
   });
@@ -1127,7 +1224,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   $("refreshBtn").onclick = loadAll;
   $("homeView").addEventListener("click", function (e) {
     var b = e.target.closest("[data-go]"); if (!b) return;
-    ({ newPatient: newPatient, newClaim: newClaim, scan: scanCmd,
+    ({ newPatient: newPatient, newClaim: newClaim, scan: scanCmd, newPayment: function () { newPayment(); },
        editPatient: function () { selectLeftTab("patient"); findCmd(); },
        printClaims: function () { selectLeftTab("claim"); S.grids.claim.f = { status: "Ready" }; renderGridHead(); renderGridBody();
          setMsg("Ready-to-submit claims are listed on the left. Open one and press Print."); }
@@ -1188,10 +1285,17 @@ body.locked > :not(.login):not(#print) { display: none !important; }
       return '<tr>' + inp("date", 92, c.date_of_service || "MM/DD/YYYY") + '<td style="width:40px;padding:0 6px">' + esc(c.place_of_service) + '</td>' +
         inp("code", 74, "97110", "code") + inp("modifier", 38, "", "code") + inp("m2", 38, "", "code") + inp("m3", 38, "", "code") + inp("m4", 38, "", "code") +
         inp("pointer", 58, "1", "code") + inp("description") + inp("charge", 76, "0.00", "", "decimal") + inp("units", 46, "", "", "numeric") +
-        '<td class="n" style="width:84px" data-lt="' + i + '">' + fmt((money(p.units) || 1) * money(p.charge)) + '</td>' +
+        '<td class="n" style="width:84px" data-lt="' + i + '">' + fmt((money(p.units) || 1) * money(p.charge)) + '</td>' + postedCells(d, i, p) +
         '<td class="tag-cell" data-code="' + esc(p.code) + '" style="width:104px"></td>' +
         '<td style="width:26px"><button class="rm" data-rmpx="' + i + '" aria-label="Remove service line ' + (i + 1) + '">✕</button></td></tr>';
-    }).join("") : '<tr><td colspan="14" class="hint" style="padding:6px">Click a date on the calendars above to enter a new service line.</td></tr>';
+    }).join("") : '<tr><td colspan="17" class="hint" style="padding:6px">Click a date on the calendars above to enter a new service line.</td></tr>';
+  }
+  function postedLine(d, i) { return ((d.ledger && d.ledger.lines) || {})[String(i)] || { paid: 0, adj: 0, entries: [] }; }
+  function postedCells(d, i, p) {
+    var l = postedLine(d, i), bal = (money(p.units) || 1) * money(p.charge) - l.paid - l.adj;
+    var tip = l.entries.map(function (e) { return e.date + " " + e.from + ": paid " + fmt(e.paid) + (e.adj ? ", adj " + fmt(e.adj) + (e.codes ? " (" + e.codes + ")" : "") : ""); }).join("\n");
+    return '<td class="pd" style="width:72px" title="' + esc(tip) + '">' + (l.paid ? fmt(l.paid) : "") + '</td><td class="pd" style="width:66px" title="' + esc(tip) + '">' + (l.adj ? fmt(l.adj) : "") +
+      '</td><td class="pd" style="width:76px" data-lb="' + i + '">' + fmt(bal) + '</td>';
   }
   function renderNotes() {
     var log = cur().data.notes_log || [];
@@ -1201,8 +1305,13 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   }
   function charges(c) { return c.procedures.reduce(function (s, p) { return s + (money(p.units) || 1) * money(p.charge); }, 0); }
   function totals() {
-    var c = cur().data, billed = charges(c), paid = money(c.tracking.paid_amount);
-    $("total").textContent = fmt(billed); $("m_billed").textContent = fmt(billed); $("m_paid").textContent = fmt(paid); $("m_balance").textContent = fmt(billed - paid);
+    var d = cur(), c = d.data, billed = charges(c), led = d.ledger || { paid: 0, adj: 0 };
+    var paid = money(c.tracking.paid_amount) + led.paid, adj = led.adj;
+    $("total").textContent = fmt(billed); $("m_billed").textContent = fmt(billed); $("m_paid").textContent = fmt(paid);
+    $("m_adj").textContent = fmt(adj); $("m_balance").textContent = fmt(billed - paid - adj);
+    $("t_paid").textContent = led.paid ? fmt(led.paid) : ""; $("t_adj").textContent = adj ? fmt(adj) : "";
+    $("t_bal").textContent = fmt(billed - led.paid - adj);
+    $("c_posted").value = led.paid || adj ? fmt(led.paid) + " paid, " + fmt(adj) + " adjusted" : "none yet";
     $("svcCount").textContent = "Services: " + c.procedures.filter(function (p) { return (p.code || "").trim(); }).length;
     var b = c.tracking.billing || "draft"; $("billPill").className = "pill " + b; $("billPill").textContent = BILL[b];
   }
@@ -1230,6 +1339,8 @@ body.locked > :not(.login):not(#print) { display: none !important; }
       var j = +t.dataset.px, p = c.procedures[j]; p[t.dataset.k] = t.value;
       if (t.dataset.k === "code") t.closest("tr").querySelector(".tag-cell").dataset.code = t.value.trim();
       var lt = document.querySelector('[data-lt="' + j + '"]'); if (lt) lt.textContent = fmt((money(p.units) || 1) * money(p.charge));
+      var lb = document.querySelector('[data-lb="' + j + '"]'), pl = postedLine(d, j);
+      if (lb) lb.textContent = fmt((money(p.units) || 1) * money(p.charge) - pl.paid - pl.adj);
       if (t.dataset.k === "date") syncDos();
       totals(); changed();
     }
@@ -1390,6 +1501,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   // ============ save ============
   function saveDoc(d) {
     if (!d || d.kind === "help") return Promise.resolve(false);
+    if (d.kind === "payment") return savePayment(d);
     setMsg("Saving…");
     var data = d.kind === "claim" ? cleaned(d.data) : clone(d.data);
     if (d.kind !== "claim") Object.keys(data).forEach(function (k) { if (typeof data[k] === "string") data[k] = data[k].trim(); });
@@ -1399,6 +1511,182 @@ body.locked > :not(.login):not(#print) { display: none !important; }
       if (cur() === d) renderWork();
       renderDocTabs();
       setMsg(d.kind === "claim" ? "Saved, encrypted. Claim " + r.id : d.kind === "patient" ? "Saved " + (d.data.patient_name || "") + " - Account # " + d.data.account_number : "Saved.");
+      loadAll(); return true;
+    }).catch(function (e) { setMsg("Not saved: " + e.message); return false; });
+  }
+
+  // ============ payment entry ============
+  var ADJ_GROUPS = ["CO", "PR", "OA", "PI", "CR"];
+  function blankAdj(g) { return { amt: "", group: g, reason: "" }; }
+  function payKey(cid, li) { return cid + ":" + li; }
+  function allocFromLines(lines) {
+    var a = {};
+    (lines || []).forEach(function (l) {
+      var x = l.adjustments || [];
+      a[payKey(l.claim_id, l.line)] = { paid: l.paid || "", a1: x[0] ? clone(x[0]) : blankAdj("CO"), a2: x[1] ? clone(x[1]) : blankAdj("PR") };
+    });
+    return a;
+  }
+  function allocOf(d, k) { return d.alloc[k] || (d.alloc[k] = { paid: "", a1: blankAdj("CO"), a2: blankAdj("PR") }); }
+  function payLines(d) {
+    return Object.keys(d.alloc).map(function (k) {
+      var a = d.alloc[k], i = k.lastIndexOf(":");
+      return { claim_id: k.slice(0, i), line: +k.slice(i + 1), paid: a.paid, adjustments: [a.a1, a.a2].filter(function (x) { return money(x.amt); }) };
+    }).filter(function (l) { return money(l.paid) || l.adjustments.length; });
+  }
+  function appliedOf(d) { return Object.keys(d.alloc).reduce(function (s, k) { return s + money(d.alloc[k].paid); }, 0); }
+  function remainingOf(d) { return Math.round((money(d.data.amount) - appliedOf(d)) * 100) / 100; }
+  function newBalance(d, r) { var a = d.alloc[payKey(r.claim_id, r.line)]; return a ? r.balance - money(a.paid) - money(a.a1.amt) - money(a.a2.amt) : r.balance; }
+  function payerNames() {
+    var seen = {}, out = [];
+    S.data.payer.concat(S.data.claim.map(function (c) { return { name: c.insurer }; })).forEach(function (x) {
+      var n = String(x.name || "").trim(); if (n && !seen[n.toUpperCase()]) { seen[n.toUpperCase()] = 1; out.push(n); } });
+    return out.sort();
+  }
+  function newPayment(preset) {
+    var d = { kind: "payment", id: null, data: prep("payment", preset || {}), rows: null, alloc: {}, opts: { ignore: false, zero: false }, dirty: false };
+    addDoc(d); setMsg("New payment. Choose who paid, enter the check, then apply it to the service lines.");
+  }
+  function newPaymentForClaim() { var d = cur(); newPayment(d && d.kind === "claim" && d.data.insurer ? { source: "payer", payer: d.data.insurer } : {}); }
+  function loadPayLines(d) {
+    var x = d.data, q = "source=" + x.source + "&payer=" + encodeURIComponent(x.payer || "") + "&patient=" + encodeURIComponent(x.patient_id || "") +
+      "&patient_name=" + encodeURIComponent(x.patient_name || "") + "&ignore=" + (d.opts.ignore ? 1 : 0) + "&zero=" + (d.opts.zero ? 1 : 0) + (d.id ? "&payment=" + d.id : "");
+    d.rows = [];
+    api("GET", "/api/open_lines?" + q).then(function (r) { d.rows = r.lines; if (cur() === d) renderPayRows(); })
+      .catch(function (e) { setMsg("Couldn’t load service lines: " + e.message); });
+  }
+  function renderPayment() {
+    var d = cur(), x = d.data;
+    if (!d.opts) d.opts = { ignore: false, zero: false };
+    if (!d.alloc) d.alloc = allocFromLines(x.lines);
+    qa('input[name="psrc"]').forEach(function (r) { r.checked = r.value === x.source; });
+    $("pay_who_lbl").textContent = x.source === "payer" ? "Payer:" : "Patient:";
+    if (x.source === "payer") {
+      var names = payerNames(); if (x.payer && names.indexOf(x.payer) < 0) names.unshift(x.payer);
+      $("pay_who").innerHTML = '<option value="">None</option>' + names.map(function (n) { return '<option>' + esc(n) + '</option>'; }).join("");
+      $("pay_who").value = x.payer || "";
+    } else {
+      $("pay_who").innerHTML = '<option value="">None</option>' + S.data.patient.filter(function (p) { return !p.error; }).map(function (p) {
+        return '<option value="' + esc(p.id) + '">' + esc(p.patient_name) + '</option>'; }).join("");
+      $("pay_who").value = x.patient_id || "";
+    }
+    qa("#payView [data-y]").forEach(function (el) { el.value = x[el.dataset.y] || ""; });
+    renderOpenPays();
+    if (!x.payer && !x.patient_id && !d.opts.ignore) { d.rows = []; $("payRows").innerHTML = '<tr><td colspan="17" class="hint" style="padding:8px">Choose the ' + (x.source === "payer" ? "payer" : "patient") + ' to see their service lines.</td></tr>'; $("payFoot").innerHTML = ""; updateRemain(); }
+    else if (d.rows === null) { $("payRows").innerHTML = '<tr><td colspan="17" class="hint" style="padding:8px">Loading service lines…</td></tr>'; loadPayLines(d); }
+    else renderPayRows();
+    setMsg(d.id ? "Payment " + d.id + " - change amounts and Save to modify it." : "New payment - not saved yet.");
+  }
+  function renderOpenPays() {
+    var d = cur(), x = d.data, who = x.source === "payer" ? x.payer : x.patient_name;
+    $("openPaysTitle").textContent = who ? "Payments from " + who + " with a balance:" : "Payments with a balance:";
+    var list = S.data.payment.filter(function (p) {
+      return !p.error && p.id !== d.id && p.source === x.source && Math.abs(p.remaining) > 0.004 &&
+        (x.source === "payer" ? sameName(p.payer, x.payer) : sameName(p.patient_name, x.patient_name));
+    });
+    $("openPays").innerHTML = '<thead><tr><th style="width:52px"></th><th>Date</th><th class="n">Pmt Amt</th><th class="n">Applied</th><th class="n">Remaining</th><th>Method</th><th>Ref #</th></tr></thead><tbody>' +
+      (list.length ? list.map(function (p) { return '<tr class="item"><td><button class="icb" data-openpay="' + esc(p.id) + '">OPEN</button></td><td>' + esc(p.date) + '</td><td class="n">' + fmt(p.amount) +
+        '</td><td class="n">' + fmt(p.applied) + '</td><td class="n">' + fmt(p.remaining) + '</td><td>' + esc(p.method) + '</td><td>' + esc(p.ref) + '</td></tr>'; }).join("")
+        : '<tr class="empty"><td colspan="7">None.</td></tr>') + '</tbody>';
+  }
+  function renderPayRows() {
+    var d = cur(), rows = d.rows || [];
+    var grp = function (k, which, v) { return '<td><select data-pk="' + k + '" data-pf="' + which + '.group" style="width:52px">' + ADJ_GROUPS.map(function (g) { return '<option' + (g === v ? " selected" : "") + '>' + g + '</option>'; }).join("") + '</select></td>'; };
+    var amt = function (k, f, v) { return '<td style="width:78px"><input class="n" data-pk="' + k + '" data-pf="' + f + '" value="' + esc(v) + '" inputmode="decimal" style="text-align:right"></td>'; };
+    $("payRows").innerHTML = rows.length ? rows.map(function (r) {
+      var k = payKey(r.claim_id, r.line), a = d.alloc[k] || { paid: "", a1: blankAdj("CO"), a2: blankAdj("PR") }, nb = newBalance(d, r);
+      var hit = money(a.paid) || money(a.a1.amt) || money(a.a2.amt);
+      return '<tr' + (hit ? ' class="hit"' : "") + '><td>' + esc(r.patient_name) + '</td><td><button class="icb" data-openclaim="' + esc(r.claim_id) + '" title="Open the claim">' + esc(r.claim_id.slice(-4)) + '</button></td>' +
+        '<td>' + esc(r.proc) + (r.mod ? " " + esc(r.mod) : "") + '</td><td>' + esc(r.dos) + '</td><td class="n">' + fmt(r.charge) + '</td><td>' + esc(r.payer) + '</td>' +
+        '<td class="n">' + fmt(r.applied) + '</td><td class="n' + (nb > 0.004 ? " red" : "") + '" data-nb="' + k + '">' + fmt(nb) + '</td>' +
+        '<td><button class="icb" data-pay="' + k + '" title="Pay the whole balance">Pay</button></td>' +
+        amt(k, "paid", a.paid) + amt(k, "a1.amt", a.a1.amt) + grp(k, "a1", a.a1.group) +
+        '<td style="width:70px"><input data-pk="' + k + '" data-pf="a1.reason" value="' + esc(a.a1.reason) + '" list="carc" class="code"></td>' +
+        amt(k, "a2.amt", a.a2.amt) + grp(k, "a2", a.a2.group) +
+        '<td style="width:70px"><input data-pk="' + k + '" data-pf="a2.reason" value="' + esc(a.a2.reason) + '" list="carc" class="code"></td>' +
+        '<td><button class="rm" data-clear="' + k + '" title="Clear this line">✕</button></td></tr>';
+    }).join("") : '<tr><td colspan="17" class="hint" style="padding:8px">No service lines with a balance' + (d.data.source === "payer" ? " billed to this payer" : " for this patient") +
+      '. Tick "Ignore Responsible Party" or "Include $0.00 balance lines" on the right to see more.</td></tr>';
+    renderPayFoot(); updateRemain();
+  }
+  function renderPayFoot() {
+    var d = cur(), rows = d.rows || [], t = { charge: 0, applied: 0, bal: 0, paid: 0, a1: 0, a2: 0 };
+    rows.forEach(function (r) { var a = d.alloc[payKey(r.claim_id, r.line)]; t.charge += r.charge; t.applied += r.applied; t.bal += newBalance(d, r);
+      if (a) { t.paid += money(a.paid); t.a1 += money(a.a1.amt); t.a2 += money(a.a2.amt); } });
+    $("payFoot").innerHTML = rows.length ? '<tr><td colspan="4">Lines: ' + rows.length + '</td><td class="n">' + fmt(t.charge) + '</td><td></td><td class="n">' + fmt(t.applied) +
+      '</td><td class="n">' + fmt(t.bal) + '</td><td></td><td class="n">' + fmt(t.paid) + '</td><td class="n">' + fmt(t.a1) + '</td><td colspan="2"></td><td class="n">' + fmt(t.a2) + '</td><td colspan="3"></td></tr>' : "";
+  }
+  function updateRemain() {
+    var d = cur(), rem = remainingOf(d);
+    $("payRemain").textContent = "Remaining: " + fmt(rem) + "  of " + fmt(money(d.data.amount));
+    $("payRemain").className = "remain " + (Math.abs(rem) > 0.004 ? "off" : money(d.data.amount) || appliedOf(d) ? "ok" : "");
+  }
+  function refreshRow(k) {
+    var d = cur(), r = (d.rows || []).filter(function (x) { return payKey(x.claim_id, x.line) === k; })[0]; if (!r) return;
+    var nb = newBalance(d, r), cell = document.querySelector('[data-nb="' + k + '"]');
+    if (cell) { cell.textContent = fmt(nb); cell.classList.toggle("red", nb > 0.004); }
+    renderPayFoot(); updateRemain();
+  }
+  $("payView").addEventListener("input", function (e) {
+    var t = e.target, d = cur(); if (!d || d.kind !== "payment") return;
+    if (t.dataset.y) { d.data[t.dataset.y] = t.value; markDirty(); if (t.dataset.y === "amount") updateRemain(); return; }
+    if (t.dataset.pk) {
+      var a = allocOf(d, t.dataset.pk), f = t.dataset.pf.split(".");
+      if (f.length === 1) a[f[0]] = t.value; else a[f[0]][f[1]] = t.value;
+      markDirty(); refreshRow(t.dataset.pk);
+    }
+  });
+  $("payView").addEventListener("change", function (e) {
+    var t = e.target, d = cur(); if (!d || d.kind !== "payment") return;
+    if (t.name === "psrc") {
+      if (appliedOf(d) && !confirm("Switching the source clears what you have applied. Carry on?")) return renderPayment();
+      d.data.source = t.value; d.data.payer = ""; d.data.patient_id = ""; d.data.patient_name = ""; d.alloc = {}; d.rows = null; markDirty(); renderPayment(); renderDocTabs();
+    } else if (t.id === "pay_who") {
+      if (appliedOf(d) && !confirm("Changing who paid clears what you have applied. Carry on?")) return renderPayment();
+      if (d.data.source === "payer") d.data.payer = t.value;
+      else { d.data.patient_id = t.value; var p = S.data.patient.filter(function (x) { return x.id === t.value; })[0]; d.data.patient_name = p ? p.patient_name : ""; }
+      d.alloc = {}; d.rows = null; markDirty(); renderPayment(); renderDocTabs();
+    } else if (t.dataset.y && t.tagName === "SELECT") { d.data[t.dataset.y] = t.value; markDirty(); }
+    else if (t.dataset.pk && t.tagName === "SELECT") { var f = t.dataset.pf.split("."); allocOf(d, t.dataset.pk)[f[0]][f[1]] = t.value; markDirty(); }
+  });
+  $("payView").addEventListener("click", function (e) {
+    var t = e.target, d = cur(); if (!d || d.kind !== "payment") return;
+    var b = t.closest("[data-pay],[data-clear],[data-openpay],[data-openclaim]"); if (!b) return;
+    if (b.dataset.pay) {
+      var r = d.rows.filter(function (x) { return payKey(x.claim_id, x.line) === b.dataset.pay; })[0], a = allocOf(d, b.dataset.pay);
+      var nb = newBalance(d, r); a.paid = (money(a.paid) + nb).toFixed(2); markDirty(); renderPayRows();
+    }
+    if (b.dataset.clear) { delete d.alloc[b.dataset.clear]; markDirty(); renderPayRows(); }
+    if (b.dataset.openpay) openRec("payment", b.dataset.openpay);
+    if (b.dataset.openclaim) openRec("claim", b.dataset.openclaim);
+  });
+  $("autoApply").addEventListener("click", function () {
+    var d = cur(), rem = remainingOf(d);
+    if (!money(d.data.amount)) return setMsg("Enter the payment amount first.");
+    if (rem <= 0.004) return setMsg("Nothing left to apply.");
+    (d.rows || []).forEach(function (r) {
+      var nb = newBalance(d, r); if (rem <= 0.004 || nb <= 0.004) return;
+      var take = Math.min(nb, rem), a = allocOf(d, payKey(r.claim_id, r.line));
+      a.paid = (money(a.paid) + take).toFixed(2); rem = Math.round((rem - take) * 100) / 100;
+    });
+    markDirty(); renderPayRows(); setMsg("Applied oldest-listed lines first. Check each line before saving.");
+  });
+  function savePayment(d) {
+    var data = clone(d.data), rem = remainingOf(d);
+    data.lines = payLines(d);
+    if (!money(data.amount) && !data.lines.length) { setMsg("Nothing to save yet: enter the amount and apply it."); return Promise.resolve(false); }
+    if (!money(data.amount) && !confirm("Save a $0.00 payment (for example a zero-dollar EOB with a reversal)?")) return Promise.resolve(false);
+    if (Math.abs(rem) > 0.004 && !confirm("Remaining is " + fmt(rem) + " - not all of this payment is applied. Save anyway?")) return Promise.resolve(false);
+    setMsg("Saving…");
+    return api("POST", "/api/save", JSON.stringify({ kind: "payment", id: d.id, data: data })).then(function (r) {
+      d.id = r.id; d.data = prep("payment", r.data); d.alloc = allocFromLines(d.data.lines); d.rows = null; d.dirty = false;
+      var n = d.data.lines.length;
+      S.docs.forEach(function (o) {  // open claims show the new balances
+        if (o.kind === "claim" && o.id && !o.dirty) api("GET", "/api/rec/" + o.id).then(function (rr) { o.data = prep("claim", rr.data); o.ledger = rr.ledger; if (cur() === o) renderClaim(); });
+      });
+      if (cur() === d) renderWork();
+      renderDocTabs();
+      setMsg("Payment saved: " + fmt(r.applied) + " applied to " + n + " service line" + (n === 1 ? "" : "s") + ". The claims were updated.");
       loadAll(); return true;
     }).catch(function (e) { setMsg("Not saved: " + e.message); return false; });
   }

@@ -69,13 +69,15 @@ KINDS = {
     "patient":  {"prefix": "pt-",  "index": ["patient_name"]},
     "payer":    {"prefix": "ins-", "index": []},
     "provider": {"prefix": "pv-",  "index": []},
+    "payment":  {"prefix": "pay-", "index": []},
 }
 BILLING = ("draft", "sent", "hold", "paid", "partial", "denied")
+METHODS = ("CHECK", "EFT", "CASH", "CREDIT CARD", "MONEY ORDER", "OTHER")
 FIRST_ACCOUNT = 1000  # EZClaim numbers patients from 1000 up
 
 
 def kind_of(record_id: str) -> str:
-    for k in ("patient", "payer", "provider"):
+    for k in ("patient", "payer", "provider", "payment"):
         if record_id.startswith(KINDS[k]["prefix"]):
             return k
     return "claim"
@@ -113,19 +115,68 @@ def assess(claim: dict) -> dict:
     return {"status": status, "reasons": reasons, "issues": issues, "codes": codes}
 
 
-def summary(kind: str, rid: str, r: dict) -> dict:
+def records(kind: str):
+    """(id, record) for every readable record of one kind, newest first."""
+    for p in sorted(vault.records_dir().glob("*.rec"), key=lambda p: p.stat().st_mtime, reverse=True):
+        if kind_of(p.stem) == kind:
+            try:
+                yield p.stem, vault.get(p.stem)
+            except BaseException:
+                continue
+
+
+def ledger(exclude: str | None = None) -> dict:
+    """What posted payments have done to each claim and service line:
+    {claim_id: {"paid", "adj", "lines": {idx: {"paid", "adj", "entries"}}}}.
+    Balances are always computed from the payments, never stored, so they
+    cannot drift from what was actually posted."""
+    out: dict = {}
+    for pid, pay in records("payment"):
+        if pid == exclude:
+            continue
+        who = pay.get("payer") if pay.get("source") == "payer" else (pay.get("patient_name") or "Patient")
+        for a in pay.get("lines") or []:
+            cid, li = a.get("claim_id"), int(a.get("line") or 0)
+            paid = money(a.get("paid"))
+            adj = sum(money(x.get("amt")) for x in a.get("adjustments") or [])
+            c = out.setdefault(cid, {"paid": 0.0, "adj": 0.0, "lines": {}})
+            line = c["lines"].setdefault(li, {"paid": 0.0, "adj": 0.0, "entries": []})
+            c["paid"] += paid; c["adj"] += adj; line["paid"] += paid; line["adj"] += adj
+            line["entries"].append({"payment": pid, "date": pay.get("date", ""), "from": who or "", "paid": paid, "adj": adj,
+                                    "codes": ", ".join(f"{x.get('group', '')}-{x.get('reason', '')}".strip("-")
+                                                       for x in a.get("adjustments") or [] if money(x.get("amt")))})
+    for c in out.values():
+        c["paid"], c["adj"] = round(c["paid"], 2), round(c["adj"], 2)
+        for line in c["lines"].values():
+            line["paid"], line["adj"] = round(line["paid"], 2), round(line["adj"], 2)
+    return out
+
+
+def line_charge(p: dict) -> float:
+    return round((money((p or {}).get("units")) or 1) * money((p or {}).get("charge")), 2)
+
+
+def summary(kind: str, rid: str, r: dict, led: dict | None = None) -> dict:
+    if kind == "payment":
+        applied = round(sum(money(a.get("paid")) for a in r.get("lines") or []), 2)
+        amount = money(r.get("amount"))
+        return {"id": rid, "date": r.get("date", ""), "source": r.get("source", ""), "payer": r.get("payer", ""),
+                "patient_name": r.get("patient_name", ""), "amount": amount, "applied": applied,
+                "remaining": round(amount - applied, 2), "method": r.get("method", ""), "ref": r.get("ref", "")}
     if kind == "claim":
         meta = r.get("_meta") or {}
         track = r.get("tracking") or {}
         charges = total_charges(r)
-        paid = money(track.get("paid_amount"))
+        posted = (led or {}).get(rid) or {"paid": 0.0, "adj": 0.0}
+        paid = round(money(track.get("paid_amount")) + posted["paid"], 2)
         return {"id": rid, "patient_name": r.get("patient_name", ""),
                 "account_number": r.get("account_number", ""),
                 "patient_id": r.get("patient_id", ""),
                 "date_of_service": r.get("date_of_service", ""),
                 "insurer": r.get("insurer", ""), "status": meta.get("status", ""),
                 "billing": track.get("billing") or "draft",
-                "charges": charges, "paid": paid, "balance": round(charges - paid, 2),
+                "charges": charges, "paid": paid, "adjusted": posted["adj"],
+                "balance": round(charges - paid - posted["adj"], 2),
                 "saved": meta.get("saved", "")}
     if kind == "patient":
         return {"id": rid, "patient_name": r.get("patient_name", ""), "dob": r.get("dob", ""),
@@ -148,6 +199,7 @@ def list_records(kind: str) -> list[dict]:
     """Every record of one kind, newest first. Each one is decrypted (and
     audited) to show its name - the cost of a list a person can read."""
     out = []
+    led = ledger() if kind == "claim" else None
     for p in sorted(vault.records_dir().glob("*.rec"),
                     key=lambda p: p.stat().st_mtime, reverse=True):
         if kind_of(p.stem) != kind:
@@ -157,8 +209,116 @@ def list_records(kind: str) -> list[dict]:
         except BaseException as e:  # vault raises SystemExit on a bad record
             out.append({"id": p.stem, "error": str(e).splitlines()[0]})
             continue
-        out.append(summary(kind, p.stem, r))
+        out.append(summary(kind, p.stem, r, led))
     return out
+
+
+def open_lines(source: str, payer: str, patient_id: str, patient_name: str,
+               ignore_rp: bool, include_zero: bool, payment_id: str | None) -> list[dict]:
+    """Service lines a payment can be applied to - EZClaim's Payment Entry grid.
+    Balances leave out the payment being edited, so its own amounts are not
+    counted twice."""
+    led = ledger(exclude=payment_id)
+    mine = set()
+    if payment_id:
+        try:
+            mine = {(a.get("claim_id"), int(a.get("line") or 0)) for a in vault.get(payment_id).get("lines") or []}
+        except BaseException:
+            mine = set()
+    norm = lambda x: str(x or "").strip().upper()
+    out = []
+    for cid, c in records("claim"):
+        if source == "payer" and not ignore_rp and norm(c.get("insurer")) != norm(payer):
+            if not any(m[0] == cid for m in mine):
+                continue
+        if source == "patient" and not ignore_rp:
+            same = c.get("patient_id") == patient_id if c.get("patient_id") and patient_id else norm(c.get("patient_name")) == norm(patient_name)
+            if not same and not any(m[0] == cid for m in mine):
+                continue
+        manual = money((c.get("tracking") or {}).get("paid_amount"))  # pre-Payment-Entry "amount paid" box
+        for i, p in enumerate(c.get("procedures") or []):
+            if not str((p or {}).get("code") or "").strip():
+                continue
+            charge = line_charge(p)
+            l = ((led.get(cid) or {}).get("lines") or {}).get(i) or {"paid": 0.0, "adj": 0.0}
+            take = min(max(manual, 0), max(charge - l["paid"] - l["adj"], 0))
+            manual -= take
+            applied = round(l["paid"] + l["adj"] + take, 2)
+            bal = round(charge - applied, 2)
+            if abs(bal) < 0.005 and not include_zero and (cid, i) not in mine:
+                continue
+            out.append({"claim_id": cid, "line": i, "patient_name": c.get("patient_name", ""),
+                        "dos": p.get("date") or c.get("date_of_service", ""), "proc": p.get("code", ""),
+                        "mod": p.get("modifier", ""), "charge": charge, "payer": c.get("insurer", ""),
+                        "applied": applied, "balance": bal})
+    out.sort(key=lambda x: (x["patient_name"], x["dos"], x["claim_id"], x["line"]))
+    return out
+
+
+def clean_payment(data: dict) -> dict:
+    src = data.get("source")
+    if src not in ("payer", "patient"):
+        raise ValueError("choose Payer or Patient as the payment source")
+    if src == "payer" and not str(data.get("payer") or "").strip():
+        raise ValueError("choose the payer")
+    if src == "patient" and not str(data.get("patient_name") or "").strip():
+        raise ValueError("choose the patient")
+    if not str(data.get("date") or "").strip():
+        raise ValueError("enter the payment date")
+    if data.get("method") and data["method"] not in METHODS:
+        raise ValueError("unknown payment method")
+    data["amount"] = f"{money(data.get('amount')):.2f}"
+    lines = []
+    for a in data.get("lines") or []:
+        cid = str(a.get("claim_id") or "")
+        if not ID_RE.match(cid) or kind_of(cid) != "claim" or not vault.record_path(cid).exists():
+            raise ValueError(f"unknown claim {cid!r}")
+        li = int(a.get("line") or 0)
+        if li < 0 or li >= len(vault.get(cid).get("procedures") or []):
+            raise ValueError(f"claim {cid} has no service line {li + 1}")
+        adjs = []
+        for x in (a.get("adjustments") or [])[:4]:
+            amt = money(x.get("amt"))
+            if amt:
+                adjs.append({"amt": f"{amt:.2f}", "group": str(x.get("group") or "")[:3].upper(),
+                             "reason": str(x.get("reason") or "")[:10].upper(), "remark": str(x.get("remark") or "")[:10].upper()})
+        paid = money(a.get("paid"))
+        if paid or adjs:
+            lines.append({"claim_id": cid, "line": li, "paid": f"{paid:.2f}", "adjustments": adjs})
+    data["lines"] = lines
+    return data
+
+
+def after_payment(pid: str, pay: dict, touched: set, user: str) -> None:
+    """Re-work the status of every claim the payment touches, and note it on
+    the claim, as EZClaim does: fully paid -> Paid, partly -> Partly Paid."""
+    led = ledger()
+    who = pay.get("payer") if pay.get("source") == "payer" else (pay.get("patient_name") or "patient")
+    for cid in sorted(touched):
+        try:
+            c = vault.get(cid)
+        except BaseException:
+            continue
+        tr = c.setdefault("tracking", {})
+        posted = led.get(cid) or {"paid": 0.0, "adj": 0.0}
+        charges = total_charges(c)
+        paid = money(tr.get("paid_amount")) + posted["paid"]
+        bal = round(charges - paid - posted["adj"], 2)
+        old = tr.get("billing") or "draft"
+        if charges > 0 and bal <= 0.004:
+            new = "paid"
+        elif paid > 0.004 or posted["adj"] > 0.004:
+            new = "partial" if old not in ("denied", "hold") else old
+        else:
+            new = "sent" if old in ("paid", "partial") else old
+        tr["billing"] = new
+        mine = [a for a in pay.get("lines") or [] if a.get("claim_id") == cid]
+        p_amt = sum(money(a.get("paid")) for a in mine)
+        a_amt = sum(money(x.get("amt")) for a in mine for x in a.get("adjustments") or [])
+        text = (f"Payment {pay.get('date', '')} from {who}: paid ${p_amt:,.2f}, adjusted ${a_amt:,.2f}"
+                if mine else f"Payment {pid} from {who} no longer applied to this claim")
+        c.setdefault("notes_log", []).append(note(text, user, bal))
+        vault.put(cid, c, KINDS["claim"]["index"])
 
 
 def new_id(kind: str) -> str:
@@ -189,6 +349,18 @@ def save(kind: str, record_id: str | None, data: dict, user: str = "user") -> di
         raise ValueError("bad record id")
     data = {k: v for k, v in data.items() if k != "_meta"}
     extra = {}
+    if kind == "payment":
+        data = clean_payment(data)
+        touched = {a["claim_id"] for a in data["lines"]}
+        if record_id:
+            try:
+                touched |= {a.get("claim_id") for a in vault.get(rid).get("lines") or []}
+            except BaseException:
+                pass
+        data["saved_by"] = user
+        vault.put(rid, data, KINDS[kind]["index"])
+        after_payment(rid, data, touched, user)
+        return {"id": rid, "data": data, **summary("payment", rid, data)}
     if kind == "claim":
         track = data.get("tracking") or {}
         if track.get("billing") and track["billing"] not in BILLING:
@@ -464,6 +636,11 @@ class Handler(BaseHTTPRequestHandler):
             if kind not in KINDS:
                 return self._send(400, {"error": "unknown record type"})
             return self._send(200, {"records": list_records(kind)})
+        if u.path == "/api/open_lines":
+            q = {k: v[0] for k, v in parse_qs(u.query).items()}
+            return self._send(200, {"lines": open_lines(q.get("source", "payer"), q.get("payer", ""), q.get("patient", ""),
+                                                        q.get("patient_name", ""), q.get("ignore") == "1", q.get("zero") == "1",
+                                                        q.get("payment") or None)})
         m = re.match(r"^/api/rec/([A-Za-z0-9_-]+)$", u.path)
         if m:
             rid = m.group(1)
@@ -472,6 +649,8 @@ class Handler(BaseHTTPRequestHandler):
             body = {"id": rid, "kind": kind, "data": r}
             if kind == "claim":
                 body.update(assess(r))
+                led = ledger().get(rid) or {"paid": 0.0, "adj": 0.0, "lines": {}}
+                body["ledger"] = {"paid": led["paid"], "adj": led["adj"], "lines": {str(k): v for k, v in led["lines"].items()}}
             return self._send(200, body)
         self._send(404, {"error": "not found"})
 

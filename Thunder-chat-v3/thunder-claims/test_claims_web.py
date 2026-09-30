@@ -189,6 +189,40 @@ aud = [json.loads(x) for x in (Path(os.environ["THUNDER_VAULT"]) / "audit.log").
 check("vault audit credits the logged-in person, not the Unix account",
       any(a["who"] == "blayne" and a["record"] == PID for a in aud), aud[-3:])
 
+print("payments")
+st, j, _ = req("POST", "/api/login", {"user": "blayne", "password": PW})
+TOK = j.get("token")
+st, j, _ = req("POST", "/api/save", {"kind": "claim", "data": {"patient_name": "TEST, PATIENT", "insurer": "Test Mutual",
+    "date_of_service": "01/02/2026", "procedures": [{"code": "98941", "units": "1", "charge": "100"}, {"code": "97140", "units": "2", "charge": "25"}],
+    "tracking": {"billing": "sent"}}}, token=TOK)
+CID = j.get("id")
+st, j, _ = req("GET", "/api/open_lines?source=payer&payer=test%20mutual", token=TOK)
+check("open lines are found for the payer (case-insensitive)", st == 200 and len([l for l in j["lines"] if l["claim_id"] == CID]) == 2, j)
+st, j, _ = req("POST", "/api/save", {"kind": "payment", "data": {"source": "payer", "payer": "Test Mutual", "amount": "90", "date": "02/01/2026",
+    "method": "CHECK", "lines": [{"claim_id": CID, "line": 0, "paid": "80", "adjustments": [{"amt": "20", "group": "CO", "reason": "45"}]},
+                                 {"claim_id": CID, "line": 1, "paid": "10"}]}}, token=TOK)
+PAYID = j.get("id")
+check("a payment posts", st == 200 and PAYID and j.get("remaining") == 0, j)
+st, j, _ = req("GET", f"/api/rec/{CID}", token=TOK)
+check("claim ledger shows paid and adjusted", j.get("ledger", {}).get("paid") == 90 and j["ledger"]["adj"] == 20, j.get("ledger"))
+check("claim moves to Partly Paid on its own", j["data"]["tracking"]["billing"] == "partial", j["data"]["tracking"])
+check("the payment is noted on the claim", any("Test Mutual" in n["note"] for n in j["data"]["notes_log"]))
+st, j, _ = req("POST", "/api/save", {"kind": "payment", "id": PAYID, "data": {"source": "payer", "payer": "Test Mutual", "amount": "130",
+    "date": "02/01/2026", "method": "CHECK", "lines": [{"claim_id": CID, "line": 0, "paid": "80", "adjustments": [{"amt": "20", "group": "CO", "reason": "45"}]},
+                                                       {"claim_id": CID, "line": 1, "paid": "50"}]}}, token=TOK)
+st, j, _ = req("GET", f"/api/rec/{CID}", token=TOK)
+check("paying the rest moves it to Paid", j["data"]["tracking"]["billing"] == "paid", j["data"]["tracking"])
+claims = req("GET", "/api/list?kind=claim", token=TOK)[1]["records"]
+check("claim list balance comes from payments", [c for c in claims if c["id"] == CID][0]["balance"] == 0)
+st, j, _ = req("POST", "/api/save", {"kind": "payment", "data": {"source": "payer", "payer": "X", "amount": "5", "date": "02/01/2026",
+    "lines": [{"claim_id": "c-does-not-exist", "line": 0, "paid": "5"}]}}, token=TOK)
+check("a payment against a missing claim is refused", st == 400, (st, j))
+st, j, _ = req("POST", "/api/save", {"kind": "payment", "data": {"source": "payer", "payer": "X", "amount": "5", "date": "02/01/2026",
+    "lines": [{"claim_id": CID, "line": 9, "paid": "5"}]}}, token=TOK)
+check("a payment against a missing service line is refused", st == 400, (st, j))
+st, _, _ = req("GET", "/api/open_lines?source=payer&payer=x")
+check("open lines need a login", st == 401)
+
 print("network guard")
 r = subprocess.run([sys.executable, str(Path(__file__).parent / "claims_web.py"), "--host", "0.0.0.0", "--port", "1"],
                    capture_output=True, text=True, env=os.environ, timeout=30)
