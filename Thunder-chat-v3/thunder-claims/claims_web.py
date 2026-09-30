@@ -539,7 +539,7 @@ SESSIONS = Sessions()
 PREFS_FILE = Path(os.environ.get("THUNDER_CLAIMS_PREFS",
                                  str(Path.home() / ".thunder" / "claims_prefs.json")))
 PRINT_DEFAULTS = {"form": "preview", "dx": 0.0, "dy": 0.0, "vshift": 0.0, "hshift": 0.0,
-                  "carrier_dx": 0.0, "carrier_dy": 0.0, "font": 12, "bottom_margin": False, "year4": False}
+                  "carrier_dx": 0.0, "carrier_dy": 0.0, "xdx": 0.02, "font": 12, "bottom_margin": False, "year4": False}
 
 
 def get_prefs(user: str) -> dict:
@@ -558,6 +558,7 @@ def set_prefs(user: str, body: dict) -> dict:
         pr["form"] = src["form"]
     for k in ("dx", "dy", "carrier_dx", "carrier_dy"):  # inches, a sheet's worth either way at most
         pr[k] = max(-1.0, min(1.0, round(money(src.get(k)), 3)))
+    pr["xdx"] = max(-0.2, min(0.2, round(money(src.get("xdx", PRINT_DEFAULTS["xdx"])), 3)))  # check-box X nudge
     for k in ("vshift", "hshift"):                      # percent stretch across the page
         pr[k] = max(-5.0, min(5.0, round(money(src.get(k)), 2)))
     pr["font"] = int(src.get("font")) if str(src.get("font")) in ("10", "11", "12") else 12

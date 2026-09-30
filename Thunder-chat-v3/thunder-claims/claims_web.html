@@ -1788,7 +1788,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
     box1: { medicare: 0.42, medicaid: 1.09, tricare: 1.79, champva: 2.69, group: 3.40, feca: 4.20, other: 4.80 },
     sex3: { M: 4.50, F: 5.00 }, rel6: { self: 3.60, spouse: 4.11, child: 4.50, other: 5.00 },
     yes10: 3.80, no10: 4.40, sex11a: { M: 7.10, F: 7.80 }, d11: { yes: 5.49, no: 6.00 }, lab20: { yes: 5.50, no: 6.01 },
-    ssn: 2.02, ein: 2.21, accept: { yes: 4.19, no: 4.69 },
+    ssn: 2.02, ein: 2.21, accept: { yes: 4.11, no: 4.61 },
     // horizontal rules and the vertical box edges between them - only used to draw the red outline in the preview
     rules: [8, 10, 12, 14, 18, 26, 28, 32, 34, 36, 38, 40, 42, 44, 46, 48, 50, 52, 54, 56, 58, 61.83, 63],
     cols: [[8, 10, [0.34, 5.21, 8.23]], [10, 18, [0.34, 3.2, 5.21, 8.23]], [18, 26, [0.34, 3.2, 5.21, 8.23]], [26, 28, [0.34, 3.2, 5.21, 8.23]],
@@ -1796,7 +1796,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
       [42, 46, [0.34, 1.2, 2.1, 2.42, 2.72, 3.44, 4.7, 5.21, 6.1, 6.5, 6.7, 7.0, 8.23]], [46, 56, [0.34, 1.2, 2.1, 2.42, 2.72, 3.44, 4.7, 5.21, 6.1, 6.5, 6.7, 7.0, 8.23]],
       [56, 58, [0.34, 2.1, 2.5, 3.97, 5.21, 6.33, 7.28, 8.23]], [58, 63, [0.34, 2.5, 5.21, 8.23]]]
   };
-  var PR = { form: "preview", dx: 0, dy: 0, vshift: 0, hshift: 0, carrier_dx: 0, carrier_dy: 0, font: 12, bottom_margin: false, year4: false };
+  var PR = { form: "preview", dx: 0, dy: 0, vshift: 0, hshift: 0, carrier_dx: 0, carrier_dy: 0, xdx: 0.02, font: 12, bottom_margin: false, year4: false };
   function loadPrefs() { return api("GET", "/api/prefs").then(function (r) { PR = r.print; }).catch(function () {}); }
   function up(s) { return String(s == null ? "" : s).toUpperCase().replace(/[.,#]/g, " ").replace(/\s+/g, " ").trim(); }
   function digits(s) { return String(s || "").replace(/\D/g, ""); }
@@ -1815,7 +1815,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   function lastFirst(s) { return up(String(s || "").replace(/,/, " ")); }
   function formItems(d, test) {
     var it = [], add = function (x, line, text, max, opt) { text = up(text); if (!text) return; if (max) text = text.slice(0, max); it.push({ x: x, line: line, text: text, o: opt || {} }); };
-    var X = function (x, line) { it.push({ x: x - 0.05, line: line, text: "X", o: {} }); };
+    var X = function (x, line) { it.push({ x: x - 0.05 + (PR.xdx || 0), line: line, text: "X", o: {} }); };  // X is one 0.1in character, centred on the box
     if (test) {
       X(FORM.box1.medicare, 9); add(0.42, 11, "PATIENT NAME STARTS HERE", 28); add(5.29, 9, "INSURED ID 1A", 28);
       add(0.40, 45, "01 02 26 01 02 26"); add(2.80, 45, "99213"); add(5.82 - 0.3, 45, "125"); add(5.86, 45, "00"); add(7.06, 45, "1234567893");
@@ -1944,7 +1944,8 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   var ADJ = [["dy", "Printer Alignment - Up / Down", "inches; + moves everything down"], ["dx", "Printer Alignment - Left / Right", "inches; + moves everything right"],
     ["vshift", "Vertical Shift Adjustment", "% - use when the top lines up but it drifts toward the bottom"],
     ["hshift", "Horizontal Shift Adjustment", "% - use when the left lines up but it drifts toward the right"],
-    ["carrier_dy", "Carrier Area - Up / Down", "inches - lines the payer address up with a window envelope"], ["carrier_dx", "Carrier Area - Left / Right", "inches"]];
+    ["carrier_dy", "Carrier Area - Up / Down", "inches - lines the payer address up with a window envelope"], ["carrier_dx", "Carrier Area - Left / Right", "inches"],
+    ["xdx", "Check-box X - Left / Right", "inches; centres the X marks in their boxes without moving the text"]];
   function openAdjust() {
     loadPrefs().then(function () {
       $("adjForm").innerHTML = '<label>Print Form with Data:</label><select id="adj_form"><option value="preview">Preview Only (red forms)</option><option value="never">Never (red forms)</option><option value="always">Always (plain paper)</option></select><span class="hint">Red forms: Preview Only or Never, or a black form prints over the red one.</span>' +
