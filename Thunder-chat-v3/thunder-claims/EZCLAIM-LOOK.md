@@ -3218,11 +3218,721 @@ and `Remaining:` in **red** when money is unapplied (`7Sl9bwm3CxU`) — the red
 
 ---
 
+## Help manual cross-check (8.0.691)
+
+A second, independent source: **EZClaim's own written Premier Billing Manual**
+at `help.ezclaim.com/manuals/premierbilling/`. All **216 pages** of it were
+crawled (one request/second) and read, plus the key `ImagesExt/*.jpg`
+screenshots where the prose was too thin to be useful. Pages live in
+`~/ezclaim-study/manual/` on Main and are **not** in this repo — they are
+EZClaim's copyrighted material. Everything below is my own summary.
+
+**How current is the manual?** Less current than the version number suggests.
+Its newest version-tagged feature is *"NEW in release 671"* (PR unbundling,
+§4 below); it also carries *"Release 667 and higher"* and *"New in Release
+655"*. It documents **nothing** from 685–691 — no `Info` ribbon tab, no Copy
+Libraries, no platform fees, no recurring EZClaimPay, no patient-level Payment
+Matching Key, and **no API page at all**. So:
+
+> **The manual and the videos are roughly contemporaneous (≈8.0.670/671).
+> Where they disagree, neither is automatically newer — I say which is which
+> case by case below. Both are ~20 builds behind 8.0.691.**
+
+The manual's value is not recency. It is that it states **rules and formulas**
+the videos only demonstrate, and it names things exactly.
+
+---
+
+### Release notes 8.0.671 – 8.0.691 — what is actually knowable ⚠
+
+**`ezclaim.com/release-notes/` only ever publishes the last ~5–7 builds.**
+Confirmed against the Wayback Machine: the February-2024 snapshot showed
+685–689, exactly the same window shape as today's 685–691. **Notes for
+8.0.671–8.0.684 are not public anywhere**, archived or otherwise. Do not go
+looking again; this was checked.
+
+So the honest answer to "what changed in 671–691" is: **672–684 is a blind
+spot**, and for 685–691 we have the vendor's own list:
+
+| Build | What it adds that matters to us |
+|---|---|
+| **8.0.691** | **Validation Rules got fixed and extended**: the *"is any"* logic works again and `Add Condition`, `Add Group`, `Clear All` are restored. "Various Database Upgrades to prepare for **upcoming API Release**." |
+| **8.0.690** | Scroll bars on `Find` screens when there are many saved layouts. `Print` button on `Edit Recurring Payment`. When an undisbursed amount remains, **`Finish Disbursing Payment` now jumps to `Payment Entry`**. **Box 14/15 can print `MM/DD/YYYY`.** |
+| **8.0.689** | **`Payment Matching Key` is no longer a default column in `Find Patient`.** Access to the **`API Tokens` screen limited to ADMIN**. |
+| **8.0.688** | **Libraries can be copied to another company file.** **Patient Payment Matching Keys can be assigned** (previously payer-only — see §8). **The patient `Active` indicator text turns green when checked.** A new ribbon tab **`Info`**. |
+| **8.0.687** | EZClaimPay platform-fee plumbing only. |
+| **8.0.686** | **`Find` grids can accommodate two rows of saved layouts.** |
+| **8.0.685** | Program Setup option to **toggle whether Widgets' queries run at program launch**. Widget `# of Rows` > 100 raises a performance warning. |
+
+Three of these are **look-and-feel facts we can copy for free**: the green
+`Active` text (688), the `Info` ribbon tab (688), and the two-row saved-layout
+strip on Find grids (686). The `Active` one is directly relevant — our patient
+screen already has an `Active` checkbox with a green `.act` class, so we are
+accidentally already right.
+
+The rest of 685–691 is overwhelmingly **EZClaimPay / BillFlash payment-rail
+work**, which Thunder will never have. That is a useful negative result: the
+product's recent development is going into taking card payments, not into the
+billing screens the office actually uses.
+
+---
+
+### Per screen: what the manual shows that the videos did not
+
+#### Main screen / grids (`grids1.htm`, `mainscreen.htm`, `patienttab1.htm`)
+
+- **The four balance columns have exact definitions and they are not
+  interchangeable.** This is the single most useful thing in the manual:
+  - `Tot. Cla. Bal.` — total balance of all the patient's claims.
+  - `Ins. Bal.` — the amount **not** due by the patient.
+  - `Pat. Bal.` — amount due by the patient, **net of undisbursed patient
+    payments**.
+  - `Pat. Cla. Bal.` — patient balance across claims, **ignoring** undisbursed
+    payments.
+  - `Pat. Unapplied Bal.` — patient money waiting to be disbursed.
+
+  With the identities stated outright:
+  ```
+  Ins. Bal. + Pat. Cla. Bal.                    = Tot. Cla. Bal.
+  Pat. Cla. Bal. – Pat. Unapplied Bal.          = Pat. Bal.
+  Ins. Bal. + Pat. Bal. + Pat. Unapplied Bal.   = Tot. Cla. Bal.
+  ```
+  We show one column called `Tot. Cla. Bal.` and compute it ourselves. If we
+  ever add a second balance column, **these are the definitions to use**, or
+  the office will compare ours to EZClaim's and find a difference we can't
+  explain.
+- **`%` is the wildcard and it is anchored.** `s%l` matches `Sim, Abigail`,
+  `Strick, Darryl`, `Sums, Manuel`. Our `matches()` in `claims_web.html`
+  already implements exactly this — prefix match, `%` as `.*`. Confirmed
+  correct against the manual, not just against the video.
+- **`Restore Grid`** is the right-click item that resets a grid to defaults.
+  We have `Sort Ascending / Descending / Clear Sorting / Group By` but no
+  restore.
+- **Grid layouts are per-login and fragile in a stated way**: a crash, a forced
+  logoff or a timeout loses them, and *"activating the User Authentication
+  feature overrides any existing user (except ADMIN) preferences."* Widgets, by
+  contrast, are **company-file-level and shared by all users**. That
+  per-user/per-company split is worth copying if we ever persist layouts.
+- `Print Grid` prints **all** rows, including those you'd have to scroll to —
+  and if filtered, only the filtered rows.
+- **Vertical grids** (the claim's `Claim Information` panel) are customised the
+  same way via right-click → `Customize Grid`, and rows can be **indented**
+  under other rows. Two different drop-cursor icons tell you which you'll get.
+
+#### Patient screen (`additionalpatientscreeninformation.htm`, `patient1.htm`)
+
+Things the videos never showed:
+
+- **`Update Claims` button** — the manual lists exactly what it can push from
+  the patient down onto selected existing claims: Insurance Information,
+  Diagnosis Codes, Physician/Facility Entries, Initial Claim Values, `Bill To`
+  (*"This will also cause the submission `Method` to be updated if needed"*),
+  Service Line Responsible Party, Claim Status, Claim Notes. It stays greyed
+  until at least one claim is selected.
+- **`Replace All with Insurance from Claim`** — opens a `Find Claim` window and
+  copies that claim's insurance back onto the patient. **Replaces all** patient
+  insurance records.
+- **`Initial Claim Values`** — a per-patient grid of values applied to *new*
+  claims only, entered via *"Click here to add a new row"*. **The patient
+  record must be closed and reopened to activate changes.**
+- **Account-number policy is a real feature**, not just an auto-number:
+  `Automatic Account Number` (default on), `Next Account Number` (default
+  **1000**), `Next Account Number Prefix` (*"billing services will prefix each
+  account number with a client code"*), `Require Account Numbers`, and
+  `Require Account Numbers Entered to be Unique`. The last two are **required
+  for BillFlash/TriZetto statement clients**, and saving Program Setup with
+  them on **validates every existing patient** and refuses to save until they
+  all pass, showing a double-clickable list of offenders.
+- **Deleting a patient deletes all their claims and payments**, and the
+  confirmation dialog makes you **tick every box** before the `Delete Patient`
+  button enables. EZClaim recommends inactive over delete. A patient with
+  claims or payments cannot be deleted at all.
+- `Don't Send Statements` is **a column in the `Find Patient` grid**, not just a
+  checkbox — so you can find who has it set.
+- Copay lives on the patient (`Copay Amt or Percent`) and only reaches a
+  service line if `Set Pat Amt Due` is ticked **in the Procedure Code Library**.
+- **Classification holds 30 characters** and auto-stores new entries unless you
+  untick the box. Claim Classifications exist separately and can be used
+  instead of or alongside patient ones. Neither is ever sent to a payer.
+
+#### Claim screen (`additionalclaimscreeninformation.htm`, `createanewclaim.htm`, `calendars.htm`)
+
+- **The `Bill To` promotion rule is a published table**, driven by service-line
+  Responsible Parties, and priority is `Primary > Secondary > Patient`:
+
+  | Current Bill To | New RP line 1 | New RP line 2 | New Bill To |
+  |---|---|---|---|
+  | Primary | Secondary | Secondary | Secondary |
+  | Primary | Primary | Secondary | Primary *(primary outranks secondary)* |
+  | Primary | Patient | Secondary | Secondary *(secondary outranks patient)* |
+  | Patient | Secondary | Secondary | Patient *(patient is further down the chain)* |
+  | Primary | Patient | Patient | Patient *(skips secondary entirely)* |
+
+  And the status side-effect: promotion to Secondary/Tertiary **resets status to
+  `Ready to Submit` and re-queues the claim on `Send Claims`**; promotion to
+  `Patient` leaves it `Submitted`. A payer with **`Automatically Forwards
+  Claims`** ticked in the Payer Library suppresses the whole thing.
+- **Calendar modifier keys** — the videos showed clicking a date; the manual
+  gives the shortcuts, after a From Date is chosen:
+  - **Ctrl+click** → sets the `To Date` on the new service line.
+  - **Ctrl+Shift+click** → sets `To Date` **and** sets units to the number of
+    days in the span.
+  - **Shift+click** → adds **one service line per date** between From and To.
+
+  We have the two-month calendar and the click-to-add. **We have none of the
+  three modifiers**, and they are close to free.
+- What "new claim" actually does, in order: blank claim, Claim ID `New`, status
+  from `Initial Claim Status`; `Bill To` list built from patient insurances;
+  `Method` set **from the payer library** (Paper or Electronic); `Date of
+  Current` from the previous claim/Initial Claim Value/blank; diagnosis codes
+  from the patient; Initial Claim Values applied; then the patient's Claim
+  Template applied, **possibly overriding the physician entries and diagnosis
+  codes it just set**.
+- **A warning appears when saving a claim with more than 50 service lines**
+  (999 for institutional).
+- `Validate ICD Logic when saving a claim` is a Program Setup toggle with six
+  stated rules, including *"you cannot combine DOS before and after Oct 1st,
+  2015"* and indicator-vs-first-character checks (indicator `0` ⇒ all dx start
+  with a letter; indicator `9` ⇒ all start with a number **except E or V**).
+  This is a concrete, mechanical rule set our `Scrub` could adopt verbatim.
+- `Check for duplicate service lines` compares **service date, procedure code,
+  product code, modifiers, and diagnosis pointer**.
+
+#### Service Line Grid (`servicelinegrid.htm`) — the richest page in the manual
+
+- **The units formula is published**: `New Charge = Old Charge / Old Units ×
+  New Units`. Changing units updates **only `Charge` and `Allowed`** — `Patient
+  Amount Due`, `Cost` and `Adjustment` are deliberately left alone.
+- **An adjustment typed on the `Add` line is saved as a contract adjustment
+  with group code `CO` and reason code `45`.** That is the default our Payment
+  Entry `Adjustment 1` should pre-fill.
+- **Print/export order is by internal `SrvID`, never by grid sort.** Stated
+  twice, in two pages, because people get it wrong. The `Sort` column can be
+  pulled in to reorder lines *within a DOS*; you must tab out of it and save.
+  `SrvID` itself is not editable.
+- **Procedure Code Lookup is a double-click in the Procedure code field**, and
+  it filters the list by **Bill To payer, Billing Provider, and Rate Class**.
+  It populates Procedure, Product, Modifiers 1–4, Charges, Units, Allowed,
+  Adjustment, Cost, NDC Code, Drug Unit Measurement, Drug Unit Count, Revenue
+  Code — and **will not overwrite existing values with blanks**.
+- **`Resp. Party` is a per-line dropdown** with its own promotion table, and
+  *"if using tracking type Adjustments, the responsible party will not change"*.
+- Service-line fields we have no equivalent for: `Cost`, `Expected Pmt.`,
+  `NOC Override`, **`Print/Export`** (untick to suppress a line — *"often
+  helpful on claim resubmissions when the payer does not want to receive a
+  service line already paid in full"*, and at least one line must stay ticked),
+  `Test Results`, `Unit Measurement`.
+- **A procedure code of the literal word `BLANK` is treated as truly blank** and
+  is not printed or exported. A genuine EZClaim quirk.
+- Line Item Notes go in the area below the grid and export to **Loop 2400 NTE**.
+
+#### Payment Entry (`enterapayment.htm`, `paymentsentryoptions.htm`, `payandautoapplybuttons.htm`) ★
+
+**This section corrects the video notes in §4.** The manual's screenshot of the
+`Service Line Filter Settings` dialog (`image24_277.jpg`, zoomed to confirm)
+shows:
+
+- Group caption is **`Ongoing Filters`**, not `Grouping Filters`.
+- Its three checkboxes are `Ignore Responsible Party`, `Match By Payer ID`, and
+  **`Hide Service Lines with $0.01 Charges`** — **`$0.01`, not `$0.00`**, and it
+  sits in the **Ongoing** group, not One-Time. The manual's caption explains it:
+  *"Hides service lines essentially used for reporting purposes."*
+- `One-Time Filters` contains only `Service Line Date Range (Including those
+  with $0.00 balances)` with `From:`/`To:`. **The date defaults to 3 months
+  back.**
+
+**The manual is newer/more reliable here** — it is a clean, unobstructed
+screenshot of the dialog, where the video note was taken from a partially
+occluded frame. §4's "Grouping Filters / $0.00 Charges" is wrong; use this.
+
+Also new from the manual:
+
+- **`Pay` vs `Auto Apply` have precise, different rules.** `Auto Apply` fills
+  service lines **in order** until the payment is used up, and **will not apply
+  credits** — those must be manual. `Pay` does one line. On a **patient**
+  payment `Pay` enters the full balance or the patient amount due minus
+  existing patient payments; on a **payer** payment it enters the **allowed
+  amount** if non-zero, else the balance, **capped at the balance**. Clicking
+  `Pay` on a line that already has an amount **overwrites it with the allowed
+  amount**; clicking `Auto Apply` over existing amounts **changes nothing**.
+- `Check for Duplicate Payments` (Program Setup → Payment, **on by default**)
+  matches on **dollar amount + reference number** and shows the match rather
+  than blocking.
+- `Automatically Enter Last Adjustment 1 Reason Code` — the pre-fill behaviour
+  the videos showed is a toggle, and it is on by default.
+- Payment methods come from **`List Library` → `Payment Method`**, and new ones
+  typed into Payment Entry are auto-stored unless you untick the box. Same
+  pattern as classifications and statement messages: **free-text field backed
+  by an auto-growing library**.
+- **Payment Modification ≠ Payment Entry.** Modification can edit the check's
+  details, change a disbursed amount, and remove a disbursement — but
+  **cannot apply a payment to additional service lines**. That requires Payment
+  Entry. Opened from `Find Payment`, or by **double-clicking a disbursement row
+  under a service line's `+` expander** on the claim screen.
+- `Find Payment` rows carry inline **`OPEN`/`MODIFY`/`DISBURSE`** buttons, and
+  `DISBURSE` is **only enabled when a balance remains**. Right-click adds
+  `Change Payer Name`, and **bulk delete of payments** is supported.
+- **PR unbundling (NEW in 671)** — the one 671+ feature the manual does cover:
+  a payer option *"Unbundle PR adjustments exported in Loop 2430"*, a new
+  service-line column **`Reason Amount`** (reporting only, does not affect the
+  balance), and a `Show Adj Reason Amount` toggle. **The tracked PR Reason
+  Amounts must sum to the service-line balance or Premier bundles them anyway.**
+
+#### Statements (`statements.htm`)
+
+- The grid lists patients with a balance **> $0.01** by default.
+- **Three filters that behave unobviously**: `Minimum Patient Balance`,
+  `Minimum Statement Cycle` (days since last statement — *"resetting the Min.
+  Sta. Cycle to 0 will usually repopulate the patient"*), and `Include $0
+  Patient Balance Claims`, which is **only valid when Min. Pat. Bal. is
+  $0.00** and whose checked/unchecked meanings the manual spells out at length.
+- **To find a patient in credit you type a large *negative* number into
+  `Min. Pat. Bal.`**; credits display in parentheses.
+- **Changes to the filters and to the Global Message are not saved until you
+  actually print statements.** Stated twice.
+- Two message levels: per-patient (`Pat. Msg.` column, pre-settable on the
+  patient record) and **`Global Message`** from the `List` Library, on every
+  statement.
+- **After printing, a modal asks "Did all the statements print properly?" and
+  clicking `Yes` is what writes `Last Statement Date`.** Nothing is recorded
+  otherwise — and `Statement History` reporting depends on it. This is a nice
+  pattern for print-and-mail, which is exactly our workflow.
+- Reprinting = set the cycle to 0, but **statements always print current data**,
+  so a reprint may not match the original.
+- Formats: `Statement` (plain paper), `Nelco` (perforated stock), `BillFlash`,
+  `TriZetto`.
+
+#### Printing claims + Printer Adjustment (`printingclaims3.htm`, `printeradjustment.htm`)
+
+This confirms and extends the existing §"Printing (from EZClaim's help manual)"
+section, which was flagged ⚠ unverified — **it is now verified against the
+current manual.**
+
+- The `Print Claims` screen has exactly **three** filters, with published
+  definitions: `Ready to Submit` (Status = Ready to Submit **and** Method =
+  Paper **and** Bill To = a payer), `All Paper` (Method = Paper only), `All`.
+- `Print Claims` is a split button: `Print Claim` (printer dialog) and
+  `Print Preview`.
+- **`Printer Adjustment` requires the ADMIN password.**
+- `Print Form with Data` — `Preview Only` / `Always` / `Never`. **Red
+  pre-printed forms ⇒ `Preview Only` or `Never`**, or a black form prints on
+  top of the red one. Plain paper ⇒ `Always`.
+- Adjustments available: `1500 Form Printer` (per-form printer choice), printer
+  alignment, **font face and size**, `Bottom Margin` (shrinks the font in boxes
+  31/32/33 for printers that can't reach the bottom), `Carrier Area Location
+  Adjustment` (to line the payer address up with a **windowed envelope**),
+  `Vertical Shift` and `Horizontal Shift` (for drift that accumulates down/across
+  the page — a different problem from a constant offset).
+- **Box 26 is configurable** to `Account #`, `Invoices #`, `Claim ID`,
+  `Account #-Claim ID`, or `Claim ID-Account #`.
+- Date formats are set globally for `Date of Service` and `All Other Dates`;
+  most payers want `MMDDYYYY`. (8.0.690 added `MM/DD/YYYY` for boxes 14/15.)
+- `Automatic Lock Claims After Print or Export` is a Program Setup default.
+
+#### Reports (`reports.htm` + the per-report pages)
+
+- The manual documents **16** reports by name: `Accounts Receivable`,
+  `Adjustments`, `Authorizations`, `Claim List`, `Disbursements`,
+  `Delivery Ticket`, `Insurance Follow-up`, `Patient Demographics`,
+  `Patient Ledger`, `Patient List`, `Patient Receipt`, `Patient Services`,
+  `Payment List`, `Procedure Code Summary`, `Production Summary`,
+  `Transaction List` — consistent with §10's "thirty-plus" once the
+  download-only extras are counted.
+- **A/R aging is a published formula**: `Aging as of Date − Original Bill Date`,
+  where Original Bill Date is *the date the claim was first printed or
+  exported*, is editable on the claim screen, and **falls back to the date of
+  service when blank**. Buckets are `0-30 / 31-60 / 61-90 / 91-120 / Over 210`.
+  The manual even explains that Premier and Advanced land amounts in different
+  buckets for this reason while the total still matches.
+- **`Aging as of Date` is a hard cutoff on Service Date, Payment Date *and*
+  Adjustment Date** — so a payment dated even one day in the future silently
+  vanishes from the report. This is the #1 item on their own troubleshooting
+  list, followed by undisbursed payments and inactive patients.
+- *"If you are looking for a report that gives you the income of your company,
+  we recommend using the **Payment List** Report"* — not A/R. Matches what §10
+  recorded from staff.
+- A/R shows **outstanding balances only**; a separate downloadable
+  *"Accounts Receivable including Zero Balances"* exists.
+- **A `No Criteria Warning`** fires if you preview/print a large report with no
+  criteria at all.
+- `Quick Reports` = right-click a patient/claim → print claim-scoped reports,
+  and **report groups can be saved** with `SAVE AS` ("helpful when printing
+  enrollment packets").
+
+#### Find grids (`findpatient.htm`, `findclaim.htm`, `findpayment.htm`)
+
+- `Find Patient` default columns, from the screenshot: `Name`, `D.O.B.`,
+  `Account #`, `Primary Payer`, `Primary Insured's ID #`, `Primary Insured's
+  Name`, `Secondary Payer`, `Tertiary Payer` — with an **`OPEN` button on every
+  row**, a **yellow filter row**, an **`X` button at the left of the filter row
+  to clear all filters**, and the group band above. Note the absence of
+  `Payment Matching Key`, consistent with the 8.0.689 change.
+- **The search pane shows only *active* patients; the Find window shows all.**
+  The manual states this as flatly as the video did.
+- `Find Claim` right-click: `Select All`, `Set Claim Status` (bulk, to `ready to
+  submit` / `submitted` / `on hold` / `other`), **`Write Off Selected Claim(s)`**
+  (adds an adjustment to every non-zero line, zeroing the claim),
+  **`Pay Off Selected Claim(s)`** (*only available if all selected claims share
+  the same `Bill To`*), `Create Tasks Linked to Claims`, `Quick Reports`
+  (single selection only).
+
+#### Program Setup (`programsetup.htm` and its panes)
+
+- **Two-tier access, and this is the interesting part**: the password dialog has
+  a `User Settings` button that needs **no** password and exposes only user-level
+  settings, versus `All Settings` which needs the ADMIN password and **only
+  enables once a password is typed**. A note appears in the window telling you
+  you're limited. That is a good pattern for us — a settings screen the biller
+  can open without being an admin.
+- Panes, in the manual's order: `General`, `Main Screen`, `Patient`,
+  `Patient Custom Fields`, `Claim`, `Claim Custom Fields`, `Printing Claims`,
+  `Printing Institutional Claims – UB04`, `Sending Claims`, `Payment`,
+  `Company`, `Patient Eligibility`, `Task`, `Interface`.
+- `General` is thinner than expected: `Theme`, **`Alternate Grid Row Colors`**
+  (*"the colors are dependent on the theme and cannot be changed"*), note
+  timestamp order, and `Allow feature usage reporting`.
+
+#### Libraries (`procedurecodelibrary.htm`, `physicianfacilitylib1.htm`, `payerlibrary1.htm`)
+
+- **The Procedure Code Library has a published decision tree.** Lookup matches
+  on **Billing Physician + Bill to Payer + Rate Class**, and when several
+  entries match, priority is: all three → payer+rate class → rate class only →
+  entries with none of the three set. *"If duplicate procedure codes match the
+  criteria, only 1 will be returned."* Uniqueness is **Procedure + Product**.
+- Overwrite rules on code change: `Allowed` **is** overwritten; `Adjustment` is
+  overwritten **only if no contract adjustment already exists**; a `$0.00`
+  charge or allowed in the library **never** overwrites an existing value.
+- **Fee schedules are just the `Payer` + `Allowed` columns** — same code, one
+  row per payer. There is no separate fee-schedule screen.
+- New/edited library rows show **pink until the library is saved**.
+- **`Modify or Create New`** — tick properties, then `Apply to Checked Items`
+  (bulk edit) or `Create New from Checked Items` (clone a code set for a new
+  payer). Import is **tab-delimited** in a fixed column order.
+- **After editing procedure codes you must re-associate them with existing
+  Claim Templates and Recurring Claims**; existing claims and service lines
+  never update.
+- Physician/Facility classifications are a **fixed list of eight**: `Attending`,
+  `Billing`, `Facility`, `Ordering`, `Operating`, `Referring`, `Rendering`,
+  `Supervising`. `Billing` requires address **and** Tax ID; `Ordering` requires
+  address. `Signature on File` is **only available on `Billing` entries** and
+  drives box 31 plus CLM06 in the 837.
+- **NPI is validated as you type** — a tooltip warns on a bad number but
+  **does not prevent saving**. There is a `Lookup NPI` link beside the field.
+- **Entries in use cannot be deleted**, and the refusal message *tells you where
+  it is used*. Mark inactive instead.
+
+#### Validation Rules (`validationrules.htm`) ★
+
+The page's prose is thin but the screenshots are decisive, and this is the
+most directly actionable find for our `Scrub`:
+
+- Opened with **`Ctrl+Alt+V` from anywhere in the program**.
+- The `Rule Library` tab lists **four Rule Types** — `Sending claims`,
+  `Saving a patient`, `Saving a payer library entry`, `Saving a physician
+  library entry` — with the footer *"These rules are used to validate claims
+  before they are sent."* This confirms §1e exactly.
+- **The built-in rule names, verbatim** (`image24_694.jpg`), each bound to a
+  named field: `Check for Primary Payment`, `Missing Payer ID`, `Missing Billing
+  Provider`, `Missing Insured's Date of Birth`, `Missing Insured's ID #`,
+  `Missing Other Insured's ID #`, `Missing Other Payer ID`, `Missing Patient's
+  Date of Birth`, `Missing Place of Service`, `Missing Procedure Code`, `Block
+  PT procedure code`. Built-in rules are **greyed out but can be disabled** via
+  an `Enabled` checkbox.
+- **`Severity` has exactly two values**: **`Warn during Check for Errors`** and
+  **`Prevent Batch Creation`**. That is a better model than our binary
+  pass/fail — a rule can nag without blocking.
+- **The condition operators, verbatim** (`image24_701.jpg`): `Is`, `Is not`,
+  `Is blank`, `Is not blank`, `Is any of`, `Is none of`, `Begins with`, `Does
+  not begin with`, `Ends with`, `Does not end with`, `Length is`, `Length is
+  not`, `Contains`, `Does not contain`, `Matches the regular expression`,
+  `Does not match the regular expression`. Conditions combine under `And` with
+  `Add Condition` / `Add Group` / `Clear All` (the three restored in 8.0.691).
+- EZClaim's advice, which we should copy in spirit: personalise your custom
+  rule messages *"so it will be easier to distinguish between the default
+  validation rules and your own custom rules."*
+
+#### Tasks (`tasks.htm`)
+
+- Created from the ribbon `Task` button **or by right-clicking a patient or
+  claim in the search pane → `Add Task`**. Linkable to a Patient, Claim **or
+  Payer**.
+- **Reminders poll every minute**, use the **database server's** clock (the
+  manual warns that a workstation clock mismatch makes them early or late),
+  **only 10 show at once**, re-pop 1 minute after being closed, and keep
+  popping until the task is completed or the reminder is turned off. They can
+  be **snoozed from the ribbon**.
+- A reminder only fires if the task is assigned to the current user *or* the
+  general user, is not complete, and the time has passed.
+- **Once assigned, a task can only be re-assigned by an ADMIN.** Deletion rules
+  are spelled out in four cases.
+
+#### Security (`managesecuritysettin.htm`)
+
+- **Two modes**, and the names matter: `Don't Require User Authentication`
+  (everything is attributed to a user literally called **`USER`**) and
+  `Require User Authentication`. **The program must be closed and reopened**
+  for the switch to take effect, and if no users exist yet you log in as
+  `ADMIN`.
+- There is always a built-in **`ADMIN`** user; the password is created on first
+  use of an admin-restricted area. *"DO NOT LOSE THIS PASSWORD."*
+- **`Full access to all areas of the program`** is a special permission —
+  equivalent to ADMIN **except** it cannot change the ADMIN password or
+  enable/disable authentication. A genuinely well-designed distinction.
+- Optional **Windows-username association** for faster logins.
+
+---
+
+### Contradictions with the video notes
+
+| Topic | Video notes say | Manual says | Which to believe |
+|---|---|---|---|
+| Payment filter dialog, first group caption | `Grouping Filters` (§4) | **`Ongoing Filters`** | **Manual** — clean screenshot vs. an occluded frame |
+| The $0.0x checkbox | `Hide Service Lines with $0.00 Charges`, under *One-Time* | **`Hide Service Lines with $0.01 Charges`, under *Ongoing*** | **Manual**, and its caption ("service lines used for reporting purposes") explains why it's a penny |
+| Number of built-in reports | "thirteen", later corrected to "thirty-plus" (§10) | **16 documented by name**, plus download-only extras | Both — 16 shipped-and-documented inside a larger downloadable catalogue |
+| Report used for practice income | staff recommend `Payment List`, not A/R (§10) | same, stated in the manual | **Agreement** — this one is now double-sourced |
+| Print/export order of service lines | grid sort is user-only (§3c) | same, stated twice | **Agreement** |
+
+No other direct contradictions were found. The manual is overwhelmingly
+**additive** to the video notes rather than corrective, which is a good sign
+about the quality of the video pass.
+
+---
+
+### Public API documentation — yes, it exists, and it is fully readable ★
+
+The release notes' *"upcoming API Release"* (8.0.691) is about a **new** API.
+An older one is already public and documented:
+
+- **`github.com/ezclaim-development/EZClaimAPIHelper`** — an official EZClaim
+  org repo, C#, created 2023-02-16, **last pushed 2023-08-03**, 0 stars, no
+  licence. Working reference client with unit-test-shaped examples.
+- **A live OpenAPI 3.0.1 spec**, fetched and saved to
+  `~/ezclaim-study/swagger-v2.json`:
+  `https://ezclaimapidev.azurewebsites.net/swagger/v2/swagger.json`
+  (Swagger UI at `/swagger/index.html`). **`EZClaim API v2`, 154 paths, 20
+  tags.** Note the host is literally `...apidev...` — a **dev** instance left
+  publicly readable.
+- The KB article the README links to (`kb.ezclaim.com/knowledge/ezclaim-api`)
+  **404s** — that is where token generation is documented, so that part is not
+  public.
+
+**The 20 resources**, each with the same CRUD shape: `Adjustments`,
+`Authorized_Units`, `Authorized_Visits`, `Claim_Insureds`, `Claim_Notes`,
+`Claims`, `DB_Users`, `Disbursements`, `Insureds`, `PatientLinkableInsureds`,
+`Patient_Insureds`, `Patient_Notes`, `Patients`, `Payers`, `Payments`,
+`Physicians`, `Procedure_Codes`, `Service_Lines`, `Tasks`, `WebHooks`.
+
+**The shape, per resource** (e.g. `Patients`):
+```
+POST/PUT  /api/v2/Patients                    create / update one
+POST      /api/v2/Patients/{id}               get one
+POST      /api/v2/Patients/GetList            get many
+POST      /api/v2/Patients/page/{pageNumber}  get many, paged
+POST/PUT  /api/v2/Patients/list               create / update many
+DELETE    /api/v2/Patients/ids                delete by id list
+DELETE    /api/v2/Patients/query              delete by query
+```
+Note **reads are `POST`** — because the query travels in the body.
+
+**Querying is OData-ish**, documented inline in the spec:
+```
+"Query": "$select=[col],[col]"
+"Query": "$filter=[col] EQ '[value]'"          (also NE)
+"Query": "$filter=[a] EQ 'x' AND [b] EQ 'y'"   (AND / OR)
+"Query": "$filter=[col] IN ('x','y')"
+"Query": "$select=[col],[col]; $filter=[col] EQ '[value]'"
+```
+
+**Authentication and encryption — the genuinely interesting part.** There is no
+`securitySchemes` block; instead every endpoint takes four headers:
+
+| Header | Purpose |
+|---|---|
+| `Token` | *"confirm user has access to use endpoint"* — generated **inside the Premier app**, on an `API Tokens` screen that 8.0.689 restricted to ADMIN |
+| `Version` | API version, default `2.0.0` |
+| `AESIVAsBase64String` | AES IV for decrypting the request body |
+| `EncryptedAESKeyAsBase64String` | the AES key, **RSA-encrypted with the API's public key** |
+
+So **the request body is itself encrypted** — AES-256 per request, key wrapped
+with the server's RSA public key. That is envelope encryption, and it is
+**structurally the same design as our `thunder-claims/vault.py`** (AES-GCM
+content key, wrapped per record). Worth knowing that the incumbent reached for
+the same pattern: it is a fair answer to "is this over-engineered?"
+
+**What this means for us — and what it does not.** It does **not** open a path
+to importing the office's data: it needs a licensed Premier install to mint the
+token, and there is no public token endpoint. What it *is* good for:
+
+1. **A field-name dictionary.** The resource and field names are EZClaim's real
+   internal schema. `Claim_Insureds` and `Patient_Insureds` as separate
+   linkable entities is the clearest statement anywhere of how EZClaim models
+   insurance — an `Insured` is a first-class record that patients and claims
+   *link to*, not a block of fields copied onto each. **Our patient screen
+   copies insurance fields onto the patient and the claim; EZClaim links.**
+   That explains `Replace All with Insurance from Claim` and the
+   `PatientLinkableInsureds` endpoint in one go.
+2. **`WebHooks`** (`Subscribe`, `Subscribe/Bulk`, `SubscriptionTypes`,
+   `Subscriptions`, `UnSubscribe`) — EZClaim can push events out. If the office
+   ever runs both, that is the integration seam.
+3. **Confirmation that `DB_Users` is a CRUD resource**, i.e. users are ordinary
+   data in their model.
+
+**Do not build against it.** It is a dev host, undated, last-touched 2023, and
+8.0.691 says the real API release is still upcoming. Recorded because it was
+asked for and because the schema is useful, not as a plan.
+
+---
+
 ## Gaps vs Thunder Claims today
 
 Read against `claims_web.html` (866 lines) and `claims_web.py` as they stand
 on branch `claude/adoring-keller-htwwch`. Ordered by **what an EZClaim user
 would notice first** on day one.
+
+### Re-ranked after the help-manual cross-check — 2026-09-30 ★
+
+**This supersedes "The revised top of the list" below.** Nothing under it has
+been deleted, but it was written against an older `claims_web.html`; the build
+on this branch has closed or part-closed nine of the numbered gaps. Re-read
+against `claims_web.html` as it now stands (1,775 lines), ordered by **what an
+EZClaim user notices first**.
+
+#### Closed since that list was written — do not re-do these
+
+- **Gap 1, the ribbon — built.** `Home` / `Tools` / `Support` with a
+  **dynamic** `Claim` or `Patient` tab that appears with the open record, group
+  captions underneath (`File`, `Edit`, `Find`, `New`, `Libraries`, `Alerts`,
+  `Support`), big and small button variants, and disabled-but-visible buttons.
+  This is EZClaim's structure.
+- **Gap 2, payment entry — built.** `Payment Entry` with `Adjustment 1` and
+  `Adjustment 2` column groups, `Auto Apply`, `Remaining:`, a CARC datalist,
+  a payments-with-a-balance grid, and a `Filter Settings` summary block on the
+  rail that reads exactly like EZClaim's.
+- **Gap 3, the filter row — built**, with `%` wildcard semantics **verified
+  correct against the manual**, plus a group band, multi-column sort with
+  Shift, and a right-click column menu.
+- **Gap 4, account numbers — built** (readonly, "assigned on save").
+- **Gap 7, grid footers — built**, and the wording is EZClaim's:
+  `Shown: N (Filtered)`.
+- **Gap 9, the detail pane — part-built**: `Details` / `Claims` / `Payments`.
+  EZClaim also has **`Services`** and **`Documents`**.
+- **Gap 10, secondary insurance — part-built**: `Primary Ins` / `Secondary Ins`
+  tabs. EZClaim's `Find Patient` shows a **`Tertiary Payer`** column, so there
+  is a third tier we don't model.
+- **Gap 11, document tabs — built.**
+- **Gap 16, the home flowchart and widget tiles — built**, arrows and all.
+- **Gap 22, users — part-built.** Per-person logins, lockout, audit log and
+  `Logged in as:` in the status bar all exist now. What is still missing is
+  the *permission* layer (below).
+
+#### The remaining gaps, most visible first
+
+1. **No patient statements — and this is now the top of the list.** The
+   `Patient Statements` button on our home flowchart is `disabled
+   title="Not built yet"`, which the office will click on day one. The family
+   business **prints and mails**; statements are the half of that workflow we
+   haven't built. The manual gives us the whole screen for free: grid with a
+   `Pat. Msg.` column, the three filters (`Minimum Patient Balance`,
+   `Minimum Statement Cycle`, `Include $0 Patient Balance Claims`), a
+   `Global Message` from a library, the `Statement` / `Nelco` format choice,
+   and — the detail that makes it work — **the "Did all the statements print
+   properly?" confirmation that is the only thing which writes
+   `Last Statement Date`.** Build that prompt; it is how the office will know
+   what has gone out.
+
+2. **The service-line grid is missing the columns EZClaim bills from.** Ours is
+   `Srvc Date · Place · Procedure · M1–M4 · Diag. # · Description · Charges ·
+   Units · Line Total · Paid · Adj · Balance · Code check`. EZClaim's carries,
+   in addition: **`Resp. Party`** (the dropdown that drives the whole `Bill To`
+   promotion chain), **`Allowed`** (which `Pay` uses in preference to the
+   balance), **`Pat. Amt. Due`** (which is how a statement can go out before
+   the payer has paid), **`Print/Export`** (untick to suppress a paid line on a
+   resubmission), `Cost`, `Expected Pmt.`, `SrvID` and `Sort`. `Resp. Party`
+   and `Allowed` are the two that change behaviour rather than just display.
+
+3. **No `Procedure Code Library`.** Our `Libraries` ribbon group has `Payer` and
+   `Physician Facility` only. This is the library that makes data entry fast:
+   double-click a procedure field, get charge, modifiers, units, allowed,
+   adjustment and description filled in. The manual publishes the exact lookup
+   priority (Billing Physician + Bill to Payer + Rate Class, then three
+   fallbacks) and the exact overwrite rules. **This is the highest
+   value-per-line-of-code item on the list** — it removes typing from every
+   single claim, and the office's charges are a short, stable list.
+
+4. **`Scrub` has no severity and no rule library.** We have one pass/fail.
+   EZClaim has **two severities** — `Warn during Check for Errors` vs
+   `Prevent Batch Creation` — and eleven named built-in rules we now have
+   verbatim (`Missing Payer ID`, `Missing Billing Provider`, `Missing Insured's
+   Date of Birth`, `Missing Insured's ID #`, `Missing Other Insured's ID #`,
+   `Missing Other Payer ID`, `Missing Patient's Date of Birth`, `Missing Place
+   of Service`, `Missing Procedure Code`, `Check for Primary Payment`, `Block
+   PT procedure code`). **Adopting the two severity levels and those eleven
+   names is a day's work and makes our scrub speak the office's language.**
+   The `Validate ICD Logic` six-rule set is equally copyable. Keep saying out
+   loud, as EZClaim does, that **none of this validates coding** — only that
+   required elements are present.
+
+5. **No calendar modifier keys.** We have the two-month calendar and
+   click-to-add. EZClaim's **Ctrl+click** (set To Date), **Ctrl+Shift+click**
+   (set To Date *and* units = days in span) and **Shift+click** (one service
+   line per date in the range) are three lines of code each and are exactly the
+   sort of thing a daily user misses instantly.
+
+6. **No column chooser, and our columns are hard-coded.** `COLS` in
+   `claims_web.html` is a fixed five-column-max literal per grid. EZClaim's
+   right-click → `Column Chooser` with drag-to-add/drag-out-to-remove, plus
+   **`Restore Grid`**, is on every grid in the program. Related and cheap:
+   we have no **saved layouts** (8.0.686 now allows *two rows* of them on Find
+   grids) and no **`Print Grid`**.
+
+7. **No reports and no criteria panel.** Still true, and still the reframing
+   from the second pass: build the **engine and the criteria panel**, not the
+   reports. The two to ship first are now clear from the manual —
+   **`Claim List`** and **`Patient Ledger`** for the office's daily work, with
+   **`Payment List`** for "what did we take in" (EZClaim's own staff say *not*
+   A/R for that). If A/R ever gets built, the aging formula is
+   `Aging as of Date − Original Bill Date`, buckets `0-30/31-60/61-90/91-120/
+   Over 210`, falling back to DOS when the bill date is blank — and the
+   `Aging as of Date` cutoff applies to payment and adjustment dates too.
+
+8. **No row colouring by state.** EZClaim tints whole rows and the manual
+   confirms `Conditional Formatting` is a per-column right-click feature with
+   icons, gradients and data bars, plus a global `Alternate Grid Row Colors`
+   toggle. We colour nothing. Pink/salmon for "owes money or has a problem",
+   green for good, is most of the signal at a glance.
+
+9. **No permission layer under our logins.** We now have named users, which was
+   the hard half. What's missing is EZClaim's list of per-user permissions and
+   in particular their one genuinely well-made distinction: **`Full access to
+   all areas of the program` is ADMIN-equivalent *except* that it cannot change
+   the ADMIN password or turn authentication off.** For a system holding claims
+   data that separation is worth copying exactly. `Created User` / `Modified
+   User` as grid columns are the cheap visible half.
+
+10. **No `Program Setup`.** Ribbon button exists and is disabled. The manual's
+    **two-tier access** is the part worth stealing: a `User Settings` door that
+    needs **no password**, versus `All Settings` behind the admin password,
+    with an on-screen note saying which one you're in. Even a three-pane
+    version (`General` / `Patient` / `Printing Claims`) would carry the
+    settings we already hardcode — account-number prefix and next number,
+    initial claim status, initial place of service, printer alignment, and
+    `Box 26` content.
+
+**Below the line, deliberately:** tasks (gap 12), claim notes with money
+history (gap 13), eligibility (gap 20), 835/ERA auto-posting (gap 18), company
+files (gap 24), and anything EZClaimPay- or BillFlash-shaped. The last of those
+is worth stating plainly: **almost everything EZClaim shipped in 685–691 was
+card-payment plumbing.** The billing screens the office actually touches have
+barely moved in twenty builds, which means this study does not go stale quickly
+and we are not chasing a moving target.
+
+**One correction to carry into the code:** our Payment Entry filter panel
+offers `Ignore Responsible Party` and `Include $0.00 balance lines`. EZClaim's
+real dialog is **`Ongoing Filters`** (`Ignore Responsible Party`, `Match By
+Payer ID`, `Hide Service Lines with $0.01 Charges`) and **`One-Time Filters`**
+(`Service Line Date Range (Including those with $0.00 balances)`, defaulting to
+**3 months back**). If we relabel one thing, relabel to those.
+
 
 ### What we already match (worth saying, so it isn't re-done)
 - **`Save & Close` / `Save` / `Close` in a right-hand button column** — this is
@@ -3505,6 +4215,9 @@ and is wrong — see §10.
     grid.
 
 ### The revised top of the list
+
+> **Superseded** by "Re-ranked after the help-manual cross-check" above
+> (2026-09-30). Kept for the reasoning, not the ordering.
 
 Ordered by what the office notices first, with the second pass folded in:
 
