@@ -31,6 +31,18 @@ unit with lingering enabled, so `systemctl --user restart thunder-tts` works.
 
 - **Main**: `thunder-main` (FastAPI :8080), `ollama` (:11434). `thunder-genai`
   is **stopped and disabled** as of 2026-09-29 — see below.
+- **Thunder Claims web on Main :8770** (2026-09-29) — the claim screen in a
+  browser, for the Windows laptop on the LAN: http://10.168.168.10:8770/,
+  user `blayne`. `thunder-claims/claims_web.py`, stdlib only, system
+  `/usr/bin/python3` (3.14, cryptography 46.0.5). Runs as the **systemd user**
+  service `thunder-claims-web` (lingering, so no sudo:
+  `systemctl --user restart thunder-claims-web`); the unit is kept in the repo
+  at `thunder-claims/thunder-claims-web.service`. HTTP basic auth, password in
+  `~/.thunder/claims_web.env` (mode 600) — **never in the repo**, and
+  `claims_web.py` refuses to bind off-loopback without one. **LAN only** (plain
+  http, no TLS yet) and **synthetic patients only**. Saves go into the same
+  encrypted vault as the CLI (`~/.thunder/keys/vault.key`); nothing is ever
+  submitted to a payer from here.
 - `/status`'s `gpu` block now reads the **real** GPU — nvidia-smi plus Ollama's
   `/api/ps` (`gpu_state()` in `app.py`). It used to ask thunder-genai on :9010,
   so once that was disabled `gpu.up` was stuck false and the phone showed the

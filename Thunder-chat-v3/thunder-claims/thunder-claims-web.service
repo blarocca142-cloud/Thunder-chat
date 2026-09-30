@@ -1,0 +1,25 @@
+[Unit]
+# Thunder Claims - the claim screen, in a browser.
+# A systemd *user* service (blayne has lingering enabled on thunder-main), so
+# it needs no root and no sudo:
+#     cp thunder-claims-web.service ~/.config/systemd/user/
+#     systemctl --user daemon-reload
+#     systemctl --user enable --now thunder-claims-web
+#
+# The password lives in ~/.thunder/claims_web.env (mode 600), never here and
+# never in the repo:
+#     THUNDER_CLAIMS_PASSWORD=<password>
+# claims_web.py refuses to bind anywhere but loopback without one.
+Description=Thunder Claims web (LAN, synthetic patients only)
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Thunder-chat/Thunder-chat-v3/thunder-claims
+EnvironmentFile=%h/.thunder/claims_web.env
+ExecStart=/usr/bin/python3 claims_web.py --host 10.168.168.10 --port 8770
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target
