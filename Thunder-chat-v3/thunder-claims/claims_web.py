@@ -56,7 +56,8 @@ KINDS = {
     "payer":    {"prefix": "ins-", "index": []},
     "provider": {"prefix": "pv-",  "index": []},
 }
-BILLING = ("draft", "sent", "paid", "partial", "denied")
+BILLING = ("draft", "sent", "hold", "paid", "partial", "denied")
+FIRST_ACCOUNT = 1000  # EZClaim numbers patients from 1000 up
 
 
 def kind_of(record_id: str) -> str:
@@ -105,6 +106,8 @@ def summary(kind: str, rid: str, r: dict) -> dict:
         charges = total_charges(r)
         paid = money(track.get("paid_amount"))
         return {"id": rid, "patient_name": r.get("patient_name", ""),
+                "account_number": r.get("account_number", ""),
+                "patient_id": r.get("patient_id", ""),
                 "date_of_service": r.get("date_of_service", ""),
                 "insurer": r.get("insurer", ""), "status": meta.get("status", ""),
                 "billing": track.get("billing") or "draft",
@@ -112,7 +115,14 @@ def summary(kind: str, rid: str, r: dict) -> dict:
                 "saved": meta.get("saved", "")}
     if kind == "patient":
         return {"id": rid, "patient_name": r.get("patient_name", ""), "dob": r.get("dob", ""),
-                "insurer": r.get("insurer", ""), "phone": r.get("phone", "")}
+                "insurer": r.get("insurer", ""), "phone": r.get("phone", ""),
+                "account_number": r.get("account_number", ""),
+                "active": r.get("active", True) is not False,
+                "address": r.get("address", ""), "city": r.get("city", ""),
+                "state": r.get("state", ""), "zip": r.get("zip", ""),
+                "email": r.get("email", ""), "insured_id": r.get("claim_number", ""),
+                "insurer2": r.get("insurer2", ""), "insured_id2": r.get("insured_id2", ""),
+                "reminder": r.get("reminder", "")}
     if kind == "payer":
         return {"id": rid, "name": r.get("name", ""), "payer_id": r.get("payer_id", ""),
                 "phone": r.get("phone", "")}
@@ -141,7 +151,23 @@ def new_id(kind: str) -> str:
     return KINDS[kind]["prefix"] + time.strftime("%Y%m%d-%H%M%S-") + secrets.token_hex(2)
 
 
-def save(kind: str, record_id: str | None, data: dict) -> dict:
+def next_account_number() -> str:
+    """One more than the highest account number on file, EZClaim-style."""
+    top = FIRST_ACCOUNT - 1
+    for p in list_records("patient"):
+        try:
+            top = max(top, int(str(p.get("account_number") or "").strip()))
+        except ValueError:
+            pass
+    return str(top + 1)
+
+
+def note(text: str, user: str, balance: float) -> dict:
+    return {"ts": time.strftime("%m/%d/%Y %I:%M %p"), "user": user.upper(),
+            "note": text, "balance": round(balance, 2)}
+
+
+def save(kind: str, record_id: str | None, data: dict, user: str = "user") -> dict:
     if kind not in KINDS:
         raise ValueError("unknown record type")
     rid = record_id or new_id(kind)
@@ -154,15 +180,25 @@ def save(kind: str, record_id: str | None, data: dict) -> dict:
         if track.get("billing") and track["billing"] not in BILLING:
             raise ValueError("unknown billing status")
         a = assess(data)
+        log = [n for n in (data.get("notes_log") or []) if isinstance(n, dict)]
+        log.append(note("Claim edited" if record_id else "Claim created.", user,
+                        total_charges(data) - money(track.get("paid_amount"))))
+        data["notes_log"] = log
         data["_meta"] = {"status": a["status"], "reasons": a["reasons"],
                          "saved": time.strftime("%Y-%m-%d %H:%M")}
         extra = a
     else:
+        if kind == "patient":
+            last, first, mi = (str(data.get(k) or "").strip() for k in ("last_name", "first_name", "mi"))
+            if last or first:
+                data["patient_name"] = (last + ", " + first + (" " + mi if mi else "")).upper().strip(", ")
+            if not str(data.get("account_number") or "").strip():
+                data["account_number"] = next_account_number()
         name = data.get("patient_name") if kind == "patient" else data.get("name")
         if not str(name or "").strip():
             raise ValueError("a name is required")
     vault.put(rid, data, KINDS[kind]["index"])
-    return {"id": rid, **extra}
+    return {"id": rid, "data": data, **extra}
 
 
 def scan(data: bytes, filename: str) -> dict:
@@ -193,14 +229,17 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):  # no request lines on stdout
         pass
 
+    user = "blayne"
+
     def _authed(self) -> bool:
         if not self.password:
             return True
         h = self.headers.get("Authorization", "")
         if h.startswith("Basic "):
             try:
-                _, pw = base64.b64decode(h[6:]).decode().split(":", 1)
+                name, pw = base64.b64decode(h[6:]).decode().split(":", 1)
                 if hmac.compare_digest(pw, self.password):
+                    self.user = (re.sub(r"[^A-Za-z0-9_.-]", "", name) or "user")[:32]
                     return True
             except Exception:
                 pass
@@ -235,6 +274,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if u.path in ("/", "/index.html"):
                 return self._send(200, PAGE.read_bytes(), "text/html; charset=utf-8")
+            if u.path == "/api/whoami":
+                return self._send(200, {"user": self.user})
             if u.path == "/api/list":
                 kind = (parse_qs(u.query).get("kind") or ["claim"])[0]
                 if kind not in KINDS:
@@ -264,10 +305,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, assess(json.loads(self._body() or b"{}")))
             if path == "/api/save":
                 b = json.loads(self._body() or b"{}")
-                return self._send(200, save(b.get("kind") or "", b.get("id"), b.get("data") or {}))
+                return self._send(200, save(b.get("kind") or "", b.get("id"), b.get("data") or {}, self.user))
             if path == "/api/claims":  # kept for older pages
                 b = json.loads(self._body() or b"{}")
-                return self._send(200, save("claim", b.get("id"), b.get("claim") or {}))
+                return self._send(200, save("claim", b.get("id"), b.get("claim") or {}, self.user))
             if path == "/api/scan":
                 return self._send(200, scan(self._body(), self.headers.get("X-Filename", "")))
             self._send(404, {"error": "not found"})
