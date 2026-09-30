@@ -72,6 +72,7 @@ KINDS = {
     "payer":    {"prefix": "ins-", "index": []},
     "provider": {"prefix": "pv-",  "index": []},
     "payment":  {"prefix": "pay-", "index": []},
+    "procedure": {"prefix": "px-", "index": []},
 }
 BILLING = ("draft", "sent", "hold", "paid", "partial", "denied")
 METHODS = ("CHECK", "EFT", "CASH", "CREDIT CARD", "MONEY ORDER", "OTHER")
@@ -79,7 +80,7 @@ FIRST_ACCOUNT = 1000  # EZClaim numbers patients from 1000 up
 
 
 def kind_of(record_id: str) -> str:
-    for k in ("patient", "payer", "provider", "payment"):
+    for k in ("patient", "payer", "provider", "payment", "procedure"):
         if record_id.startswith(KINDS[k]["prefix"]):
             return k
     return "claim"
@@ -237,6 +238,10 @@ def summary(kind: str, rid: str, r: dict, led: dict | None = None, claims: list 
                 "reminder": r.get("reminder", ""),
                 **({"pip_left": b["remaining"], "pip_limit": b["limit"], "pip_level": b["level"]}
                    if claims is not None and (b := patient_benefits(rid, r, claims, led)) else {})}
+    if kind == "procedure":
+        return {"id": rid, "code": r.get("code", ""), "modifier": r.get("modifier", ""), "description": r.get("description", ""),
+                "charge": money(r.get("charge")), "units": r.get("units", ""), "pointer": r.get("pointer", ""),
+                "active": r.get("active", True) is not False}
     if kind == "payer":
         return {"id": rid, "name": r.get("name", ""), "payer_id": r.get("payer_id", ""),
                 "phone": r.get("phone", "")}
@@ -520,6 +525,41 @@ def after_payment(pid: str, pay: dict, touched: set, user: str) -> None:
         vault.put(cid, c, KINDS["claim"]["index"])
 
 
+def clean_procedure(data: dict, rid: str) -> dict:
+    """A Procedure Code Library entry. One entry per code + modifier, as in
+    EZClaim, so a code typed on a claim always finds exactly one."""
+    code = str(data.get("code") or "").strip().upper()
+    if not re.fullmatch(r"[A-Z0-9]{4,7}", code):
+        raise ValueError("enter a procedure code (CPT/HCPCS, like 98941 or G0283)")
+    mod = str(data.get("modifier") or "").strip().upper()[:2]
+    for oid, o in records("procedure"):
+        if oid != rid and str(o.get("code") or "").upper() == code and str(o.get("modifier") or "").upper() == mod:
+            raise ValueError(f"{code}{'-' + mod if mod else ''} is already in the library")
+    data.update(code=code, modifier=mod, description=str(data.get("description") or "").strip()[:80],
+                charge=f"{money(data.get('charge')):.2f}", units=str(int(money(data.get("units")) or 1)),
+                pointer=str(data.get("pointer") or "").strip()[:8], active=data.get("active", True) is not False)
+    return data
+
+
+def procedures_from_claims(user: str) -> dict:
+    """Seed the library from what the office has actually billed: every code
+    (+ modifier) on a claim that is not in the library yet, with its most
+    recent charge and description. Nothing is invented."""
+    have = {(str(o.get("code") or "").upper(), str(o.get("modifier") or "").upper()) for _, o in records("procedure")}
+    seen: dict = {}
+    for _, c in records("claim"):  # newest first, so the first charge seen is the latest
+        for p in c.get("procedures") or []:
+            code = str((p or {}).get("code") or "").strip().upper()
+            key = (code, str(p.get("modifier") or "").strip().upper()[:2])
+            if not re.fullmatch(r"[A-Z0-9]{4,7}", code) or key in have or key in seen:
+                continue
+            seen[key] = {"code": key[0], "modifier": key[1], "description": str(p.get("description") or "").strip(),
+                         "charge": p.get("charge") or "0", "units": p.get("units") or "1", "added_from": "past claims"}
+    for key, rec in sorted(seen.items()):
+        save("procedure", None, rec, user)
+    return {"added": len(seen)}
+
+
 def new_id(kind: str) -> str:
     return KINDS[kind]["prefix"] + time.strftime("%Y%m%d-%H%M%S-") + secrets.token_hex(2)
 
@@ -572,6 +612,8 @@ def save(kind: str, record_id: str | None, data: dict, user: str = "user") -> di
         data["_meta"] = {"status": a["status"], "reasons": a["reasons"],
                          "saved": time.strftime("%Y-%m-%d %H:%M")}
         extra = a
+    elif kind == "procedure":
+        data = clean_procedure(data, rid)
     else:
         if kind == "patient":
             last, first, mi = (str(data.get(k) or "").strip() for k in ("last_name", "first_name", "mi"))
@@ -941,6 +983,8 @@ class Handler(BaseHTTPRequestHandler):
             if pid and not (ID_RE.match(pid) and kind_of(pid) == "patient"):
                 return self._send(400, {"error": "bad record id"})
             return self._send(200, patient_benefits(pid, b.get("data") or {}))
+        if u.path == "/api/procedures/from_claims":
+            return self._send(200, procedures_from_claims(who))
         if u.path == "/api/check":
             return self._send(200, assess(json.loads(self._body() or b"{}")))
         if u.path == "/api/save":

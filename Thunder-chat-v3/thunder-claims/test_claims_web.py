@@ -276,6 +276,24 @@ check("a saved denial keeps its type, and the demand clock runs from the green c
 row = [r for r in req("GET", "/api/list?kind=patient", token=TOK)[1]["records"] if r["id"] == SPID]
 check("patients list carries PIP left", row and "pip_left" in row[0], row)
 
+print("procedure code library")
+st, j, _ = req("POST", "/api/save", {"kind": "procedure", "data": {"code": " 98941 ", "description": "Chiro manipulation 3-4 regions", "charge": "$85", "units": ""}}, token=TOK)
+check("a library code saves, cleaned (upper-case, money, units 1)", st == 200 and j["data"]["code"] == "98941" and j["data"]["charge"] == "85.00" and j["data"]["units"] == "1", j)
+PXID = j.get("id")
+st, j, _ = req("POST", "/api/save", {"kind": "procedure", "data": {"code": "98941", "charge": "90"}}, token=TOK)
+check("the same code + modifier cannot be added twice", st == 400 and "already" in j.get("error", ""), j)
+st, j, _ = req("POST", "/api/save", {"kind": "procedure", "id": PXID, "data": {"code": "98941", "description": "Chiro manipulation 3-4 regions", "charge": "90"}}, token=TOK)
+check("editing an entry is not a duplicate of itself", st == 200 and j["data"]["charge"] == "90.00", j)
+st, j, _ = req("POST", "/api/save", {"kind": "procedure", "data": {"code": "<script>"}}, token=TOK)
+check("a junk code is refused", st == 400)
+st, j, _ = req("POST", "/api/procedures/from_claims", {}, token=TOK)
+lib = req("GET", "/api/list?kind=procedure", token=TOK)[1]["records"]
+check("seeding from past claims adds only codes not already there", st == 200 and j["added"] >= 1
+      and len([r for r in lib if r["code"] == "98941" and not r["modifier"]]) == 1 and any(r["code"] == "97140" for r in lib), (j, lib))
+check("seeding twice adds nothing", req("POST", "/api/procedures/from_claims", {}, token=TOK)[1]["added"] == 0)
+st, _, _ = req("POST", "/api/procedures/from_claims", {})
+check("the library needs a login", st == 401)
+
 print("network guard")
 r = subprocess.run([sys.executable, str(Path(__file__).parent / "claims_web.py"), "--host", "0.0.0.0", "--port", "1"],
                    capture_output=True, text=True, env=os.environ, timeout=30)

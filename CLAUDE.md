@@ -55,7 +55,7 @@ assumed.
   adduser <name>` (also `users`, `passwd`, `disable`, `enable`). Lockout after
   5 wrong tries (15 min), auto-logoff after 15 idle minutes, sessions in memory
   only. `access.log` in the vault dir records who/ip/path/status (ids only),
-  and the vault audit credits the logged-in person. `test_claims_web.py` = 58
+  and the vault audit credits the logged-in person. `test_claims_web.py` = 65
   checks, mostly attacks. **Synthetic patients only**; nothing is ever
   submitted to a payer. The UI mimics EZClaim on purpose - see
   `thunder-claims/EZCLAIM-LOOK.md` (EZClaim's videos studied frame by frame).
@@ -72,6 +72,10 @@ assumed.
   claim #, carrier, provider and the carrier's OIR demand address, and after
   mailing the carrier gets 30 days from the green-card date. Everything is paper
   and mail - nothing is sent electronically. `test_fl_pip.py` = 35 checks.
+  **Procedure Code Library** (`px-` records, Codes tab): one entry per code +
+  modifier; typing a code on a claim fills description/charge (a $0 never
+  overwrites) and blank units/modifier/pointer. "From Past Claims" seeds it
+  from codes actually billed - nothing invented, charges need checking.
 - `/status`'s `gpu` block now reads the **real** GPU — nvidia-smi plus Ollama's
   `/api/ps` (`gpu_state()` in `app.py`). It used to ask thunder-genai on :9010,
   so once that was disabled `gpu.up` was stuck false and the phone showed the
