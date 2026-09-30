@@ -253,6 +253,13 @@ check("cycle 0 brings them back, with the date and message", [r for r in rows if
 st, _, _ = req("GET", "/api/statements")
 check("statements need a login", st == 401)
 
+print("florida pip")
+row = [r for r in req("GET", "/api/list?kind=claim", token=TOK)[1]["records"] if r["id"] == SCID]
+check("claims list carries the PIP clock", row and "pip_text" in row[0] and "pip_level" in row[0], row)
+st, j, _ = req("GET", f"/api/rec/{SCID}", token=TOK)
+check("an open claim carries its PIP check (a missing date of injury is flagged)", j.get("pip", {}).get("applies") is True
+      and any(f["key"] == "no_doi" for f in j["pip"]["flags"]), j.get("pip"))
+
 print("network guard")
 r = subprocess.run([sys.executable, str(Path(__file__).parent / "claims_web.py"), "--host", "0.0.0.0", "--port", "1"],
                    capture_output=True, text=True, env=os.environ, timeout=30)

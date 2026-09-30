@@ -69,7 +69,7 @@ input.yes { border-color: #3c9a6a; } input.no { border-color: var(--block); back
 .rs .i { display: inline-block; width: 18px; }
 
 /* ---- main split ---- */
-.main { flex: 1; display: grid; grid-template-columns: 430px 1fr; min-height: 0; }
+.main { flex: 1; display: grid; grid-template-columns: 500px 1fr; min-height: 0; }
 @media (max-width: 900px) { .main { grid-template-columns: 1fr; } body { height: auto; } }
 @media (max-width: 640px) { .rtabs { flex-wrap: wrap; } .rtabs .banner { display: none; } .statusbar { flex-wrap: wrap; gap: 4px 12px; } .statusbar .r { margin-left: 0; }
   .ptabs { flex-wrap: wrap; } .flow { grid-template-columns: repeat(2, max-content); gap: 8px 26px; } .fbox { width: 120px; } .cals { flex-direction: column; } }
@@ -217,6 +217,11 @@ label b, .pg td b { font-family: var(--mono); color: var(--block); font-weight: 
 .checks li.b { color: var(--block); } .checks li.w { color: var(--warn); }
 .checks .ok { color: var(--ok); font-weight: 700; }
 .checks .repairs { margin-top: 5px; color: var(--mute); }
+td.pip-late, td.pip-overdue { color: var(--block); font-weight: 700; } td.pip-soon { color: #9a6a00; font-weight: 700; }
+.pg td.pipcell { white-space: normal; overflow: visible; padding-left: 8px; }
+.pipbox { padding: 4px 6px; background: var(--white); line-height: 1.45; white-space: normal; overflow-wrap: anywhere; max-width: 100%; }
+.pipbox .late, .pipbox .overdue { color: var(--block); font-weight: 700; } .pipbox .soon { color: #9a6a00; font-weight: 700; } .pipbox .ok { color: var(--ok); }
+.pipbox .src { color: var(--mute); font-size: 11px; }
 .money { display: flex; gap: 16px; flex-wrap: wrap; font-variant-numeric: tabular-nums; padding: 4px 8px; }
 .money span { color: var(--mute); }
 #claimView.locked .lockable input, #claimView.locked .lockable select { background: #eceae4; color: #777; pointer-events: none; }
@@ -457,6 +462,14 @@ body.locked > :not(.login):not(#print) { display: none !important; }
               <div class="gb"><h2>Claim Information</h2>
                 <table class="pg" id="pg">
                   <tbody>
+                    <tr><th colspan="2">Florida PIP (627.736)</th></tr>
+                    <tr><td colspan="2" class="pipcell"><div class="pipbox" id="pipBox">…</div></td></tr>
+                    <tr class="r"><td>First treatment <span class="msg">(this accident)</span></td><td><input data-f="first_treatment" placeholder="MM/DD/YYYY"></td></tr>
+                    <tr class="r"><td>Notice of initiation sent</td><td><input data-f="pip_notice_sent" placeholder="MM/DD/YYYY"></td></tr>
+                    <tr class="r"><td>Carrier received bill</td><td><input data-t="received_date" placeholder="MM/DD/YYYY"></td></tr>
+                    <tr class="r"><td>Investigation notice <span class="msg">(from carrier)</span></td><td><input data-t="fraud_notice" placeholder="MM/DD/YYYY"></td></tr>
+                  </tbody>
+                  <tbody>
                     <tr><th colspan="2">Claim Information</th></tr>
                     <tr class="r"><td>Original Bill Date</td><td><input data-t="sent_date" placeholder="MM/DD/YYYY"></td></tr>
                     <tr class="r"><td>Status</td><td><select data-t="billing"><option value="draft">Ready to Submit</option><option value="sent">Submitted</option>
@@ -591,6 +604,8 @@ body.locked > :not(.login):not(#print) { display: none !important; }
                   <label>Date of Injury:</label><input data-p="date_of_injury" placeholder="MM/DD/YYYY" aria-label="Date of injury">
                   <label>Accident State:</label><input data-p="accident_state" class="code" maxlength="2" aria-label="Accident state">
                   <label>How it happened:</label><input data-p="accident_type" class="span3" aria-label="How it happened">
+                  <label>First Treatment:</label><input data-p="first_treatment" placeholder="MM/DD/YYYY" aria-label="First treatment">
+                  <label>PIP Notice Sent:</label><input data-p="pip_notice_sent" placeholder="MM/DD/YYYY" aria-label="Notice of initiation of treatment sent" title="Notice of initiation of treatment - within 21 days of first treatment extends billing from 35 to 75 days">
                   <label>Adjuster:</label><input data-p="adjuster_name" aria-label="Adjuster">
                   <label>Adjuster Phone:</label><input data-p="adjuster_phone" aria-label="Adjuster phone">
                   <label>Attorney / Firm:</label><input data-p="attorney" aria-label="Attorney">
@@ -809,9 +824,10 @@ body.locked > :not(.login):not(#print) { display: none !important; }
     claim: [
       { k: "name", t: "Name", v: function (r) { return r.patient_name; } },
       { k: "dos", t: "1st DOS", w: "74px", d: 1, v: function (r) { return r.date_of_service; } },
-      { k: "status", t: "Status", w: "96px", v: function (r) { return BILL[r.billing] || r.billing; } },
+      { k: "status", t: "Status", w: "88px", v: function (r) { return BILL[r.billing] || r.billing; } },
       { k: "chg", t: "Tot. Chg.", w: "68px", m: 1, v: function (r) { return r.charges; } },
-      { k: "bal", t: "Tot. Bal.", w: "68px", m: 1, v: function (r) { return r.balance; } }],
+      { k: "bal", t: "Tot. Bal.", w: "68px", m: 1, v: function (r) { return r.balance; } },
+      { k: "pip", t: "PIP Clock", w: "80px", v: function (r) { return r.pip_text; }, cls: function (r) { return r.pip_level ? "pip-" + r.pip_level : ""; } }],
     payer: [
       { k: "name", t: "Name", v: function (r) { return r.name; } },
       { k: "pid", t: "Payer ID", w: "80px", v: function (r) { return r.payer_id; } },
@@ -878,7 +894,8 @@ body.locked > :not(.login):not(#print) { display: none !important; }
     if (r.id === g.sel) cls += " on";
     var ic = kind === "patient" ? '<button class="icb" data-addclaim="' + esc(r.id) + '" title="Add Claim">📄</button>' : KIND_ICON[kind];
     return '<tr class="' + cls + '" data-id="' + esc(r.id) + '" tabindex="0"><td class="ic">' + ic + '</td>' + cols.map(function (c) {
-      return '<td' + (c.m ? ' class="n"' : "") + ' title="' + esc(cellText(c, r)) + '">' + esc(cellText(c, r)) + '</td>'; }).join("") + '</tr>';
+      var k = [c.m ? "n" : "", c.cls && !r.error ? c.cls(r) : ""].filter(Boolean).join(" ");
+      return '<td' + (k ? ' class="' + k + '"' : "") + ' title="' + esc(cellText(c, r)) + '">' + esc(cellText(c, r)) + '</td>'; }).join("") + '</tr>';
   }
   function renderGridBody() {
     var kind = S.tab, g = S.grids[kind], cols = COLS[kind], rows = gridRows(kind), html = "";
@@ -1205,6 +1222,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
       address: [p.address, p.address2, cityline].filter(Boolean).join(", "),
       insurer: p.insurer, insurer_address: p.insurer_address, payer_id: p.payer_id, claim_number: p.claim_number,
       date_of_injury: p.date_of_injury, accident_type: p.accident_type, accident_state: p.accident_state,
+      first_treatment: p.first_treatment, pip_notice_sent: p.pip_notice_sent,
       adjuster_name: p.adjuster_name, adjuster_phone: p.adjuster_phone, attorney: p.attorney, attorney_phone: p.attorney_phone,
       clinic_name: p.clinic_name, clinic_npi: p.clinic_npi, clinic_tax_id: p.clinic_tax_id, clinic_address: p.clinic_address,
       treating_provider: p.treating_provider, treating_npi: p.treating_npi, referring_provider: p.referring_provider, referring_npi: p.referring_npi
@@ -1318,6 +1336,8 @@ body.locked > :not(.login):not(#print) { display: none !important; }
 
   // ============ home ============
   var WIDGETS = [
+    ["pipfile", "PIP: Bill Soon or Late", function (c) { return /^(Bill in|Late)/.test(c.pip_text || "") && (c.pip_level === "soon" || c.pip_level === "late"); }],
+    ["pipover", "PIP: Carrier Overdue", function (c) { return /^Overdue/.test(c.pip_text || ""); }],
     ["owed", "Submitted, Still Owed", function (c) { return owes(c); }],
     ["over90", "Claims Over 90 Days", function (c) { var d = parseDate(c.date_of_service); return owes(c) && d && (Date.now() - d) / 864e5 > 90; }],
     ["ready", "Ready to Submit", function (c) { return c.billing === "draft"; }],
@@ -1332,10 +1352,10 @@ body.locked > :not(.login):not(#print) { display: none !important; }
       return '<button class="tile' + (S.widget === w[0] ? " on" : "") + '" data-w="' + w[0] + '"><b>' + n + '</b>' + esc(w[1]) + '</button>'; }).join("");
     var w = WIDGETS.filter(function (x) { return x[0] === S.widget; })[0] || WIDGETS[0], rows = S.data.claim.filter(function (c) { return !c.error && w[2](c); });
     $("tileTitle").textContent = w[1];
-    $("tileGrid").innerHTML = '<thead><tr><th>Name</th><th>1st DOS</th><th>Status</th><th class="n">Tot. Bal.</th></tr></thead><tbody>' +
+    $("tileGrid").innerHTML = '<thead><tr><th>Name</th><th>1st DOS</th><th>Status</th><th class="n">Tot. Bal.</th><th>PIP Clock</th></tr></thead><tbody>' +
       (rows.length ? rows.map(function (c) { return '<tr class="item' + (owes(c) ? " owe" : "") + '" data-open="' + esc(c.id) + '"><td>' + esc(c.patient_name) + '</td><td>' +
-        esc(c.date_of_service) + '</td><td>' + esc(BILL[c.billing]) + '</td><td class="n">' + fmt(c.balance) + '</td></tr>'; }).join("")
-        : '<tr class="empty"><td colspan="4">None.</td></tr>') + '</tbody>';
+        esc(c.date_of_service) + '</td><td>' + esc(BILL[c.billing]) + '</td><td class="n">' + fmt(c.balance) + '</td><td class="' + (c.pip_level ? "pip-" + c.pip_level : "") + '">' + esc(c.pip_text || "") + '</td></tr>'; }).join("")
+        : '<tr class="empty"><td colspan="5">None.</td></tr>') + '</tbody>';
     $("updatedAt").textContent = S.loadedAt ? S.loadedAt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "…";
   }
   function showWidget(k) { S.widget = k; goHome(); }
@@ -1454,7 +1474,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   $("claimView").addEventListener("input", function (e) {
     var t = e.target, d = cur(); if (!d || d.kind !== "claim") return; var c = d.data;
     if (t.dataset.f) { if (t.dataset.f === "date_of_service" || t.dataset.f === "place_of_service") return; c[t.dataset.f] = t.value; if (t.dataset.f === "patient_name") renderDocTabs(); changed(); }
-    else if (t.dataset.t) { c.tracking[t.dataset.t] = t.type === "checkbox" ? t.checked : t.value; totals(); markDirty(); if (t.dataset.t === "locked") applyLock(); }
+    else if (t.dataset.t) { c.tracking[t.dataset.t] = t.type === "checkbox" ? t.checked : t.value; totals(); markDirty(); if (t.dataset.t === "locked") applyLock(); if (/date|notice/.test(t.dataset.t)) scrubSoon(); }
     else if (t.dataset.dx != null) { var i = +t.dataset.dx; while (c.diagnoses.length <= i) c.diagnoses.push({ code: "", description: "" }); c.diagnoses[i].code = t.value; changed(); }
     else if (t.dataset.px != null) {
       var j = +t.dataset.px, p = c.procedures[j]; p[t.dataset.k] = t.value;
@@ -1469,7 +1489,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   $("claimView").addEventListener("change", function (e) {
     var t = e.target, d = cur(); if (!d || d.kind !== "claim") return;
     if (t.dataset.f === "date_of_service" || t.dataset.f === "place_of_service") { d.data[t.dataset.f] = t.value; renderLines(); renderCals(); paintCodes(); renderDocTabs(); changed(); }
-    if (t.dataset.t && t.tagName === "SELECT") { d.data.tracking[t.dataset.t] = t.value; totals(); markDirty(); }
+    if (t.dataset.t && t.tagName === "SELECT") { d.data.tracking[t.dataset.t] = t.value; totals(); markDirty(); scrubSoon(); }
     if (t.dataset.t === "locked") { d.data.tracking.locked = t.checked; applyLock(); markDirty(); }
   });
   $("claimView").addEventListener("click", function (e) {
@@ -1542,6 +1562,14 @@ body.locked > :not(.login):not(#print) { display: none !important; }
       d.codes = r.codes; d.check = r; if (cur() === d) { paintCodes(); showChecks(r); }
     }).catch(function (e) { setMsg("Scrub unavailable: " + e.message); });
   }
+  function showPip(p) {
+    if (!p || !p.applies) { $("pipBox").innerHTML = '<span class="src">Accident is not in Florida - no PIP clocks.</span>'; return; }
+    var when = function (i) { return i.days < 0 ? -i.days + " days ago" : i.days === 0 ? "today" : "in " + i.days + " days"; };
+    var html = p.items.map(function (i) { return '<div class="' + i.level + '">' + esc(i.label) + " " + esc(i.date) + " (" + when(i) + ')</div>' +
+      (i.note ? '<div class="src">' + esc(i.note) + '</div>' : ""); }).join("") +
+      p.flags.map(function (f) { return '<div class="' + f.level + '">⚠ ' + esc(f.text) + '</div>'; }).join("");
+    $("pipBox").innerHTML = (html || '<span class="ok">No open PIP deadlines.</span>') + '<div class="src">Reminders from Fla. Stat. 627.736 - not legal advice.</div>';
+  }
   function plain(s) {
     return s.replace(/_/g, " ").replace(/\bdob\b/, "date of birth").replace(/npi/gi, "NPI")
       .replace(/diagnoses\[(\d+)\]/, function (_, i) { return "diagnosis " + LETTERS[+i] + (+i + 1); })
@@ -1558,6 +1586,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
       .map(function (i) { return '<li class="w">' + esc(plain(i.field + ": " + i.problem)) + "</li>"; }).join("");
     var rep = repairs && repairs.length ? '<div class="repairs">Fixed from the scan (check these): ' + repairs.map(esc).join("; ") + "</div>" : "";
     $("checks").className = "checks " + r.status; $("checks").innerHTML = head + (items ? "<ul>" + items + "</ul>" : "") + rep;
+    showPip(r.pip);
   }
   function payOff() {
     var d = cur(); if (!d) return; var c = d.data, due = charges(c);
@@ -1573,7 +1602,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
     fetchOld.then(function (old) {
       var p = prep("patient", old);
       ["patient_name", "dob", "sex", "phone", "insurer", "insurer_address", "payer_id", "claim_number", "date_of_injury", "accident_type", "accident_state",
-       "adjuster_name", "adjuster_phone", "attorney", "attorney_phone", "clinic_name", "clinic_npi", "clinic_tax_id", "clinic_address",
+       "first_treatment", "pip_notice_sent", "adjuster_name", "adjuster_phone", "attorney", "attorney_phone", "clinic_name", "clinic_npi", "clinic_tax_id", "clinic_address",
        "treating_provider", "treating_npi", "referring_provider", "referring_npi"].forEach(function (k) { if (c[k]) p[k] = c[k]; });
       if (!existing) p.address = c.address;
       delete p.last_name; delete p.first_name; delete p.mi; p = prep("patient", p);

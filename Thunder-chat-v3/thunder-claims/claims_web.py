@@ -57,6 +57,7 @@ HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE))
 import intake  # noqa: E402  (brings vault, extract, repair, validate, codelist)
 from intake import codelist, vault  # noqa: E402
+import fl_pip  # noqa: E402
 import validate  # noqa: E402
 
 PAGE = HERE / "claims_web.html"
@@ -113,7 +114,8 @@ def assess(claim: dict) -> dict:
         c = str((pr or {}).get("code") or "").strip()
         if c:
             codes[c] = codelist.procedure_exists(c)
-    return {"status": status, "reasons": reasons, "issues": issues, "codes": codes}
+    return {"status": status, "reasons": reasons, "issues": issues, "codes": codes,
+            "pip": fl_pip.deadlines(claim)}
 
 
 def records(kind: str):
@@ -210,6 +212,7 @@ def summary(kind: str, rid: str, r: dict, led: dict | None = None) -> dict:
         charges = total_charges(r)
         posted = (led or {}).get(rid) or {"paid": 0.0, "adj": 0.0}
         lines = claim_lines(rid, r, led or {})
+        pip = fl_pip.deadlines(r)
         paid = round(money(track.get("paid_amount")) + posted["paid"], 2)
         return {"id": rid, "patient_name": r.get("patient_name", ""),
                 "account_number": r.get("account_number", ""),
@@ -220,6 +223,7 @@ def summary(kind: str, rid: str, r: dict, led: dict | None = None) -> dict:
                 "charges": charges, "paid": paid, "adjusted": posted["adj"],
                 "balance": round(charges - paid - posted["adj"], 2),
                 "pat_bal": round(sum(x["pat_bal"] for x in lines), 2), "ins_bal": round(sum(x["ins_bal"] for x in lines), 2),
+                "pip_level": pip["level"], "pip_text": pip["text"],
                 "saved": meta.get("saved", "")}
     if kind == "patient":
         return {"id": rid, "patient_name": r.get("patient_name", ""), "dob": r.get("dob", ""),
