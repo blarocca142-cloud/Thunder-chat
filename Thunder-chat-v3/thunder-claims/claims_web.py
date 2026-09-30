@@ -57,6 +57,7 @@ HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE))
 import intake  # noqa: E402  (brings vault, extract, repair, validate, codelist)
 from intake import codelist, vault  # noqa: E402
+import validate  # noqa: E402
 
 PAGE = HERE / "claims_web.html"
 MAX_UPLOAD = 25 * 1024 * 1024
@@ -127,28 +128,68 @@ def records(kind: str):
 
 def ledger(exclude: str | None = None) -> dict:
     """What posted payments have done to each claim and service line:
-    {claim_id: {"paid", "adj", "lines": {idx: {"paid", "adj", "entries"}}}}.
+    {claim_id: {"paid", "adj", "pr", "pat_paid", "lines": {idx: {... "entries"}}}}.
+
+    adj  = write-offs (group codes CO, OA, PI, CR) - they close the balance.
+    pr   = patient responsibility (group PR: deductible, coinsurance, copay).
+           It does NOT close the balance; it moves that part to the patient,
+           which is what a statement then bills.
     Balances are always computed from the payments, never stored, so they
     cannot drift from what was actually posted."""
     out: dict = {}
+    zero = lambda: {"paid": 0.0, "adj": 0.0, "pr": 0.0, "pat_paid": 0.0}
     for pid, pay in records("payment"):
         if pid == exclude:
             continue
-        who = pay.get("payer") if pay.get("source") == "payer" else (pay.get("patient_name") or "Patient")
+        from_patient = pay.get("source") == "patient"
+        who = (pay.get("patient_name") or "Patient") if from_patient else pay.get("payer")
         for a in pay.get("lines") or []:
             cid, li = a.get("claim_id"), int(a.get("line") or 0)
             paid = money(a.get("paid"))
-            adj = sum(money(x.get("amt")) for x in a.get("adjustments") or [])
-            c = out.setdefault(cid, {"paid": 0.0, "adj": 0.0, "lines": {}})
-            line = c["lines"].setdefault(li, {"paid": 0.0, "adj": 0.0, "entries": []})
-            c["paid"] += paid; c["adj"] += adj; line["paid"] += paid; line["adj"] += adj
-            line["entries"].append({"payment": pid, "date": pay.get("date", ""), "from": who or "", "paid": paid, "adj": adj,
+            adjs = a.get("adjustments") or []
+            pr = sum(money(x.get("amt")) for x in adjs if str(x.get("group") or "").upper() == "PR")
+            adj = sum(money(x.get("amt")) for x in adjs if str(x.get("group") or "").upper() != "PR")
+            c = out.setdefault(cid, {**zero(), "lines": {}})
+            line = c["lines"].setdefault(li, {**zero(), "entries": []})
+            for t in (c, line):
+                t["paid"] += paid; t["adj"] += adj; t["pr"] += pr
+                if from_patient:
+                    t["pat_paid"] += paid
+            line["entries"].append({"payment": pid, "date": pay.get("date", ""), "from": who or "", "source": pay.get("source", ""),
+                                    "paid": paid, "adj": adj, "pr": pr,
                                     "codes": ", ".join(f"{x.get('group', '')}-{x.get('reason', '')}".strip("-")
-                                                       for x in a.get("adjustments") or [] if money(x.get("amt")))})
+                                                       for x in adjs if money(x.get("amt")))})
     for c in out.values():
-        c["paid"], c["adj"] = round(c["paid"], 2), round(c["adj"], 2)
-        for line in c["lines"].values():
-            line["paid"], line["adj"] = round(line["paid"], 2), round(line["adj"], 2)
+        for k in ("paid", "adj", "pr", "pat_paid"):
+            c[k] = round(c[k], 2)
+            for line in c["lines"].values():
+                line[k] = round(line[k], 2)
+    return out
+
+
+def claim_lines(cid: str, c: dict, led: dict) -> list[dict]:
+    """Per service line: charge, paid, adjusted, balance, and how that balance
+    splits between the patient and the insurance. A line marked Resp. = Pat
+    (or a claim with no insurer) is all patient; otherwise the patient owes the
+    PR amounts the payer assigned, less what the patient has paid."""
+    posted = (led.get(cid) or {}).get("lines") or {}
+    manual = money((c.get("tracking") or {}).get("paid_amount"))  # pre-Payment-Entry "amount paid" box
+    out = []
+    for i, p in enumerate(c.get("procedures") or []):
+        if not str((p or {}).get("code") or "").strip():
+            continue
+        l = posted.get(i) or {"paid": 0.0, "adj": 0.0, "pr": 0.0, "pat_paid": 0.0, "entries": []}
+        charge = line_charge(p)
+        take = min(max(manual, 0), max(charge - l["paid"] - l["adj"], 0))
+        manual -= take
+        bal = round(charge - l["paid"] - l["adj"] - take, 2)
+        resp = (p.get("resp") or ("ins" if str(c.get("insurer") or "").strip() else "pat")).lower()
+        pat = bal if resp == "pat" else round(l["pr"] - l["pat_paid"], 2)
+        pat = bal if bal < 0 else min(pat, bal)          # a credit belongs to the patient
+        out.append({"line": i, "date": p.get("date") or c.get("date_of_service", ""), "code": p.get("code", ""),
+                    "description": p.get("description", ""), "charge": charge, "paid": round(l["paid"] + take, 2),
+                    "adj": l["adj"], "pr": l["pr"], "balance": bal, "pat_bal": round(pat, 2), "ins_bal": round(bal - pat, 2),
+                    "resp": resp, "entries": l["entries"]})
     return out
 
 
@@ -168,6 +209,7 @@ def summary(kind: str, rid: str, r: dict, led: dict | None = None) -> dict:
         track = r.get("tracking") or {}
         charges = total_charges(r)
         posted = (led or {}).get(rid) or {"paid": 0.0, "adj": 0.0}
+        lines = claim_lines(rid, r, led or {})
         paid = round(money(track.get("paid_amount")) + posted["paid"], 2)
         return {"id": rid, "patient_name": r.get("patient_name", ""),
                 "account_number": r.get("account_number", ""),
@@ -177,6 +219,7 @@ def summary(kind: str, rid: str, r: dict, led: dict | None = None) -> dict:
                 "billing": track.get("billing") or "draft",
                 "charges": charges, "paid": paid, "adjusted": posted["adj"],
                 "balance": round(charges - paid - posted["adj"], 2),
+                "pat_bal": round(sum(x["pat_bal"] for x in lines), 2), "ins_bal": round(sum(x["ins_bal"] for x in lines), 2),
                 "saved": meta.get("saved", "")}
     if kind == "patient":
         return {"id": rid, "patient_name": r.get("patient_name", ""), "dob": r.get("dob", ""),
@@ -253,6 +296,142 @@ def open_lines(source: str, payer: str, patient_id: str, patient_name: str,
                         "applied": applied, "balance": bal})
     out.sort(key=lambda x: (x["patient_name"], x["dos"], x["claim_id"], x["line"]))
     return out
+
+
+# --------------------------------------------------------------------------
+# patient statements (EZClaim's Statements screen)
+# --------------------------------------------------------------------------
+
+SETTINGS_FILE = Path(os.environ.get("THUNDER_CLAIMS_SETTINGS",
+                                    str(Path.home() / ".thunder" / "claims_settings.json")))
+STATEMENT_DEFAULTS = {"return_name": "", "return_addr1": "", "return_addr2": "", "return_city": "", "return_state": "",
+                      "return_zip": "", "return_phone": "", "days_history": 30, "hide_aging": False,
+                      "hide_proc": False, "global_message": "", "messages": []}
+
+
+def get_settings() -> dict:
+    """Practice-wide options (return address and the like) - no patient data."""
+    try:
+        s_ = json.loads(SETTINGS_FILE.read_text())
+    except (FileNotFoundError, ValueError):
+        s_ = {}
+    return {"statement": {**STATEMENT_DEFAULTS, **(s_.get("statement") or {})}}
+
+
+def set_settings(body: dict) -> dict:
+    cur = get_settings()["statement"]
+    src = (body or {}).get("statement") or {}
+    for k in ("return_name", "return_addr1", "return_addr2", "return_city", "return_state", "return_zip", "return_phone", "global_message"):
+        if k in src:
+            cur[k] = str(src[k] or "")[:120]
+    if "days_history" in src:
+        cur["days_history"] = max(0, min(3650, int(money(src["days_history"]))))
+    for k in ("hide_aging", "hide_proc"):
+        if k in src:
+            cur[k] = bool(src[k])
+    msg = cur["global_message"].strip()
+    if msg and msg not in cur["messages"]:  # the message list grows as messages are used, as in EZClaim
+        cur["messages"] = ([msg] + cur["messages"])[:30]
+    SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    tmp = SETTINGS_FILE.with_suffix(".tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        json.dump({"statement": cur}, f, indent=2)
+    os.replace(tmp, SETTINGS_FILE)
+    return {"statement": cur}
+
+
+def _norm(x) -> str:
+    return str(x or "").strip().upper()
+
+
+def patient_claims(pid: str, p: dict, claims: list) -> list:
+    return [(cid, c) for cid, c in claims
+            if (c.get("patient_id") == pid) or (not c.get("patient_id") and _norm(c.get("patient_name")) == _norm(p.get("patient_name")))]
+
+
+def _days_since(d: str) -> int | None:
+    from datetime import date
+    x = validate.parse_date(str(d or ""))
+    return (date.today() - x).days if x else None
+
+
+def statement_list(min_bal: float, cycle: int, include_zero: bool) -> list[dict]:
+    led = ledger()
+    claims = list(records("claim"))
+    out = []
+    for pid, p in records("patient"):
+        if p.get("active") is False or p.get("no_statements"):
+            continue
+        lines = [x for cid, c in patient_claims(pid, p, claims) for x in claim_lines(cid, c, led)]
+        pat = round(sum(x["pat_bal"] for x in lines), 2)
+        ins = round(sum(x["ins_bal"] for x in lines), 2)
+        since = _days_since(p.get("last_statement_date"))
+        if cycle > 0 and since is not None and since < cycle:
+            continue
+        if not (pat >= min_bal and (pat != 0 or include_zero)) and not (include_zero and pat == 0 and ins > 0):
+            continue
+        if not lines:
+            continue
+        out.append({"id": pid, "patient_name": p.get("patient_name", ""), "account_number": p.get("account_number", ""),
+                    "pat_bal": pat, "ins_bal": ins, "pri_payer": p.get("insurer", ""),
+                    "last_statement_date": p.get("last_statement_date", ""), "pat_msg": p.get("statement_msg", "")})
+    out.sort(key=lambda r: r["patient_name"])
+    return out
+
+
+def statement_detail(pid: str) -> dict:
+    """Everything one printed statement shows. Always current data - a reprint
+    shows today's balances, not the original's (as in EZClaim)."""
+    p = vault.get(pid)
+    if kind_of(pid) != "patient":
+        raise ValueError("not a patient")
+    st = get_settings()["statement"]
+    led = ledger()
+    rows, aging = [], {"0-30": 0.0, "31-60": 0.0, "61-90": 0.0, "91-120": 0.0, "Over 120": 0.0}
+    for cid, c in patient_claims(pid, p, list(records("claim"))):
+        for x in claim_lines(cid, c, led):
+            age = _days_since(x["date"])
+            recent = age is None or age <= st["days_history"]
+            if abs(x["balance"]) < 0.005 and not recent:
+                continue
+            desc = x["description"] or ("Procedure " + x["code"])
+            rows.append({"date": x["date"], "description": desc, "proc": x["code"], "amount": x["charge"],
+                         "ins_bal": x["ins_bal"], "pat_bal": x["pat_bal"],
+                         "note": "Patient responsibility" if x["pr"] > 0.004 or x["resp"] == "pat" else ""})
+            for e in x["entries"]:
+                if e["paid"]:
+                    rows.append({"date": e["date"], "description": ("Payment - thank you" if e["source"] == "patient" else "Insurance payment - " + (e["from"] or "")),
+                                 "proc": "", "amount": -e["paid"], "ins_bal": None, "pat_bal": None, "note": ""})
+            b = "Over 120" if age is not None and age > 120 else "91-120" if age is not None and age > 90 else \
+                "61-90" if age is not None and age > 60 else "31-60" if age is not None and age > 30 else "0-30"
+            aging[b] += x["pat_bal"]
+    rows.sort(key=lambda r: (validate.parse_date(str(r["date"] or "")) or validate.parse_date("01/01/1900"), r["amount"] < 0))
+    pat_total = round(sum(aging.values()), 2)
+    ins_total = round(sum(r["ins_bal"] for r in rows if r["ins_bal"] is not None), 2)
+    return {"patient": {"id": pid, "name": p.get("patient_name", ""), "account_number": p.get("account_number", ""),
+                        "address": p.get("address", ""), "address2": p.get("address2", ""), "city": p.get("city", ""),
+                        "state": p.get("state", ""), "zip": p.get("zip", ""), "pat_msg": p.get("statement_msg", "")},
+            "settings": st, "rows": rows, "aging": {k: round(v, 2) for k, v in aging.items()},
+            "ins_bal": ins_total, "please_pay": pat_total}
+
+
+def statements_printed(items: list, when: str, user: str) -> int:
+    """Only runs after the person confirms the statements printed properly -
+    that is what records Last Statement Date, as in EZClaim."""
+    n = 0
+    for it in items[:500]:
+        pid = str((it or {}).get("id") or "")
+        if not ID_RE.match(pid) or kind_of(pid) != "patient":
+            continue
+        p = vault.get(pid)
+        p["last_statement_date"] = when
+        if "pat_msg" in it:
+            p["statement_msg"] = str(it.get("pat_msg") or "")[:200]
+        p.setdefault("statements", []).append({"date": when, "amount": round(money(it.get("amount")), 2), "user": user})
+        vault.put(pid, p, KINDS["patient"]["index"])
+        n += 1
+    return n
 
 
 def clean_payment(data: dict) -> dict:
@@ -680,6 +859,14 @@ class Handler(BaseHTTPRequestHandler):
             if kind not in KINDS:
                 return self._send(400, {"error": "unknown record type"})
             return self._send(200, {"records": list_records(kind)})
+        if u.path == "/api/settings":
+            return self._send(200, get_settings())
+        if u.path == "/api/statements":
+            q = {k: v[0] for k, v in parse_qs(u.query).items()}
+            return self._send(200, {"rows": statement_list(money(q.get("min", "0.01")), int(money(q.get("cycle", "30"))), q.get("zero") == "1")})
+        m = re.match(r"^/api/statement/([A-Za-z0-9_-]+)$", u.path)
+        if m:
+            return self._send(200, statement_detail(m.group(1)))
         if u.path == "/api/open_lines":
             q = {k: v[0] for k, v in parse_qs(u.query).items()}
             return self._send(200, {"lines": open_lines(q.get("source", "payer"), q.get("payer", ""), q.get("patient", ""),
@@ -693,8 +880,11 @@ class Handler(BaseHTTPRequestHandler):
             body = {"id": rid, "kind": kind, "data": r}
             if kind == "claim":
                 body.update(assess(r))
-                led = ledger().get(rid) or {"paid": 0.0, "adj": 0.0, "lines": {}}
-                body["ledger"] = {"paid": led["paid"], "adj": led["adj"], "lines": {str(k): v for k, v in led["lines"].items()}}
+                full = ledger()
+                led = full.get(rid) or {"paid": 0.0, "adj": 0.0, "pr": 0.0, "pat_paid": 0.0, "lines": {}}
+                body["ledger"] = {"paid": led["paid"], "adj": led["adj"], "pr": led["pr"], "pat_paid": led["pat_paid"],
+                                  "lines": {str(k): v for k, v in led["lines"].items()},
+                                  "split": {str(x["line"]): {"pat_bal": x["pat_bal"], "ins_bal": x["ins_bal"]} for x in claim_lines(rid, r, full)}}
             return self._send(200, body)
         self._send(404, {"error": "not found"})
 
@@ -716,6 +906,11 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"ok": True})
         if u.path == "/api/prefs":
             return self._send(200, set_prefs(who, json.loads(self._body() or b"{}")))
+        if u.path == "/api/settings":
+            return self._send(200, set_settings(json.loads(self._body() or b"{}")))
+        if u.path == "/api/statements/printed":
+            b = json.loads(self._body() or b"{}")
+            return self._send(200, {"updated": statements_printed(b.get("items") or [], str(b.get("date") or time.strftime("%m/%d/%Y"))[:10], who)})
         if u.path == "/api/check":
             return self._send(200, assess(json.loads(self._body() or b"{}")))
         if u.path == "/api/save":

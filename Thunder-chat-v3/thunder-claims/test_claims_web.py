@@ -226,6 +226,33 @@ check("a payment against a missing service line is refused", st == 400, (st, j))
 st, _, _ = req("GET", "/api/open_lines?source=payer&payer=x")
 check("open lines need a login", st == 401)
 
+print("statements")
+st, j, _ = req("POST", "/api/save", {"kind": "patient", "data": {"last_name": "Statement", "first_name": "Sam", "dob": "02/02/1970",
+    "address": "1 Test Way", "city": "Anytown", "state": "NY", "zip": "12345", "insurer": "Test Mutual"}}, token=TOK)
+SPID = j.get("id")
+st, j, _ = req("POST", "/api/save", {"kind": "claim", "data": {"patient_id": SPID, "patient_name": "STATEMENT, SAM", "insurer": "Test Mutual",
+    "date_of_service": "01/05/2026", "procedures": [{"code": "98941", "units": "1", "charge": "100"}, {"code": "97140", "units": "1", "charge": "40", "resp": "pat"}],
+    "tracking": {"billing": "sent"}}}, token=TOK)
+SCID = j.get("id")
+st, j, _ = req("POST", "/api/save", {"kind": "payment", "data": {"source": "payer", "payer": "Test Mutual", "amount": "60", "date": "02/01/2026",
+    "lines": [{"claim_id": SCID, "line": 0, "paid": "60", "adjustments": [{"amt": "25", "group": "CO", "reason": "45"}, {"amt": "15", "group": "PR", "reason": "2"}]}]}}, token=TOK)
+st, j, _ = req("GET", f"/api/rec/{SCID}", token=TOK)
+check("PR adjustments are not written off (balance stays open)", j["ledger"]["adj"] == 25 and j["ledger"]["pr"] == 15, j.get("ledger"))
+rows = req("GET", "/api/statements?min=0.01&cycle=30", token=TOK)[1]["rows"]
+mine = [r for r in rows if r["id"] == SPID]
+check("statement list: PR coinsurance + a patient-responsible line = patient balance", mine and mine[0]["pat_bal"] == 55 and mine[0]["ins_bal"] == 0, mine)
+st, j, _ = req("GET", f"/api/statement/{SPID}", token=TOK)
+check("statement detail: Please Pay matches and aging adds up", j.get("please_pay") == 55 and round(sum(j["aging"].values()), 2) == 55, j.get("aging"))
+st, j, _ = req("POST", "/api/statements/printed", {"items": [{"id": SPID, "pat_msg": "Thanks", "amount": 55}], "date": "03/01/2026"}, token=TOK)
+check("confirming a good print records the statement", j.get("updated") == 1)
+from datetime import date
+rows = req("GET", "/api/statements?min=0.01&cycle=100000", token=TOK)[1]["rows"]
+check("a patient billed within the cycle is left off the list", not [r for r in rows if r["id"] == SPID])
+rows = req("GET", "/api/statements?min=0.01&cycle=0", token=TOK)[1]["rows"]
+check("cycle 0 brings them back, with the date and message", [r for r in rows if r["id"] == SPID and r["last_statement_date"] == "03/01/2026" and r["pat_msg"] == "Thanks"])
+st, _, _ = req("GET", "/api/statements")
+check("statements need a login", st == 401)
+
 print("network guard")
 r = subprocess.run([sys.executable, str(Path(__file__).parent / "claims_web.py"), "--host", "0.0.0.0", "--port", "1"],
                    capture_output=True, text=True, env=os.environ, timeout=30)

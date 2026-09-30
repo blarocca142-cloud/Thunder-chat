@@ -273,6 +273,18 @@ label b, .pg td b { font-family: var(--mono); color: var(--block); font-weight: 
 .fpage .fr { position: absolute; height: 0; border-top: 1px solid #e0555a; }
 .fpage .fc { position: absolute; width: 0; border-left: 1px solid #e0555a; }
 #print .fpage { box-shadow: none; }
+.stpage { position: relative; width: 8.5in; height: 11in; background: #fff; color: #000; font: 10pt/1.3 Arial, Helvetica, sans-serif; overflow: hidden; }
+.pvpage .stpage { transform: scale(var(--pvscale, 1)); transform-origin: top left; margin-bottom: calc((var(--pvscale, 1) - 1) * 11in + 12px); box-shadow: 0 2px 8px rgba(0,0,0,.4); }
+#print .stpage { page-break-after: always; }
+.stpage .ab { position: absolute; }
+.stpage .big { font-size: 20pt; font-weight: 700; letter-spacing: 1px; }
+.stpage table { border-collapse: collapse; width: 100%; font-size: 9pt; }
+.stpage th { border-top: 1.5px solid #000; border-bottom: 1.5px solid #000; text-align: left; padding: 3px 4px; font-weight: 700; }
+.stpage td { padding: 2px 4px; border-bottom: 1px solid #ddd; vertical-align: top; }
+.stpage .n { text-align: right; font-variant-numeric: tabular-nums; }
+.stpage .due { border: 1.5px solid #000; padding: 6px 10px; }
+.stpage .aging { width: 100%; border-collapse: collapse; }
+.stpage .aging td, .stpage .aging th { border: 1.5px solid #000; text-align: center; padding: 3px; }
 
 /* login */
 .login { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center;
@@ -368,7 +380,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
               <button class="fbox arrow" data-go="newPatient"><span class="i">👤</span>Create<br>Patient</button>
               <button class="fbox arrow" data-go="newClaim"><span class="i">📄</span>Create<br>Claim</button>
               <button class="fbox" data-go="printClaims"><span class="i">🖨</span>Print<br>Claims</button>
-              <button class="fbox" disabled title="Not built yet"><span class="i">✉</span>Patient<br>Statements</button>
+              <button class="fbox" data-go="findClaim"><span class="i">🔎</span>Find<br>Claim</button>
               <button class="fbox" data-go="editPatient"><span class="i">✏</span>Edit<br>Patient</button>
               <button class="fbox" data-go="scan"><span class="i">📷</span>Claim from<br>a Scan</button>
               <button class="fbox" data-go="newPayment"><span class="i">💵</span>Enter<br>Payment</button>
@@ -493,10 +505,10 @@ body.locked > :not(.login):not(#print) { display: none !important; }
           </div>
 
           <div class="lines lockable"><table>
-            <thead><tr><th>Srvc Date</th><th>Place</th><th>Procedure</th><th>M1</th><th>M2</th><th>M3</th><th>M4</th><th>Diag. #</th><th>Description</th>
+            <thead><tr><th>Srvc Date</th><th>Place</th><th>Procedure</th><th>M1</th><th>M2</th><th>M3</th><th>M4</th><th>Diag. #</th><th>Resp.</th><th>Description</th>
               <th class="n">Charges</th><th class="n">Units</th><th class="n">Line Total</th><th class="n">Paid</th><th class="n">Adj</th><th class="n">Balance</th><th>Code check</th><th></th></tr></thead>
             <tbody id="pxRows"></tbody>
-            <tfoot><tr><td colspan="9" id="svcCount">Services: 0</td><td></td><td></td><td class="n" id="total">$0.00</td><td class="n" id="t_paid"></td><td class="n" id="t_adj"></td><td class="n" id="t_bal"></td><td colspan="2"></td></tr></tfoot>
+            <tfoot><tr><td colspan="10" id="svcCount">Services: 0</td><td></td><td></td><td class="n" id="total">$0.00</td><td class="n" id="t_paid"></td><td class="n" id="t_adj"></td><td class="n" id="t_bal"></td><td colspan="2"></td></tr></tfoot>
           </table></div>
           <div class="addrow"><button id="addPx">ADD</button><span class="hint">Click a date on the calendars above to enter a new service line.</span></div>
           <div class="gb" style="margin-top:8px"><h2>Balance</h2>
@@ -585,6 +597,11 @@ body.locked > :not(.login):not(#print) { display: none !important; }
                   <label>Attorney Phone:</label><input data-p="attorney_phone" aria-label="Attorney phone">
                 </div>
               </div>
+              <div class="gb"><h2>Statements</h2><div class="in form">
+                <label for="p_smsg">Pat. Msg.:</label><input id="p_smsg" data-p="statement_msg" class="span3" placeholder="printed on this patient's statements">
+                <label for="p_nost">Don't Send Statements:</label><div class="span3"><input type="checkbox" id="p_nost" data-p="no_statements"></div>
+                <label>Last Statement:</label><input data-p="last_statement_date" readonly class="span3" placeholder="none yet">
+              </div></div>
               <div class="gb"><h2>Reminder Note</h2><div class="in"><textarea data-p="reminder" aria-label="Reminder note" placeholder="Shown under the patient in the detail pane"></textarea></div></div>
             </div>
           </div>
@@ -635,6 +652,19 @@ body.locked > :not(.login):not(#print) { display: none !important; }
           </datalist>
         </div>
 
+        <!-- PATIENT STATEMENTS -->
+        <div id="stmtView" hidden>
+          <div class="status"><span class="msg" id="stmsg"></span></div>
+          <div class="gridwrap" style="margin:0;min-height:300px;max-height:calc(100vh - 330px)"><table class="g" id="stGrid">
+            <colgroup><col style="width:30px"><col><col style="width:80px"><col style="width:84px"><col style="width:84px"><col style="width:22%"><col style="width:96px"><col style="width:26%"></colgroup>
+            <thead><tr><th class="ic"><input type="checkbox" id="st_hdr" aria-label="Check all"></th><th>Name</th><th>Account #</th><th class="n">Pat Bal</th><th class="n">Ins Bal</th><th>Pri Payer</th><th>Last Sta Date</th><th>Pat Msg</th></tr></thead>
+            <tbody id="stRows"></tbody><tfoot id="stFoot"></tfoot></table></div>
+          <div class="form" style="grid-template-columns:max-content 1fr;margin-top:8px"><label for="st_global">Global Message:</label>
+            <input id="st_global" list="st_msgs" placeholder="printed on every statement, e.g. Happy Holidays"><datalist id="st_msgs"></datalist></div>
+          <p class="hint">Lists patients who owe at least the minimum and have not had a statement within the cycle. Set the cycle to 0 and Refresh to see everyone.
+            Messages are saved when the statements print.</p>
+        </div>
+
         <!-- PAYER / PROVIDER -->
         <div id="dirView" hidden>
           <div class="status"><span class="msg" id="dmsg"></span></div>
@@ -662,6 +692,30 @@ body.locked > :not(.login):not(#print) { display: none !important; }
     <div class="pvpage" id="pvPage"></div>
   </div>
 </div>
+<div class="modal" id="spview" hidden>
+  <div class="mwin wide">
+    <div class="mt" id="spTitle">Statement Preview</div>
+    <div class="mbar"><button id="spPrint" class="primary">🖨 Print</button><span class="hint" id="spNote"></span><span class="spacer"></span><button id="spClose">Close</button></div>
+    <div class="pvpage" id="spPages"></div>
+  </div>
+</div>
+<div class="modal" id="sopts" hidden>
+  <div class="mwin">
+    <div class="mt">Statement Options</div>
+    <div class="in"><p class="hint" style="margin-top:0">The following options will be used when printing statements.</p>
+      <div class="form" id="soForm">
+        <label>Return Address - Name:</label><input id="so_return_name" class="span3">
+        <label>Address 1:</label><input id="so_return_addr1" class="span3">
+        <label>Address 2:</label><input id="so_return_addr2" class="span3">
+        <label>City ST Zip:</label><div class="span3 split"><input id="so_return_city"><input id="so_return_state" class="xs code" maxlength="2"><input id="so_return_zip" class="s"></div>
+        <label>Phone #:</label><input id="so_return_phone">
+        <label>Days of History:</label><input id="so_days_history" inputmode="numeric">
+        <label>Hide Aging Section:</label><div><input type="checkbox" id="so_hide_aging"></div>
+        <label>Hide Procedure Codes:</label><div><input type="checkbox" id="so_hide_proc"></div>
+      </div></div>
+    <div class="mbar"><span class="spacer"></span><button id="soOk" class="primary">OK</button><button id="soCancel">Cancel</button></div>
+  </div>
+</div>
 <div class="modal" id="padj" hidden>
   <div class="mwin">
     <div class="mt">Printer Adjustment</div>
@@ -679,7 +733,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   var LETTERS = "ABCDEFGHIJKL";
   var BILL = { draft: "Ready to Submit", sent: "Submitted", hold: "On Hold", partial: "Partly Paid", paid: "Paid", denied: "Denied" };
   var OWING = { sent: 1, hold: 1, partial: 1, denied: 1 };
-  var KIND_ICON = { patient: "👤", claim: "📄", payer: "🏛", provider: "🩺", payment: "💵", help: "❓" };
+  var KIND_ICON = { patient: "👤", claim: "📄", payer: "🏛", provider: "🩺", payment: "💵", statements: "✉", help: "❓" };
   var DIR = {
     payer: { title: "Payer Library", name: "name", fields: [
       ["name", "Insurer Name:", 1], ["address", "Claims Mailing Address:", 1], ["payer_id", "Payer ID:"], ["phone", "Phone #:"],
@@ -728,7 +782,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   // ICD-10 codes may be typed EZClaim-style without the decimal point.
   function dotted(code) { code = String(code || "").trim().toUpperCase(); return /^[A-Z][0-9][0-9A-Z][0-9A-Z]{1,4}$/.test(code) ? code.slice(0, 3) + "." + code.slice(3) : code; }
   function ptrLetters(p) { return String(p || "").split(/[\s,]+/).filter(Boolean).map(function (x) { return /^\d+$/.test(x) ? (LETTERS[+x - 1] || x) : x.toUpperCase(); }).join(""); }
-  function setMsg(t) { ["msg", "pmsg", "dmsg", "paymsg"].forEach(function (id) { $(id).textContent = t; }); }
+  function setMsg(t) { ["msg", "pmsg", "dmsg", "paymsg", "stmsg"].forEach(function (id) { $(id).textContent = t; }); }
 
   // ============ data ============
   function claimsOf(p) {
@@ -1012,6 +1066,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
       { cap: "List", items: [big("📄", "Claims", function () { listPatientClaims(cur()); })] }, help];
     if (S.rtab === "tools") return [
       { cap: "Import", items: [big("📷", "Claim from a Scan", scanCmd)] },
+      { cap: "Patients", items: [big("✉", "Patient Statements", openStatements, true, "Not used for PIP billing - patients are never billed")] },
       { cap: "Options", items: [big("🖨", "Printer Adjustment", openAdjust), big("⚙", "Program Setup", null, false, SOON)] },
       { cap: "Security", small: 1, items: [small("🚪", "Log Out", function () { lock("Logged out."); }), small("👥", "Login as another user", function () { lock("Log in as another user."); }),
         small("🔑", "Change Password", null, false, "On Main: claims_web.py passwd <name>")] },
@@ -1019,7 +1074,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
     if (S.rtab === "support") return [help, { cap: "About", items: [big("⚡", "Thunder Claims", openHelp)] }];
     return [file, edit, find,
       { cap: "New", items: [big("👤", "Patient", newPatient), big("📄", "Claim", newClaim), big("💵", "Payment", function () { newPayment(); }),
-        big("☑", "Task", null, false, SOON), big("✉", "Statement", null, false, SOON)] },
+        big("☑", "Task", null, false, SOON)] },
       { cap: "Libraries", items: [big("🏛", "Payer", function () { selectLeftTab("payer"); }), big("🩺", "Physician Facility", function () { selectLeftTab("provider"); })] },
       { cap: "Alerts", items: [big("⚠", "Needs Fixing (" + blocked + ")", function () { showWidget("block"); })] }, help];
   }
@@ -1068,6 +1123,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
     if (d.kind === "help") return "Help Topics";
     if (d.kind === "patient") { var n = composeName(x) || "New Patient"; var a = age(x.dob); return n + (a !== "" ? " (Age: " + a + ")" : ""); }
     if (d.kind === "claim") return (x.patient_name || "New Claim") + (x.date_of_service ? " - " + x.date_of_service : "");
+    if (d.kind === "statements") return "Statements";
     if (d.kind === "payment") return d.id ? "Payment - " + ((x.source === "payer" ? x.payer : x.patient_name) || "?") + " " + (x.date || "") : "Payment Entry";
     return x.name || (d.kind === "payer" ? "New Payer" : "New Physician/Facility");
   }
@@ -1110,7 +1166,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   function blankClaim() {
     return { place_of_service: "11", diagnoses: [], procedures: [], tracking: { billing: "draft", method: "paper" }, notes_log: [] };
   }
-  function blankLine(date, d) { return { date: date || (d && d.data.date_of_service) || "", code: "", modifier: "", m2: "", m3: "", m4: "", description: "", units: "1", charge: "", pointer: "1" }; }
+  function blankLine(date, d) { return { date: date || (d && d.data.date_of_service) || "", code: "", modifier: "", m2: "", m3: "", m4: "", description: "", units: "1", charge: "", pointer: "1", resp: "" }; }
   function composeName(p) {
     if (p.last_name || p.first_name) return (String(p.last_name || "").trim() + ", " + String(p.first_name || "").trim() + (p.mi ? " " + p.mi : "")).toUpperCase().replace(/^, |, $/g, "");
     return p.patient_name || "";
@@ -1191,7 +1247,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   function renderWork() {
     var d = cur(), k = d ? d.kind : "home";
     $("homeView").hidden = k !== "home"; $("helpView").hidden = k !== "help"; $("claimView").hidden = k !== "claim";
-    $("patView").hidden = k !== "patient"; $("dirView").hidden = !(k === "payer" || k === "provider"); $("payView").hidden = k !== "payment";
+    $("patView").hidden = k !== "patient"; $("dirView").hidden = !(k === "payer" || k === "provider"); $("payView").hidden = k !== "payment"; $("stmtView").hidden = k !== "statements";
     $("work").classList.toggle("nobtn", k === "home" || k === "help");
     renderButtons();
     if (k === "home") renderHome();
@@ -1199,6 +1255,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
     if (k === "patient") renderPatient();
     if (k === "payer" || k === "provider") renderDir();
     if (k === "payment") renderPayment();
+    if (k === "statements") renderStatements();
     $("work").scrollTop = 0;
   }
   function renderButtons() {
@@ -1210,6 +1267,13 @@ body.locked > :not(.login):not(#print) { display: none !important; }
       '<button disabled title="' + SOON + '">Delete</button><div class="gap"></div><button data-b="newClaim">New Claim</button>' +
       '<label class="' + (d.data.active !== false ? "act" : "") + '"><input type="checkbox" data-b="active"' + (d.data.active !== false ? " checked" : "") + '> Active</label>';
     if (k === "payer" || k === "provider") h = '<button class="primary" data-b="saveClose">Save &amp; Close</button><button data-b="save">Save</button><button data-b="close">Close</button>';
+    if (k === "statements") h = '<label style="display:block">Statement Format:<select id="st_format" style="margin-top:2px"><option>Statement</option></select></label>' +
+      '<button class="primary" data-b="stPrint">Print</button><button data-b="stPreview">Preview</button><button data-b="stOptions">Options</button><button data-b="close">Close</button>' +
+      '<div class="gap"></div><button data-b="stAll">Check All</button><button data-b="stNone">Uncheck All</button><div class="gap"></div>' +
+      '<label><input type="checkbox" id="st_zero"' + (d.opts.zero ? " checked" : "") + '> Include $0 Patient Balance Claims</label>' +
+      '<label style="display:block">Min. Pat. Bal.:<input id="st_min" value="' + esc(d.opts.min) + '" inputmode="decimal"></label>' +
+      '<label style="display:block">Min. Sta. Cycle (days):<input id="st_cycle" value="' + esc(d.opts.cycle) + '" inputmode="numeric"></label>' +
+      '<button data-b="stRefresh">Refresh</button>';
     if (k === "payment") h = '<button class="primary" data-b="saveClose">Save &amp; Close</button><button data-b="save">Save</button><button data-b="close">Close</button>' +
       '<button data-b="newPmt">New Pmt</button><div class="gap"></div>' +
       '<div class="fsum">Filter Settings:<br>Ignore Responsible Party - ' + (d.opts.ignore ? "Checked" : "Unchecked") +
@@ -1234,6 +1298,12 @@ body.locked > :not(.login):not(#print) { display: none !important; }
       case "savePatient": savePatientFromClaim(); break;
       case "newClaim": newClaimForDoc(d); break;
       case "newPmt": newPayment(); break;
+      case "stPrint": stPreview(true); break;
+      case "stPreview": stPreview(false); break;
+      case "stOptions": stOptions(); break;
+      case "stAll": d.rows.forEach(function (r) { d.checked[r.id] = true; }); renderStRows(); break;
+      case "stNone": d.checked = {}; renderStRows(); break;
+      case "stRefresh": d.opts.min = $("st_min").value; d.opts.cycle = $("st_cycle").value; d.opts.zero = $("st_zero").checked; loadStatements(d); break;
       case "filters": d.showFilters = !d.showFilters; renderButtons(); break;
     }
   });
@@ -1274,7 +1344,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   $("refreshBtn").onclick = loadAll;
   $("homeView").addEventListener("click", function (e) {
     var b = e.target.closest("[data-go]"); if (!b) return;
-    ({ newPatient: newPatient, newClaim: newClaim, scan: scanCmd, newPayment: function () { newPayment(); },
+    ({ newPatient: newPatient, newClaim: newClaim, scan: scanCmd, newPayment: function () { newPayment(); }, statements: function () { openStatements(); }, findClaim: function () { selectLeftTab("claim"); findCmd(); },
        editPatient: function () { selectLeftTab("patient"); findCmd(); },
        printClaims: function () { selectLeftTab("claim"); S.grids.claim.f = { status: "Ready" }; renderGridHead(); renderGridBody();
          setMsg("Ready-to-submit claims are listed on the left. Open one and press Print."); }
@@ -1334,11 +1404,12 @@ body.locked > :not(.login):not(#print) { display: none !important; }
         (ph ? ' placeholder="' + ph + '"' : "") + (mode ? ' inputmode="' + mode + '"' : "") + ' aria-label="Line ' + (i + 1) + " " + k + '"></td>'; };
       return '<tr>' + inp("date", 92, c.date_of_service || "MM/DD/YYYY") + '<td style="width:40px;padding:0 6px">' + esc(c.place_of_service) + '</td>' +
         inp("code", 74, "97110", "code") + inp("modifier", 38, "", "code") + inp("m2", 38, "", "code") + inp("m3", 38, "", "code") + inp("m4", 38, "", "code") +
-        inp("pointer", 58, "1", "code") + inp("description") + inp("charge", 76, "0.00", "", "decimal") + inp("units", 46, "", "", "numeric") +
+        inp("pointer", 58, "1", "code") + '<td style="width:58px"><select data-px="' + i + '" data-k="resp" aria-label="Line ' + (i + 1) + ' responsible party">' +
+        '<option value="">Ins</option><option value="pat"' + (p.resp === "pat" ? " selected" : "") + '>Pat</option></select></td>' + inp("description") + inp("charge", 76, "0.00", "", "decimal") + inp("units", 46, "", "", "numeric") +
         '<td class="n" style="width:84px" data-lt="' + i + '">' + fmt((money(p.units) || 1) * money(p.charge)) + '</td>' + postedCells(d, i, p) +
         '<td class="tag-cell" data-code="' + esc(p.code) + '" style="width:104px"></td>' +
         '<td style="width:26px"><button class="rm" data-rmpx="' + i + '" aria-label="Remove service line ' + (i + 1) + '">✕</button></td></tr>';
-    }).join("") : '<tr><td colspan="17" class="hint" style="padding:6px">Click a date on the calendars above to enter a new service line.</td></tr>';
+    }).join("") : '<tr><td colspan="18" class="hint" style="padding:6px">Click a date on the calendars above to enter a new service line.</td></tr>';
   }
   function postedLine(d, i) { return ((d.ledger && d.ledger.lines) || {})[String(i)] || { paid: 0, adj: 0, entries: [] }; }
   function postedCells(d, i, p) {
@@ -1529,12 +1600,12 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   // ============ patient screen ============
   function renderPatient() {
     var d = cur(), p = d.data;
-    qa("#patView [data-p]").forEach(function (el) { el.value = p[el.dataset.p] || (el.tagName === "SELECT" ? el.options[0].value : ""); });
+    qa("#patView [data-p]").forEach(function (el) { if (el.type === "checkbox") el.checked = !!p[el.dataset.p]; else el.value = p[el.dataset.p] || (el.tagName === "SELECT" ? el.options[0].value : ""); });
     setMsg(d.id ? "Patient " + (p.account_number ? "Account # " + p.account_number : d.id) : "New patient - the account number is assigned when you save.");
   }
   $("patView").addEventListener("input", function (e) {
     var t = e.target, d = cur(); if (!d || d.kind !== "patient" || !t.dataset.p) return;
-    d.data[t.dataset.p] = t.value; markDirty();
+    d.data[t.dataset.p] = t.type === "checkbox" ? t.checked : t.value; markDirty();
     if (/^(last_name|first_name|mi|dob)$/.test(t.dataset.p)) renderDocTabs();
   });
   $("patView").addEventListener("change", function (e) { var t = e.target, d = cur(); if (d && d.kind === "patient" && t.dataset.p && t.tagName === "SELECT") { d.data[t.dataset.p] = t.value; markDirty(); } });
@@ -1749,6 +1820,129 @@ body.locked > :not(.login):not(#print) { display: none !important; }
       loadAll(); return true;
     }).catch(function (e) { setMsg("Not saved: " + e.message); return false; });
   }
+
+  // ============ patient statements ============
+  var ST = { statement: null };
+  function openStatements() {
+    for (var i = 0; i < S.docs.length; i++) if (S.docs[i].kind === "statements") return activate(i);
+    addDoc({ kind: "statements", id: "statements", data: {}, rows: null, checked: {}, msgs: {}, opts: { min: "0.01", cycle: "30", zero: false }, dirty: false });
+  }
+  function loadSettings() { return api("GET", "/api/settings").then(function (r) { ST = r; return r; }); }
+  function loadStatements(d) {
+    $("stRows").innerHTML = '<tr class="empty"><td colspan="8">Loading…</td></tr>';
+    return Promise.all([loadSettings(), api("GET", "/api/statements?min=" + encodeURIComponent(d.opts.min) + "&cycle=" + encodeURIComponent(d.opts.cycle) + "&zero=" + (d.opts.zero ? 1 : 0))])
+      .then(function (res) {
+        d.rows = res[1].rows; d.checked = {}; d.rows.forEach(function (r) { d.checked[r.id] = true; if (d.msgs[r.id] == null) d.msgs[r.id] = r.pat_msg || ""; });
+        if (cur() === d) renderStatements();
+      }).catch(function (e) { setMsg("Couldn’t load statements: " + e.message); });
+  }
+  function renderStatements() {
+    var d = cur();
+    if (d.rows === null) { loadStatements(d); return; }
+    $("st_global").value = ST.statement ? ST.statement.global_message || "" : "";
+    $("st_msgs").innerHTML = ((ST.statement || {}).messages || []).map(function (m) { return '<option value="' + esc(m) + '">'; }).join("");
+    renderStRows();
+  }
+  function renderStRows() {
+    var d = cur(), rows = d.rows || [];
+    $("stRows").innerHTML = rows.length ? rows.map(function (r) {
+      return '<tr class="item' + (r.pat_bal > 0.004 ? " owe" : "") + '"><td class="ic"><input type="checkbox" data-stck="' + esc(r.id) + '"' + (d.checked[r.id] ? " checked" : "") + ' aria-label="Include ' + esc(r.patient_name) + '"></td>' +
+        '<td>' + esc(r.patient_name) + '</td><td>' + esc(r.account_number) + '</td><td class="n">' + fmt(r.pat_bal) + '</td><td class="n">' + fmt(r.ins_bal) + '</td><td>' + esc(r.pri_payer) +
+        '</td><td>' + esc(r.last_statement_date) + '</td><td style="padding:1px"><input data-stmsg="' + esc(r.id) + '" value="' + esc(d.msgs[r.id] || "") + '" style="height:20px" aria-label="Message for ' + esc(r.patient_name) + '"></td></tr>';
+    }).join("") : '<tr class="empty"><td colspan="8">No patients match. Lower Min. Pat. Bal., or set Min. Sta. Cycle to 0, and Refresh.</td></tr>';
+    var ck = rows.filter(function (r) { return d.checked[r.id]; });
+    $("stFoot").innerHTML = '<tr><td colspan="3">Shown: ' + rows.length + '. Checked: ' + ck.length + '.</td><td class="n">' + fmt(rows.reduce(function (a, r) { return a + r.pat_bal; }, 0)) +
+      '</td><td class="n">' + fmt(rows.reduce(function (a, r) { return a + r.ins_bal; }, 0)) + '</td><td colspan="3"></td></tr>';
+    $("st_hdr").checked = rows.length > 0 && ck.length === rows.length;
+    setMsg(rows.length ? "Tick the patients to bill, then Preview or Print." : "");
+  }
+  $("stmtView").addEventListener("change", function (e) {
+    var d = cur(); if (!d || d.kind !== "statements") return;
+    if (e.target.dataset.stck) { d.checked[e.target.dataset.stck] = e.target.checked; renderStRows(); }
+    if (e.target.id === "st_hdr") { d.rows.forEach(function (r) { d.checked[r.id] = e.target.checked; }); renderStRows(); }
+  });
+  $("stmtView").addEventListener("input", function (e) { var d = cur(); if (d && e.target.dataset.stmsg) d.msgs[e.target.dataset.stmsg] = e.target.value; });
+  function stAddrLines(p) {
+    // Older patient records hold the whole address in one line; split it so the
+    // envelope window shows street / city-state-zip, and never a blank line.
+    var a = { street: p.address || "", city: p.city || "", state: p.state || "", zip: p.zip || "" };
+    if (!a.city && a.street.indexOf(",") >= 0) { var x = parseAddr(a.street); a.street = x.street; a.city = x.city; a.state = x.state; a.zip = x.zip; }
+    return [p.name, a.street, p.address2, stAddr(a)].filter(function (l) { return String(l || "").trim(); });
+  }
+  function stAddr(a) { return [a.city, [a.state, a.zip].filter(Boolean).join(" ")].filter(Boolean).join(", "); }
+  function statementPage(det, globalMsg) {
+    var st = det.settings, p = det.patient, today = mdy(new Date()), max = 24, rows = det.rows.slice(0, max);
+    var money2 = function (v) { return v == null ? "" : fmt(v); };
+    var h = '<div class="stpage">' +
+      '<div class="ab" style="left:0.6in;top:0.5in;width:3.6in"><b>' + esc(st.return_name || "Your practice name - set it in Options") + '</b><br>' + esc(st.return_addr1) +
+        (st.return_addr2 ? '<br>' + esc(st.return_addr2) : "") + '<br>' + esc([st.return_city, [st.return_state, st.return_zip].filter(Boolean).join(" ")].filter(Boolean).join(", ")) +
+        (st.return_phone ? '<br>' + esc(st.return_phone) : "") + '</div>' +
+      '<div class="ab" style="left:5.4in;top:0.45in;width:2.6in"><div class="big">STATEMENT</div>Date: ' + today + '<br>Account No: ' + esc(p.account_number || "") + '<br>Page: 1/1</div>' +
+      // positioned for the address window of a standard #10 window envelope
+      '<div class="ab" style="left:1.0in;top:2.05in;width:3.6in;font-size:11pt;line-height:1.35">' + stAddrLines(p).map(function (l) { return esc(l.toUpperCase()); }).join("<br>") + '</div>' +
+      '<div class="ab due" style="left:5.4in;top:2.05in;width:2.5in">Please Pay: <b>' + fmt(det.please_pay) + '</b><br>Amount Enclosed: $__________</div>' +
+      '<div class="ab" style="left:0.6in;top:3.35in;width:7.3in"><table><thead><tr><th style="width:0.85in">Date</th><th>Description</th>' + (st.hide_proc ? "" : '<th style="width:0.6in">Proc</th>') +
+        '<th class="n" style="width:1.05in">Transaction Amount</th><th class="n" style="width:0.95in">Insurance Balance</th><th class="n" style="width:0.95in">Patient Balance</th></tr></thead><tbody>' +
+        rows.map(function (r) { return '<tr><td>' + esc(r.date) + '</td><td>' + esc(r.description) + (r.note ? '<br><i>' + esc(r.note) + '</i>' : "") + '</td>' + (st.hide_proc ? "" : '<td>' + esc(r.proc) + '</td>') +
+          '<td class="n">' + fmt(r.amount) + '</td><td class="n">' + money2(r.ins_bal) + '</td><td class="n">' + money2(r.pat_bal) + '</td></tr>'; }).join("") +
+        (det.rows.length > max ? '<tr><td colspan="6"><i>' + (det.rows.length - max) + ' more line(s) not shown - call us for a full itemised statement.</i></td></tr>' : "") +
+        '</tbody></table></div>' +
+      '<div class="ab" style="left:0.6in;top:8.7in;width:7.3in;font-size:10pt">' + esc(p.pat_msg || "") + (p.pat_msg && globalMsg ? "<br>" : "") + esc(globalMsg || "") + '</div>' +
+      (st.hide_aging ? "" : '<div class="ab" style="left:0.6in;top:9.45in;width:7.3in"><table class="aging"><tr><th>0-30</th><th>31-60</th><th>61-90</th><th>91-120</th><th>Over 120</th><th>Ins. Bal.</th><th>Please Pay</th></tr><tr>' +
+        ["0-30", "31-60", "61-90", "91-120", "Over 120"].map(function (k) { return '<td>' + fmt(det.aging[k]) + '</td>'; }).join("") + '<td>' + fmt(det.ins_bal) + '</td><td><b>' + fmt(det.please_pay) + '</b></td></tr></table></div>') +
+      '</div>';
+    return h;
+  }
+  var stBatch = [];
+  function stPreview(printNow) {
+    var d = cur(), ids = (d.rows || []).filter(function (r) { return d.checked[r.id]; }).map(function (r) { return r.id; });
+    if (!ids.length) return setMsg("Tick at least one patient.");
+    var globalMsg = $("st_global").value.trim();
+    setMsg("Building " + ids.length + " statement(s)…");
+    Promise.all(ids.map(function (id) { return api("GET", "/api/statement/" + id); })).then(function (dets) {
+      stBatch = dets.map(function (det) { det.patient.pat_msg = d.msgs[det.patient.id] != null ? d.msgs[det.patient.id] : det.patient.pat_msg; return det; });
+      $("spPages").innerHTML = stBatch.map(function (det) { return statementPage(det, globalMsg); }).join("");
+      $("spTitle").textContent = "Statement Preview - " + stBatch.length + " statement" + (stBatch.length === 1 ? "" : "s");
+      $("spNote").textContent = "Always shows today's balances. Folds to fit a #10 window envelope.";
+      $("spview").hidden = false;
+      var w = $("spPages").clientWidth || 800; $("spPages").style.setProperty("--pvscale", Math.min(1, (w - 20) / (8.5 * 96)));
+      setMsg("");
+      if (printNow) $("spPrint").click();
+    }).catch(function (e) { setMsg("Couldn’t build statements: " + e.message); });
+  }
+  $("spClose").onclick = function () { $("spview").hidden = true; };
+  $("spPrint").onclick = function () {
+    var d = cur(); if (!stBatch.length || !d || d.kind !== "statements") return;
+    var globalMsg = $("st_global").value.trim();
+    setPageMargin(true);
+    $("print").innerHTML = stBatch.map(function (det) { return statementPage(det, globalMsg); }).join("");
+    window.print();
+    // As in EZClaim, only a confirmed good print records Last Statement Date.
+    if (!confirm("Did all the statements print properly?\n\nYes records today as the Last Statement Date for these " + stBatch.length + " patient(s).")) {
+      setMsg("Nothing recorded. Fix the printer and print again."); return;
+    }
+    var items = stBatch.map(function (det) { return { id: det.patient.id, pat_msg: det.patient.pat_msg || "", amount: det.please_pay }; });
+    Promise.all([api("POST", "/api/statements/printed", JSON.stringify({ items: items, date: mdy(new Date()) })),
+                 api("POST", "/api/settings", JSON.stringify({ statement: { global_message: globalMsg } }))])
+      .then(function (r) { $("spview").hidden = true; setMsg("Recorded " + r[0].updated + " statement(s) as sent today."); loadStatements(d); loadAll(); })
+      .catch(function (e) { setMsg("Printed, but not recorded: " + e.message); });
+  };
+  var SO_FIELDS = ["return_name", "return_addr1", "return_addr2", "return_city", "return_state", "return_zip", "return_phone", "days_history"];
+  function stOptions() {
+    loadSettings().then(function () {
+      var st = ST.statement;
+      SO_FIELDS.forEach(function (k) { $("so_" + k).value = st[k] == null ? "" : st[k]; });
+      $("so_hide_aging").checked = !!st.hide_aging; $("so_hide_proc").checked = !!st.hide_proc;
+      $("sopts").hidden = false;
+    });
+  }
+  $("soCancel").onclick = function () { $("sopts").hidden = true; };
+  $("soOk").onclick = function () {
+    var body = { hide_aging: $("so_hide_aging").checked, hide_proc: $("so_hide_proc").checked };
+    SO_FIELDS.forEach(function (k) { body[k] = $("so_" + k).value; });
+    api("POST", "/api/settings", JSON.stringify({ statement: body })).then(function (r) { ST = r; $("sopts").hidden = true; setMsg("Statement options saved."); })
+      .catch(function (e) { setMsg("Not saved: " + e.message); });
+  };
 
   // ============ print (CMS-1500 layout) ============
   function replicaHtml(d) {
