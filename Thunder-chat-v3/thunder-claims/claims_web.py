@@ -228,6 +228,8 @@ def summary(kind: str, rid: str, r: dict, led: dict | None = None, claims: list 
                 "balance": round(charges - paid - posted["adj"], 2),
                 "pat_bal": round(sum(x["pat_bal"] for x in lines), 2), "ins_bal": round(sum(x["ins_bal"] for x in lines), 2),
                 "pip_level": pip["level"], "pip_text": pip["text"], "method": track.get("method") or "paper",
+                "sent_date": track.get("sent_date", ""), "claim_number": r.get("claim_number", ""),
+                "treating_provider": r.get("treating_provider", ""), "last_printed": track.get("last_printed", ""),
                 "clinic_name": r.get("clinic_name", ""),
                 "saved": meta.get("saved", "")}
     if kind == "patient":
@@ -1079,12 +1081,40 @@ def get_prefs(user: str) -> dict:
         allp = json.loads(PREFS_FILE.read_text())
     except (FileNotFoundError, ValueError):
         allp = {}
-    return {"print": {**PRINT_DEFAULTS, **(allp.get(user, {}).get("print") or {})}}
+    return {"print": {**PRINT_DEFAULTS, **(allp.get(user, {}).get("print") or {})},
+            "grids": allp.get(user, {}).get("grids") or {}}
 
 
 def set_prefs(user: str, body: dict) -> dict:
+    """Printer settings and grid layouts are per person, as in EZClaim (each
+    desk has its own printer; each person arranges their own columns). Either
+    part can be sent alone."""
+    try:
+        allp = json.loads(PREFS_FILE.read_text())
+    except (FileNotFoundError, ValueError):
+        allp = {}
+    mine = allp.setdefault(user, {})
+    if "grids" in (body or {}):
+        grids = {}
+        for kind, cols in ((body or {}).get("grids") or {}).items():
+            if kind in KINDS and isinstance(cols, list):
+                keep = [str(k)[:24] for k in cols if re.fullmatch(r"[a-z0-9_]{1,24}", str(k))][:30]
+                if keep:
+                    grids[kind] = keep
+        mine["grids"] = grids
+    if "print" in (body or {}):
+        mine["print"] = _clean_print((body or {}).get("print") or {})
+    PREFS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    tmp = PREFS_FILE.with_suffix(".tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        json.dump(allp, f, indent=2)
+    os.replace(tmp, PREFS_FILE)
+    return get_prefs(user)
+
+
+def _clean_print(src: dict) -> dict:
     pr = dict(PRINT_DEFAULTS)
-    src = (body or {}).get("print") or {}
     if src.get("form") in ("preview", "always", "never"):
         pr["form"] = src["form"]
     for k in ("dx", "dy", "carrier_dx", "carrier_dy"):  # inches, a sheet's worth either way at most
@@ -1095,18 +1125,7 @@ def set_prefs(user: str, body: dict) -> dict:
     pr["font"] = int(src.get("font")) if str(src.get("font")) in ("10", "11", "12") else 12
     pr["bottom_margin"] = bool(src.get("bottom_margin"))
     pr["year4"] = bool(src.get("year4"))
-    try:
-        allp = json.loads(PREFS_FILE.read_text())
-    except (FileNotFoundError, ValueError):
-        allp = {}
-    allp.setdefault(user, {})["print"] = pr
-    PREFS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    tmp = PREFS_FILE.with_suffix(".tmp")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w") as f:
-        json.dump(allp, f, indent=2)
-    os.replace(tmp, PREFS_FILE)
-    return {"print": pr}
+    return pr
 
 
 def access_log(who: str, ip: str, method: str, path: str, status: int) -> None:

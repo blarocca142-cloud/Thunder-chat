@@ -307,6 +307,13 @@ td.pip-late, td.pip-overdue { color: var(--block); font-weight: 700; } td.pip-so
 .setup .supane h2 { text-align: center; margin: 0 0 10px; font-size: 14px; }
 .setup .form { grid-template-columns: 260px 1fr; }
 body.altrows table.g tbody tr.item:nth-child(even) td { background: #f5f1e6; }
+.custpanel { position: fixed; z-index: 55; width: 230px; max-height: 360px; display: flex; flex-direction: column; background: var(--white); border: 1px solid #888; box-shadow: 2px 3px 10px rgba(0,0,0,.3); }
+.custpanel .mt { display: flex; justify-content: space-between; align-items: center; padding: 4px 8px; font-weight: 700; background: linear-gradient(var(--bar1), var(--bar2)); }
+.custpanel .mt button { border: 0; background: none; padding: 0 4px; }
+.custpanel input { margin: 6px; width: calc(100% - 12px); box-sizing: border-box; }
+.custpanel .cl { overflow: auto; flex: 1; border-top: 1px solid #ddd; }
+.custpanel .cl div { padding: 3px 10px; cursor: default; user-select: none; } .custpanel .cl div:hover { background: #fbe3a0; }
+.custpanel .hint { padding: 4px 8px; font-size: 11px; }
 .replist table { width: 100%; border-collapse: collapse; } .replist th { text-align: left; background: linear-gradient(var(--bar1), var(--bar2)); padding: 3px 6px; font-weight: 700; border-bottom: 1px solid var(--edge); }
 .replist td { padding: 3px 6px; border-bottom: 1px solid #eeeae0; cursor: default; } .replist tr.sel td { background: var(--sel); color: var(--sel-ink); }
 .replist td.ic { width: 44px; white-space: nowrap; } .replist td.ic button { border: 0; background: none; padding: 0 2px; cursor: pointer; }
@@ -974,6 +981,90 @@ body.locked > :not(.login):not(#print) { display: none !important; }
       { k: "amt", t: "Pmt Amt", w: "70px", m: 1, v: function (r) { return r.amount; } },
       { k: "rem", t: "Remaining", w: "72px", m: 1, v: function (r) { return r.remaining; } }]
   };
+  // ---- column chooser (EZClaim's right-click > Column Chooser, "Customization") ----
+  var YN = function (b) { return b ? "Yes" : "No"; };
+  var EXTRA = {
+    claim: [
+      { k: "acct", t: "Account #", w: "70px", v: function (r) { return r.account_number; } },
+      { k: "payer", t: "Primary Payer", v: function (r) { return r.insurer; } },
+      { k: "claimno", t: "Insured's ID #", v: function (r) { return r.claim_number; } },
+      { k: "bill", t: "Bill Date", w: "74px", d: 1, v: function (r) { return r.sent_date; } },
+      { k: "paid", t: "Paid", w: "68px", m: 1, v: function (r) { return r.paid; } },
+      { k: "adj", t: "Adjusted", w: "68px", m: 1, v: function (r) { return r.adjusted; } },
+      { k: "insbal", t: "Ins. Bal.", w: "68px", m: 1, v: function (r) { return r.ins_bal; } },
+      { k: "billing", t: "Billing Provider", v: function (r) { return r.clinic_name; } },
+      { k: "rend", t: "Rendering", v: function (r) { return r.treating_provider; } },
+      { k: "method", t: "Method", w: "60px", v: function (r) { return r.method === "electronic" ? "Electronic" : "Paper"; } },
+      { k: "printed", t: "Last Printed", w: "74px", d: 1, v: function (r) { return r.last_printed; } },
+      { k: "scrub", t: "Scrub", w: "60px", v: function (r) { return { CLEAN: "Clean", REVIEW: "Review", BLOCK: "Blocked" }[r.status] || r.status; } },
+      { k: "modified", t: "Modified", w: "110px", v: function (r) { return r.saved; } },
+      { k: "cid", t: "Claim ID", v: function (r) { return r.id; } }],
+    patient: [
+      { k: "dob", t: "DOB", w: "74px", d: 1, v: function (r) { return r.dob; } },
+      { k: "phone", t: "Phone #", w: "96px", v: function (r) { return r.phone; } },
+      { k: "city", t: "City", v: function (r) { return r.city; } },
+      { k: "zip", t: "Zip", w: "56px", v: function (r) { return r.zip; } },
+      { k: "email", t: "Email", v: function (r) { return r.email; } },
+      { k: "insid", t: "Pri Insured's ID", v: function (r) { return r.insured_id; } },
+      { k: "payer2", t: "Sec Payer", v: function (r) { return r.insurer2; } },
+      { k: "active", t: "Active", w: "50px", v: function (r) { return YN(r.active); } },
+      { k: "reminder", t: "Reminder", v: function (r) { return r.reminder; } }],
+    payment: [
+      { k: "src", t: "Source", w: "60px", v: function (r) { return r.source === "payer" ? "Payer" : "Patient"; } },
+      { k: "ref", t: "Ref #", w: "80px", v: function (r) { return r.ref; } },
+      { k: "applied", t: "Applied", w: "70px", m: 1, v: function (r) { return r.applied; } }],
+    task: [
+      { k: "pri", t: "Priority", w: "60px", v: function (r) { return r.priority; } },
+      { k: "about", t: "Regarding", v: function (r) { return r.about; } },
+      { k: "by", t: "Created By", w: "80px", v: function (r) { return (r.created_by || "").toUpperCase(); } }],
+    procedure: [
+      { k: "units", t: "Units", w: "44px", v: function (r) { return r.units; } },
+      { k: "ptr", t: "Dx Pointer", w: "60px", v: function (r) { return r.pointer; } }],
+    provider: [{ k: "tax", t: "Tax ID", w: "90px", v: function (r) { return r.tax_id; } }]
+  };
+  var ALLCOLS = {}, DEFCOLS = {};
+  Object.keys(COLS).forEach(function (k) { DEFCOLS[k] = COLS[k].map(function (c) { return c.k; }); ALLCOLS[k] = COLS[k].concat(EXTRA[k] || []); });
+  function applyLayout(grids) {
+    Object.keys(ALLCOLS).forEach(function (k) {
+      var keys = (grids && grids[k]) || DEFCOLS[k];
+      var cols = keys.map(function (key) { return ALLCOLS[k].filter(function (c) { return c.k === key; })[0]; }).filter(Boolean);
+      COLS[k] = cols.length ? cols : DEFCOLS[k].map(function (key) { return ALLCOLS[k].filter(function (c) { return c.k === key; })[0]; });
+      var g = S.grids[k]; if (!g) return;
+      var have = COLS[k].map(function (c) { return c.k; });
+      if (g.group && have.indexOf(g.group) < 0) g.group = null;
+      g.sort = g.sort.filter(function (x) { return have.indexOf(x.k) >= 0; });
+      Object.keys(g.f).forEach(function (fk) { if (have.indexOf(fk) < 0) delete g.f[fk]; });
+    });
+  }
+  function saveLayout() {   // per person, as in EZClaim
+    var grids = {};
+    Object.keys(COLS).forEach(function (k) { var keys = COLS[k].map(function (c) { return c.k; }); if (keys.join() !== DEFCOLS[k].join()) grids[k] = keys; });
+    api("POST", "/api/prefs", JSON.stringify({ grids: grids })).catch(function (e) { setMsg("Layout not saved: " + e.message); });
+  }
+  function loadLayout() { return api("GET", "/api/prefs").then(function (r) { applyLayout(r.grids || {}); renderGridHead(); renderGridBody(); }).catch(function () {}); }
+  var cust = null;
+  function closeCust() { if (cust) { cust.remove(); cust = null; } }
+  function openCust(x, y) {
+    closeCust();
+    cust = document.createElement("div"); cust.className = "custpanel";
+    cust.style.left = Math.min(x, innerWidth - 240) + "px"; cust.style.top = Math.min(y, innerHeight - 370) + "px";
+    cust.innerHTML = '<div class="mt">Customization<button title="Close">✕</button></div><input placeholder="Search for a column..." aria-label="Search for a column">' +
+      '<div class="cl"></div><div class="hint">Double-click a column to add it. Right-click a heading > Remove This Column to take one away - it only hides it, nothing is deleted.</div>';
+    document.body.appendChild(cust);
+    var fill = function () {
+      var q = cust.querySelector("input").value.trim().toLowerCase(), shown = COLS[S.tab].map(function (c) { return c.k; });
+      var hid = ALLCOLS[S.tab].filter(function (c) { return shown.indexOf(c.k) < 0 && c.t.toLowerCase().indexOf(q) >= 0; }).sort(function (a, b) { return a.t.localeCompare(b.t); });
+      cust.querySelector(".cl").innerHTML = hid.length ? hid.map(function (c) { return '<div data-addcol="' + c.k + '">' + esc(c.t) + '</div>'; }).join("") : '<div class="hint">Every column is already showing.</div>';
+    };
+    fill();
+    cust.querySelector("input").addEventListener("input", fill);
+    cust.querySelector(".mt button").onclick = closeCust;
+    cust.addEventListener("dblclick", function (e) {
+      var k = e.target.dataset.addcol; if (!k) return;
+      COLS[S.tab] = COLS[S.tab].concat(ALLCOLS[S.tab].filter(function (c) { return c.k === k; }));
+      renderGridHead(); renderGridBody(); saveLayout(); fill();
+    });
+  }
   function cellText(c, r) { var v = c.v(r); return c.m ? fmt(v) : String(v == null ? "" : v); }
   function matches(f, text) {
     f = String(f || "").trim().toLowerCase(); if (!f) return true;
@@ -1003,6 +1094,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
 
   function renderGridHead() {
     var kind = S.tab, g = S.grids[kind], cols = COLS[kind];
+    $("grid").style.minWidth = cols.length > 5 ? (26 + cols.reduce(function (a, c) { return a + (parseInt(c.w, 10) || 110); }, 0)) + "px" : "";
     $("gcols").innerHTML = '<col style="width:26px">' + cols.map(function (c) { return '<col' + (c.w ? ' style="width:' + c.w + '"' : "") + '>'; }).join("");
     $("ghead").innerHTML = '<tr><th class="ic"></th>' + cols.map(function (c) {
       var s = g.sort.filter(function (x) { return x.k === c.k; })[0];
@@ -1051,6 +1143,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
     }).join("") + '</tr>';
   }
   function selectLeftTab(k) {
+    if (typeof closeCust === "function") closeCust();
     qa("#ptabs button").forEach(function (b) { b.classList.toggle("on", b.dataset.k === k); });
     var rp = k === "reports"; document.querySelector(".left").classList.toggle("rep", rp);
     ["band", "gridwrap", "dtabs2", "dbody"].forEach(function (id) { $(id).hidden = rp; }); $("repList").hidden = !rp; $("repCrit").hidden = !rp;
@@ -1106,7 +1199,9 @@ body.locked > :not(.login):not(#print) { display: none !important; }
     menu = document.createElement("div"); menu.className = "ctxmenu";
     menu.innerHTML = '<button data-m="asc">Sort Ascending</button><button data-m="desc">Sort Descending</button><button data-m="clear">Clear Sorting</button><hr>' +
       (g.group === k ? '<button data-m="ungroup">Ungroup</button>' : '<button data-m="group">Group By This Column</button>') +
-      '<button data-m="nofilter">Clear Filter</button><hr><button data-m="export">Export to Excel (.csv)</button><button data-m="print">Print Grid</button><hr><button data-m="restore">Restore Grid</button>';
+      '<button data-m="nofilter">Clear Filter</button><hr>' +
+      (EXTRA[S.tab] || COLS[S.tab].length > 1 ? '<button data-m="chooser">Column Chooser</button>' : "") + (COLS[S.tab].length > 1 ? '<button data-m="remove">Remove This Column</button>' : "") +
+      '<hr><button data-m="export">Export to Excel (.csv)</button><button data-m="print">Print Grid</button><hr><button data-m="restore">Restore Grid</button>';
     menu.style.left = Math.min(e.clientX, innerWidth - 200) + "px"; menu.style.top = e.clientY + "px";
     document.body.appendChild(menu);
     menu.addEventListener("click", function (ev) {
@@ -1116,7 +1211,10 @@ body.locked > :not(.login):not(#print) { display: none !important; }
       if (m === "group") { g.group = k; g.shut = {}; }
       if (m === "ungroup") g.group = null;
       if (m === "nofilter") g.f = {};
-      if (m === "restore") { g.sort = []; g.group = null; g.f = {}; }
+      if (m === "restore") { g.sort = []; g.group = null; g.f = {}; COLS[S.tab] = DEFCOLS[S.tab].map(function (key) { return ALLCOLS[S.tab].filter(function (c) { return c.k === key; })[0]; }); saveLayout(); }
+      if (m === "remove") { COLS[S.tab] = COLS[S.tab].filter(function (c) { return c.k !== k; }); if (g.group === k) g.group = null; delete g.f[k];
+        g.sort = g.sort.filter(function (x) { return x.k !== k; }); saveLayout(); }
+      if (m === "chooser") { var ev0 = ev; setTimeout(function () { openCust(ev0.clientX, ev0.clientY); }, 0); }
       if (m === "export") exportGrid();
       if (m === "print") printGrid();
       renderGridHead(); renderGridBody(); closeMenu();
@@ -2925,7 +3023,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
       $("loggedIn").textContent = "Logged in as: " + r.user.toUpperCase();
       S.company = r.company; $("coName").textContent = r.company || "none";
       if (!r.company) setMsg("You don’t have permission for any company yet - ask Blayne.");
-      activate(S.active); loadAll();
+      activate(S.active); loadAll(); loadLayout();
     }).catch(function (err) { showLogin(err.message); }).finally(function () { $("loginBtn").disabled = false; });
   });
   $("logoutBtn").onclick = function () { lock("Logged out."); };

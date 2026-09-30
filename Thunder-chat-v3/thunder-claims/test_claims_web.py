@@ -390,6 +390,14 @@ st, j, _ = req("POST", "/api/claims/printed", {"ids": [good, "../x"], "date": "0
 g = req("GET", f"/api/rec/{good}", token=TOK)[1]["data"]["tracking"]
 check("confirming the print marks it Submitted with the bill date, and skips bad ids", j["updated"] == 1 and g["billing"] == "sent" and g["sent_date"] == "09/30/2026" and g["last_printed"] == "09/30/2026", (j, g))
 
+print("grid layouts")
+req("POST", "/api/prefs", {"print": {"form": "never", "dx": "0.05"}}, token=TOK)
+st, j, _ = req("POST", "/api/prefs", {"grids": {"claim": ["name", "bill", "payer", "<script>", "x" * 40], "nosuchkind": ["name"]}}, token=TOK)
+check("a column layout saves per person, junk keys and kinds dropped", st == 200 and j["grids"] == {"claim": ["name", "bill", "payer"]}, j.get("grids"))
+check("saving a layout leaves the printer settings alone", j["print"]["form"] == "never" and j["print"]["dx"] == 0.05, j["print"])
+st, j, _ = req("POST", "/api/prefs", {"grids": {}}, token=TOK)
+check("Restore Grid clears it", j["grids"] == {})
+
 print("find grids")
 ok = True
 for w in ("patient", "claim", "service", "payment", "task", "adjustment", "payer", "physician", "note"):
