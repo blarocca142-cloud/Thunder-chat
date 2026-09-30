@@ -86,6 +86,38 @@ patient grid never goes away; work opens beside it.
 
 ---
 
+## 1b. The three areas — EZClaim's own framing
+
+The navigation tutorial names the layout explicitly, and this is the vocabulary
+to design against (`B2WenGr6fcQ`):
+
+1. **The ribbon bar** — "acts as a menu system to access all areas of the
+   program." **It is dynamic:** *"as we open patients and claims you will
+   notice additional ribbon bars that appear with items relevant to items
+   you're working on."* (Hence the `Patient` and `Claim` ribbon tabs in §3b
+   and §3c.)
+2. **The search pane** — the left side. *"Here you will find all of your
+   patients, claims, reports and tasks. Within each tab are additional detail
+   screens that allow you to quickly find information without opening
+   additional screens."*
+3. **The main work area** — the right side. *"When the program opens the
+   homepage is shown automatically. Every time a new item is opened a new tab
+   will appear."* Return home via the `Home` ribbon icon or the `Home` tab;
+   close a tab with its `✕`.
+
+**Several records can be open at once** — e.g. tabs
+`Home ✕`, `BROOKS, PATIENT D (Age: 48) ✕`, `CARSON, PATIENT (Age: 66) ✕`
+side by side (`B2WenGr6fcQ`).
+
+**One rule worth copying exactly:**
+> "the search pane will only show **active** patients, whereas the find window
+> will show **all** patients whether they're active or not"
+
+That is what the `Active` / `Locked` checkboxes on the patient screen and the
+`Entries That Are: Active / Inactive / All` radio group in the library are for.
+
+---
+
 ## 2. The record grid (left top) — and grids generally
 
 Every grid in EZClaim shares the same behaviour and furniture:
@@ -102,6 +134,54 @@ Every grid in EZClaim shares the same behaviour and furniture:
    e.g. `$4,957.00`. Visibility is configurable
    (`Grid Footer Visibility: Show Footers when Filtering`). (`gO7UQeKlmFM`)
 6. A narrow leftmost column of **row icons/checkboxes**.
+
+### Grid behaviour — the full rule set (`B2WenGr6fcQ`, `p4sCfOq7ftc`)
+
+**Grid customisation is per user.** *"When you customize a grid it applies only
+to you. It will not affect other users on the system."*
+
+EZClaim's own names for the parts: **grouping panel** (the drag band),
+**column headings**, **filter row**, **rows**.
+
+**Sorting**
+- Click a heading → ascending, shown by a **triangle** in the heading.
+- Click again → descending, **triangle flips**.
+- **Shift-click** further headings to sort by several columns; each gets a
+  triangle.
+- **Right-click a heading → `Clear Sorting`.**
+
+**Filtering**
+- Type the first few letters into the filter row; **the grid changes
+  dynamically as you type**.
+- **`✕` at the far left of the filter row clears the filter.**
+- **The `%` wildcard matches text *within* the column** — typing `%tom` in
+  `Name` finds `JONES, TOM W`. Footer then reads **`Shown: 1 (Filtered)`**.
+- Filter in one or more columns at once.
+- **Filter menu:** click the small filter icon in a heading → a checkbox list
+  of the available values, **including blank and non-blank**.
+
+**Columns**
+- **Drag headings left or right to reorder.**
+- **Right-click a heading → `Column Chooser`** → a floating list of available
+  columns; **drag an item into position** — *"notice the location arrows that
+  show you where the column will be placed when dropped."*
+- **Remove a column by dragging it out of the grid** — an **`X` indicator**
+  appears.
+- **Drag a column edge to resize, or double-click the edge to auto-fit.**
+- **Right-click a heading → `Restore Grid`** to undo all customisation.
+
+**Right-click menu on a column heading — items seen across the videos:**
+`Conditional Formatting` (→ `Highlight Cell Rules`, `Custom Condition`,
+`Manage Rules`) · `Filter Editor` · `Save Layout` · `Add as Widget` ·
+`Column Chooser` · `Clear Sorting` · `Restore Grid` · `Set Payment Matching
+Key` (on the payer grid, with rows selected).
+
+**Rows**
+- **Double-click a row to open the item** in the work area.
+- Rows carry inline buttons for specific tasks (`OPEN`, `Pay`, `CHECK`,
+  `VIEW`, `DISBURSE`, `MODIFY`, `EDIT`/`COPY`/`DELETE`).
+- The leftmost icon cell has its own action — on the patient grid it offers
+  **`Add Claim`** (`b1AJePNYbcs`).
 
 ### Patients grid columns
 Two column sets were seen, so **columns are user-configurable**:
