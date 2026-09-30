@@ -746,6 +746,8 @@ body.locked > :not(.login):not(#print) { display: none !important; }
           <div class="gb pcerr" id="pcErrBox" hidden><h2>Errors and Warnings <span class="pick msg" style="font-size:11px">Errors keep a claim from printing. Warnings print, but the carrier will probably deny them. Double-click a line to open the claim.</span></h2>
             <div class="gridwrap" style="margin:0;border:0"><table class="g"><thead><tr><th>Severity</th><th>Message</th><th>Name</th><th>DOB</th><th>Account #</th><th>Srvc Date</th><th>Procedure</th></tr></thead><tbody id="pcErrRows"></tbody></table></div></div>
         </div>
+        <div id="findView" hidden><div class="status"><span class="msg" id="findmsg"></span></div>
+          <div class="gridwrap" style="margin:0"><table class="g fgrid"><thead id="fhead"></thead><tbody id="fbody"></tbody><tfoot id="ffoot"></tfoot></table></div></div>
         <div id="setupView" hidden><div class="setup"><div class="optlist" id="suList"></div><div class="supane"><h2 id="suTitle"></h2><div class="form" id="suForm"></div><p class="hint" id="suHint"></p></div></div></div>
         <div id="repView" hidden><div class="status"><span class="msg" id="repmsg"></span></div><div id="repOut"></div></div>
         <div id="stmtView" hidden>
@@ -856,7 +858,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   var LETTERS = "ABCDEFGHIJKL";
   var BILL = { draft: "Ready to Submit", sent: "Submitted", hold: "On Hold", partial: "Partly Paid", paid: "Paid", denied: "Denied" };
   var OWING = { sent: 1, hold: 1, partial: 1, denied: 1 };
-  var KIND_ICON = { printclaims: "🖨", task: "☑", setup: "⚙", patient: "👤", claim: "📄", payer: "🏛", provider: "🩺", payment: "💵", procedure: "🧾", report: "📊", statements: "✉", help: "❓" };
+  var KIND_ICON = { find: "🔎", printclaims: "🖨", task: "☑", setup: "⚙", patient: "👤", claim: "📄", payer: "🏛", provider: "🩺", payment: "💵", procedure: "🧾", report: "📊", statements: "✉", help: "❓" };
   var DIR = {
     payer: { title: "Payer Library", name: "name", fields: [
       ["name", "Insurer Name:", 1], ["address", "Claims Mailing Address:", 1], ["payer_id", "Payer ID:"], ["phone", "Phone #:"],
@@ -1224,7 +1226,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
       big("✖", "Close", function () { closeDoc(S.active); }, !!d), big("🗑", "Delete", deleteDoc, !!(d && d.id && DELETABLE[d.kind]))] };
     var edit = { cap: "Edit", small: 1, items: [small("📋", "Paste", editCmd("paste")), small("⧉", "Copy", editCmd("copy")), small("✂", "Cut", editCmd("cut")),
       small("↶", "Undo", editCmd("undo")), small("▣", "Select All", editCmd("selectAll")), small("⌫", "Clear", editCmd("clear"))] };
-    var find = { cap: "Find", items: [big("🔎", "Find", findCmd)] };
+    var find = { cap: "Find", items: [big("🔎", "Find ▾", findMenu)] };
     var help = { cap: "Support", items: [big("❓", "Help Topics", openHelp)] };
     if (S.rtab === "claim" && isClaim) return [file, edit,
       { cap: "New", items: [big("📄", "Claim", newClaim), big("👤", "Patient", newPatient), big("💵", "Payment", newPaymentForClaim)] },
@@ -1301,6 +1303,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
     if (d.kind === "report") return d.name;
     if (d.kind === "setup") return "Setup";
     if (d.kind === "printclaims") return "Print Claims";
+    if (d.kind === "find") return d.title;
     if (d.kind === "task") return x.subject ? "Task - " + x.subject : "New Task";
     if (d.kind === "procedure") return x.code ? "Code " + x.code + (x.modifier ? "-" + x.modifier : "") : "New Procedure Code";
     return x.name || (d.kind === "payer" ? "New Payer" : "New Physician/Facility");
@@ -1432,13 +1435,14 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   function renderWork() {
     var d = cur(), k = d ? d.kind : "home";
     $("homeView").hidden = k !== "home"; $("helpView").hidden = k !== "help"; $("claimView").hidden = k !== "claim";
-    $("patView").hidden = k !== "patient"; $("dirView").hidden = !DIR[k]; $("payView").hidden = k !== "payment"; $("stmtView").hidden = k !== "statements"; $("repView").hidden = k !== "report"; $("setupView").hidden = k !== "setup"; $("pcView").hidden = k !== "printclaims";
+    $("patView").hidden = k !== "patient"; $("dirView").hidden = !DIR[k]; $("payView").hidden = k !== "payment"; $("stmtView").hidden = k !== "statements"; $("repView").hidden = k !== "report"; $("setupView").hidden = k !== "setup"; $("pcView").hidden = k !== "printclaims"; $("findView").hidden = k !== "find";
     $("work").classList.toggle("nobtn", k === "home" || k === "help");
     renderButtons();
     if (k === "home") renderHome();
     if (k === "report") renderReport();
     if (k === "setup") renderSetup();
     if (k === "printclaims") renderPrintClaims();
+    if (k === "find") renderFind();
     if (k === "claim") renderClaim();
     if (k === "patient") renderPatient();
     if (DIR[k]) renderDir();
@@ -1454,6 +1458,8 @@ body.locked > :not(.login):not(#print) { display: none !important; }
     if (k === "patient") h = '<button class="primary" data-b="saveClose">Save &amp; Close</button><button data-b="save">Save</button><button data-b="close">Close</button>' +
       '<button data-b="delete">Delete</button><div class="gap"></div><button data-b="newClaim">New Claim</button>' +
       '<label class="' + (d.data.active !== false ? "act" : "") + '"><input type="checkbox" data-b="active"' + (d.data.active !== false ? " checked" : "") + '> Active</label>';
+    if (k === "find") h = '<button class="primary" data-b="fRefresh">Refresh</button><button data-b="fCsv">Export (.csv)</button><button data-b="close">Close</button>' +
+      '<div class="gap"></div><div class="hint" style="padding:0 4px">Type in the grey filter row to narrow the list (% is a wildcard). Click a heading to sort. OPEN opens the record.</div>';
     if (k === "printclaims") h = '<button class="primary" data-b="pcPrint">Print Claims</button><button data-b="pcPreview">Print Preview</button><button data-b="close">Close</button>' +
       '<div class="gap"></div><button data-b="pcAll">Check All</button><button data-b="pcNone">Uncheck All</button>' + (d.errIds && d.errIds.length ? '<button data-b="pcHold">Set Claims with Errors to On Hold</button>' : "") +
       '<div class="gap"></div><div class="radios" style="display:block"><b>Claims that are:</b>' + [["ready", "Ready to Submit"], ["paper", "All Paper"], ["all", "All"]].map(function (o) {
@@ -1493,6 +1499,8 @@ body.locked > :not(.login):not(#print) { display: none !important; }
       case "repPrint": printReport(d); break;
       case "delete": deleteDoc(); break;
       case "pcPrint": pcPrint(d, false); break;
+      case "fRefresh": loadFind(d); break;
+      case "fCsv": reportCsv({ name: d.title, out: { columns: d.out.columns, rows: findRows(d) } }); break;
       case "pcPreview": pcPrint(d, true); break;
       case "pcAll": pcRows(d).forEach(function (c) { d.checked[c.id] = true; }); renderPrintClaims(); break;
       case "pcNone": d.checked = {}; renderPrintClaims(); break;
@@ -1550,7 +1558,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   $("refreshBtn").onclick = loadAll;
   $("homeView").addEventListener("click", function (e) {
     var b = e.target.closest("[data-go]"); if (!b) return;
-    ({ newPatient: newPatient, newClaim: newClaim, scan: scanCmd, newPayment: function () { newPayment(); }, statements: function () { openStatements(); }, findClaim: function () { selectLeftTab("claim"); findCmd(); },
+    ({ newPatient: newPatient, newClaim: newClaim, scan: scanCmd, newPayment: function () { newPayment(); }, statements: function () { openStatements(); }, findClaim: function () { openFind("claim"); },
        editPatient: function () { selectLeftTab("patient"); findCmd(); },
        printClaims: openPrintClaims
     })[b.dataset.go]();
@@ -2395,6 +2403,69 @@ body.locked > :not(.login):not(#print) { display: none !important; }
     return h + '</div>';
   }
   function setPageMargin(red) { $("pagestyle").textContent = "@page { size: letter; margin: " + (red ? "0" : "0.35in") + "; }"; }
+
+  // ============ Find menu - EZClaim's Find grids ============
+  var FINDS = [["patient", "Find Patient"], ["claim", "Find Claim"], ["service", "Find Service"], ["payment", "Find Payment"], ["task", "Find Task"],
+    ["adjustment", "Find Adjustment"], ["payer", "Find Payer"], ["physician", "Find Physician"], ["note", "Find Claim Note"]];
+  var fm = null;
+  function findMenu() {
+    if (fm) { fm.remove(); fm = null; return; }
+    var btn = [].slice.call(document.querySelectorAll("#rbody button")).filter(function (b) { return /Find/.test(b.textContent); })[0], r = btn.getBoundingClientRect();
+    fm = document.createElement("div"); fm.className = "ctxmenu"; fm.style.left = r.left + "px"; fm.style.top = r.bottom + "px";
+    fm.innerHTML = FINDS.map(function (f) { return '<button data-find="' + f[0] + '">' + f[1] + '</button>'; }).join("");
+    document.body.appendChild(fm);
+  }
+  document.addEventListener("click", function (e) {
+    var b = e.target.closest("[data-find]");
+    if (!b) { if (fm && !e.target.closest("#rbody")) { fm.remove(); fm = null; } return; }
+    if (fm) { fm.remove(); fm = null; }
+    openFind(b.dataset.find);
+  });
+  function openFind(what) {
+    var f = FINDS.filter(function (x) { return x[0] === what; })[0];
+    for (var i = 0; i < S.docs.length; i++) if (S.docs[i].kind === "find" && S.docs[i].what === f[0]) { loadFind(S.docs[i]); return activate(i); }
+    var d = { kind: "find", id: "find-" + f[0], what: f[0], title: f[1], out: { columns: [], rows: [] }, f: {}, sort: null, dirty: false };
+    addDoc(d); loadFind(d);
+  }
+  function loadFind(d) {
+    $("findmsg").textContent = "Loading…";
+    return api("GET", "/api/find?what=" + d.what).then(function (o) { d.out = o; if (cur() === d) renderFind(); })
+      .catch(function (e) { $("findmsg").textContent = "Couldn’t load: " + e.message; });
+  }
+  function findRows(d) {
+    var rows = d.out.rows.filter(function (r) { return d.out.columns.every(function (c) { return matches(d.f[c.k], c.m ? fmt(r.cells[c.k]) : r.cells[c.k]); }); });
+    if (d.sort) { var k = d.sort.k, dir = d.sort.dir, col = d.out.columns.filter(function (c) { return c.k === k; })[0];
+      rows = rows.slice().sort(function (a, b) {
+        var x = a.cells[k], y = b.cells[k];
+        if (col && col.m) return dir * ((+x || 0) - (+y || 0));
+        var dx = parseDate(x), dy = parseDate(y); if (dx && dy) return dir * (dx - dy);
+        return dir * String(x || "").localeCompare(String(y || "")); }); }
+    return rows;
+  }
+  function renderFind() {
+    var d = cur(), cols = d.out.columns, rows = findRows(d);
+    $("fhead").innerHTML = '<tr><th style="width:52px"></th>' + cols.map(function (c) { var s0 = d.sort && d.sort.k === c.k;
+      return '<th data-fsort="' + c.k + '"' + (c.m ? ' class="n"' : "") + '>' + esc(c.t) + (s0 ? (d.sort.dir > 0 ? " ▲" : " ▼") : "") + '</th>'; }).join("") + '</tr>' +
+      '<tr class="filter"><td class="x" data-fclear="1" title="Clear filter">✕</td>' + cols.map(function (c) { return '<td><input data-ffk="' + c.k + '" value="' + esc(d.f[c.k] || "") + '" placeholder="Filter"></td>'; }).join("") + '</tr>';
+    $("fbody").innerHTML = rows.length ? rows.slice(0, 1000).map(function (r) {
+      return '<tr class="item"><td><button class="icb" data-fopen="' + esc(r.open.kind) + ':' + esc(r.open.id) + '">OPEN</button></td>' + cols.map(function (c) {
+        var v = c.m ? fmt(r.cells[c.k]) : (r.cells[c.k] == null ? "" : r.cells[c.k]);
+        return '<td' + (c.m ? ' class="n"' : "") + ' title="' + esc(v) + '">' + esc(v) + '</td>'; }).join("") + '</tr>'; }).join("")
+      : '<tr class="empty"><td colspan="' + (cols.length + 1) + '">' + (d.out.rows.length ? "No rows match the filter." : "Nothing here yet.") + '</td></tr>';
+    var filtered = Object.keys(d.f).some(function (k) { return d.f[k]; });
+    $("ffoot").innerHTML = '<tr><td colspan="2">Shown: ' + rows.length + (filtered ? " (Filtered)" : "") + '</td>' + cols.slice(1).map(function (c) {
+      return c.m ? '<td class="n">' + fmt(rows.reduce(function (a, r) { return a + (+r.cells[c.k] || 0); }, 0)) + '</td>' : "<td></td>"; }).join("") + '</tr>';
+    $("findmsg").textContent = "";
+  }
+  $("findView").addEventListener("input", function (e) { var d = cur(), k = e.target.dataset.ffk; if (!d || d.kind !== "find" || !k) return;
+    d.f[k] = e.target.value; var pos = e.target.selectionStart; renderFind(); var inp = document.querySelector('#fhead [data-ffk="' + k + '"]'); inp.focus(); inp.setSelectionRange(pos, pos); });
+  $("findView").addEventListener("click", function (e) {
+    var d = cur(); if (!d || d.kind !== "find") return;
+    var o = e.target.dataset.fopen; if (o) { var p = o.split(":"); return openRec(p[0], p.slice(1).join(":")); }
+    var th = e.target.closest("[data-fsort]"); if (th) { var k = th.dataset.fsort; d.sort = d.sort && d.sort.k === k ? { k: k, dir: -d.sort.dir } : { k: k, dir: 1 }; renderFind(); }
+    if (e.target.dataset.fclear) { d.f = {}; renderFind(); }
+  });
+  $("findView").addEventListener("dblclick", function (e) { var tr = e.target.closest("tr.item"); if (tr) { var b = tr.querySelector("[data-fopen]"); if (b) b.click(); } });
 
   // ============ Print Claims - EZClaim's paper-billing batch ============
   function openPrintClaims() {

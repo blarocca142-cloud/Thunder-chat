@@ -1232,6 +1232,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, get_settings())
         if u.path == "/api/users":
             return self._send(200, {"users": sorted(n for n, x in load_users().items() if not x.get("disabled"))})
+        if u.path == "/api/find":
+            return self._send(200, reports.find(sys.modules[__name__], (parse_qs(u.query).get("what") or [""])[0]))
         if u.path == "/api/reports":
             return self._send(200, reports.catalogue(sys.modules[__name__]))
         if u.path == "/api/statements":

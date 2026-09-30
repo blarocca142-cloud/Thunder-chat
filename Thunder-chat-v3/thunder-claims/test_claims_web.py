@@ -390,6 +390,16 @@ st, j, _ = req("POST", "/api/claims/printed", {"ids": [good, "../x"], "date": "0
 g = req("GET", f"/api/rec/{good}", token=TOK)[1]["data"]["tracking"]
 check("confirming the print marks it Submitted with the bill date, and skips bad ids", j["updated"] == 1 and g["billing"] == "sent" and g["sent_date"] == "09/30/2026" and g["last_printed"] == "09/30/2026", (j, g))
 
+print("find grids")
+ok = True
+for w in ("patient", "claim", "service", "payment", "task", "adjustment", "payer", "physician", "note"):
+    st, j, _ = req("GET", f"/api/find?what={w}", token=TOK)
+    ok = ok and st == 200 and j["columns"] and all(r["open"]["id"] for r in j["rows"])
+check("every Find grid loads, and every row can be opened", ok)
+fc = req("GET", "/api/find?what=claim", token=TOK)[1]
+check("Find Claim's balances match the claims list", abs(sum(r["cells"]["bal"] for r in fc["rows"]) - sum(r["balance"] for r in req("GET", "/api/list?kind=claim", token=TOK)[1]["records"])) < 0.01)
+check("find needs a login and a known grid", req("GET", "/api/find?what=claim")[0] == 401 and req("GET", "/api/find?what=../x", token=TOK)[0] == 400)
+
 print("company files")
 st, j, _ = req("GET", "/api/companies", token=TOK)
 check("one company to start with, and it is open", st == 200 and j["companies"] == ["Main"] and j["current"] == "Main", j)

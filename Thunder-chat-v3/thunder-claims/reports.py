@@ -577,3 +577,81 @@ def run(cw, name: str, crit: dict) -> dict:
                                      ", ".join(filter(None, [st.get("return_city"), " ".join(filter(None, [st.get("return_state"), st.get("return_zip")]))])),
                                      st.get("return_phone")) if x])
     return out
+
+
+# ---------------------------------------------------------------------------
+# Find grids (the ribbon's Find menu): one row per thing, filterable
+# ---------------------------------------------------------------------------
+
+def _m(c):
+    return {**c, "m": 1}
+
+
+def find(cw, what: str) -> dict:
+    """EZClaim's Find Patient / Claim / Service / Payment / Task / Adjustment /
+    Payer / Physician / Claim Note grids."""
+    rows = []
+    if what == "patient":
+        cols = [{"k": "name", "t": "Name"}, {"k": "acct", "t": "Account #"}, {"k": "dob", "t": "DOB"}, {"k": "phone", "t": "Phone #"},
+                {"k": "payer", "t": "Primary Payer"}, {"k": "ins", "t": "Insured's ID #"}, {"k": "doi", "t": "Date of Injury"}, {"k": "active", "t": "Active"}]
+        for pid, p in cw.records("patient"):
+            rows.append({"open": {"kind": "patient", "id": pid}, "cells": {"name": p.get("patient_name", ""), "acct": p.get("account_number", ""),
+                         "dob": p.get("dob", ""), "phone": p.get("phone", ""), "payer": p.get("insurer", ""), "ins": p.get("claim_number", ""),
+                         "doi": p.get("date_of_injury", ""), "active": "No" if p.get("active") is False else "Yes"}})
+    elif what == "claim":
+        cols = [{"k": "name", "t": "Name"}, {"k": "dos", "t": "1st DOS"}, {"k": "status", "t": "Claim Status"}, {"k": "bill", "t": "Bill Date"},
+                _m({"k": "chg", "t": "Total Charge"}), _m({"k": "bal", "t": "Total Balance"}), _m({"k": "ins", "t": "Insurance Balance"}),
+                {"k": "rend", "t": "Rendering Physician"}, {"k": "billp", "t": "Billing Physician"}, {"k": "payer", "t": "Primary Payer"}, {"k": "pip", "t": "PIP Clock"},
+                {"k": "id", "t": "Claim ID"}]
+        for f in claim_facts(cw):
+            rows.append({"open": {"kind": "claim", "id": f["id"]}, "cells": {"name": f["patient"], "dos": _mdy(f["first_dos"]), "status": f["status"],
+                         "bill": _mdy(f["bill_date"]), "chg": f["charges"], "bal": f["balance"], "ins": round(sum(x["ins_bal"] for x in f["lines"]), 2),
+                         "rend": f["c"].get("treating_provider", ""), "billp": f["c"].get("clinic_name", ""), "payer": f["c"].get("insurer", ""),
+                         "pip": f["pip"].get("text", ""), "id": f["id"]}})
+    elif what == "service":
+        cols = [{"k": "name", "t": "Name"}, {"k": "date", "t": "Srvc Date"}, {"k": "place", "t": "Place"}, {"k": "proc", "t": "Procedure"}, {"k": "m1", "t": "M1"},
+                _m({"k": "chg", "t": "Charges"}), {"k": "units", "t": "Units"}, _m({"k": "adj", "t": "Adjs"}), _m({"k": "paid", "t": "Paid"}), _m({"k": "bal", "t": "Balance"})]
+        for f in claim_facts(cw):
+            procs = [p for p in f["c"].get("procedures") or [] if (p or {}).get("code")]
+            for x, p in zip(f["lines"], procs):
+                rows.append({"open": {"kind": "claim", "id": f["id"]}, "cells": {"name": f["patient"], "date": x["date"], "place": f["c"].get("place_of_service", ""),
+                             "proc": x["code"], "m1": p.get("modifier", ""), "chg": x["charge"], "units": str(p.get("units") or "1"), "adj": x["adj"],
+                             "paid": x["paid"], "bal": x["balance"]}})
+    elif what == "payment":
+        cols = [{"k": "name", "t": "Name"}, _m({"k": "amt", "t": "Amount"}), _m({"k": "rem", "t": "Remaining Bal."}), {"k": "date", "t": "Pmt Date"},
+                {"k": "method", "t": "Method"}, {"k": "ref", "t": "Ref #"}, {"k": "note", "t": "Note"}]
+        for pid, p in cw.records("payment"):
+            sm = cw.summary("payment", pid, p)
+            rows.append({"open": {"kind": "payment", "id": pid}, "cells": {"name": sm["payer"] if sm["source"] == "payer" else sm["patient_name"],
+                         "amt": sm["amount"], "rem": sm["remaining"], "date": sm["date"], "method": sm["method"], "ref": sm["ref"], "note": p.get("note", "")}})
+    elif what == "task":
+        cols = [{"k": "about", "t": "Name"}, {"k": "subj", "t": "Subject"}, {"k": "start", "t": "Start Date"}, {"k": "due", "t": "Due Date"},
+                {"k": "pri", "t": "Priority"}, {"k": "status", "t": "Status"}, {"k": "who", "t": "Assigned To"}]
+        for tid, t in cw.records("task"):
+            rows.append({"open": {"kind": "task", "id": tid}, "cells": {"about": t.get("about", ""), "subj": t.get("subject", ""), "start": t.get("start", ""),
+                         "due": t.get("due", ""), "pri": t.get("priority", ""), "status": t.get("status", ""), "who": str(t.get("assigned") or "").upper()}})
+    elif what == "adjustment":
+        cols = [{"k": "name", "t": "Patient Name"}, {"k": "code", "t": "Code (Group Code)"}, _m({"k": "amt", "t": "Adj Amount"}), {"k": "date", "t": "Adj Date"},
+                {"k": "payer", "t": "Payer"}, {"k": "svc", "t": "Svc Date"}, {"k": "proc", "t": "Procedure Code"}, _m({"k": "bal", "t": "Svc Balance"})]
+        for f in claim_facts(cw):
+            for x in f["lines"]:
+                for e in x["entries"]:
+                    if e["adj"] or e["pr"]:
+                        rows.append({"open": {"kind": "claim", "id": f["id"]}, "cells": {"name": f["patient"], "code": e["codes"], "amt": e["adj"] + e["pr"],
+                                     "date": e["date"], "payer": e["from"], "svc": x["date"], "proc": x["code"], "bal": x["balance"]}})
+    elif what in ("payer", "physician"):
+        kind = "payer" if what == "payer" else "provider"
+        cols = ([{"k": "name", "t": "Name"}, {"k": "pid", "t": "Payer ID"}, {"k": "phone", "t": "Phone #"}, {"k": "addr", "t": "Address"}] if kind == "payer" else
+                [{"k": "name", "t": "Name"}, {"k": "type", "t": "Type"}, {"k": "npi", "t": "NPI"}, {"k": "tax", "t": "Tax ID"}, {"k": "addr", "t": "Address"}])
+        for rid, r in cw.records(kind):
+            rows.append({"open": {"kind": kind, "id": rid}, "cells": {"name": r.get("name", ""), "pid": r.get("payer_id", ""), "phone": r.get("phone", ""),
+                         "addr": str(r.get("address") or "").replace("\n", ", "), "type": r.get("role", ""), "npi": r.get("npi", ""), "tax": r.get("tax_id", "")}})
+    elif what == "note":
+        cols = [{"k": "name", "t": "Name"}, {"k": "dos", "t": "1st DOS"}, {"k": "ts", "t": "Timestamp"}, {"k": "user", "t": "User"}, {"k": "note", "t": "Note"}]
+        for cid, c in cw.records("claim"):
+            for n in c.get("notes_log") or []:
+                rows.append({"open": {"kind": "claim", "id": cid}, "cells": {"name": c.get("patient_name", ""), "dos": c.get("date_of_service", ""),
+                             "ts": n.get("ts", ""), "user": n.get("user", ""), "note": n.get("note", "")}})
+    else:
+        raise ValueError("unknown find grid")
+    return {"columns": cols, "rows": rows}
