@@ -140,6 +140,9 @@ table.g tfoot td { position: sticky; bottom: 0; background: #f1ecdf; border-top:
 .btncol .gap { height: 8px; }
 .btncol label { display: flex; gap: 5px; align-items: center; padding: 2px; }
 .btncol .primary { font-weight: 700; }
+.btncol label.act { color: #1d8a3e; font-weight: 700; }
+.btncol .fsum { font-size: 11px; color: var(--mute); line-height: 1.4; }
+.btncol .fbox2 { display: flex; flex-direction: column; gap: 4px; border: 1px solid var(--edge); background: var(--white); padding: 6px; }
 .status { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 6px; min-height: 22px; }
 .msg { color: var(--mute); }
 .pill { font-weight: 700; font-size: 10px; letter-spacing: .4px; padding: 1px 7px; border-radius: 2px; text-transform: uppercase; white-space: nowrap; border: 1px solid transparent; }
@@ -1164,12 +1167,17 @@ body.locked > :not(.login):not(#print) { display: none !important; }
       '<button data-b="scrub">Scrub</button><button data-b="print">Print</button><button data-b="savePatient" title="Save this patient to the patient list">Save Patient</button>';
     if (k === "patient") h = '<button class="primary" data-b="saveClose">Save &amp; Close</button><button data-b="save">Save</button><button data-b="close">Close</button>' +
       '<button disabled title="' + SOON + '">Delete</button><div class="gap"></div><button data-b="newClaim">New Claim</button>' +
-      '<label><input type="checkbox" data-b="active"' + (d.data.active !== false ? " checked" : "") + '> Active</label>';
+      '<label class="' + (d.data.active !== false ? "act" : "") + '"><input type="checkbox" data-b="active"' + (d.data.active !== false ? " checked" : "") + '> Active</label>';
     if (k === "payer" || k === "provider") h = '<button class="primary" data-b="saveClose">Save &amp; Close</button><button data-b="save">Save</button><button data-b="close">Close</button>';
     if (k === "payment") h = '<button class="primary" data-b="saveClose">Save &amp; Close</button><button data-b="save">Save</button><button data-b="close">Close</button>' +
-      '<button data-b="newPmt">New Pmt</button><div class="gap"></div><b style="padding:2px">Filter Settings</b>' +
-      '<label><input type="checkbox" data-b="ignore"' + (d.opts.ignore ? " checked" : "") + '> Ignore Responsible Party</label>' +
-      '<label><input type="checkbox" data-b="zero"' + (d.opts.zero ? " checked" : "") + '> Include $0.00 balance lines</label>';
+      '<button data-b="newPmt">New Pmt</button><div class="gap"></div>' +
+      '<div class="fsum">Filter Settings:<br>Ignore Responsible Party - ' + (d.opts.ignore ? "Checked" : "Unchecked") +
+      '<br>Include $0.00 Balance Lines - ' + (d.opts.zero ? "Checked" : "Unchecked") + '</div>' +
+      '<button data-b="filters">Filter Settings</button>' +
+      (d.showFilters ? '<div class="fbox2"><b>Service Line Filter Settings</b>' +
+        '<label><input type="checkbox" data-b="ignore"' + (d.opts.ignore ? " checked" : "") + '> Ignore Responsible Party</label>' +
+        '<label><input type="checkbox" data-b="zero"' + (d.opts.zero ? " checked" : "") + '> Include $0.00 balance lines</label>' +
+        '<button data-b="filters">OK</button></div>' : "");
     $("btncol").innerHTML = h;
   }
   var notesHidden = false;
@@ -1185,12 +1193,13 @@ body.locked > :not(.login):not(#print) { display: none !important; }
       case "savePatient": savePatientFromClaim(); break;
       case "newClaim": newClaimForDoc(d); break;
       case "newPmt": newPayment(); break;
+      case "filters": d.showFilters = !d.showFilters; renderButtons(); break;
     }
   });
   $("btncol").addEventListener("change", function (e) {
     var d = cur(), b = e.target.dataset.b;
-    if (b === "active") { d.data.active = e.target.checked; markDirty(); }
-    if ((b === "ignore" || b === "zero") && d.kind === "payment") { d.opts[b] = e.target.checked; d.rows = null; renderPayment(); }
+    if (b === "active") { d.data.active = e.target.checked; e.target.parentNode.classList.toggle("act", e.target.checked); markDirty(); }
+    if ((b === "ignore" || b === "zero") && d.kind === "payment") { d.opts[b] = e.target.checked; d.rows = null; renderPayment(); renderButtons(); }
   });
   document.addEventListener("keydown", function (e) {  // Alt-S saves and closes, as in EZClaim
     if (e.altKey && (e.key === "s" || e.key === "S")) { var b = document.querySelector('#btncol [data-b="saveClose"]'); if (b) { e.preventDefault(); b.click(); } }

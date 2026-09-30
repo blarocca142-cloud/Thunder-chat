@@ -50,14 +50,17 @@ def sh(*args):
 def make_ca(d: Path, cn: str):
     sh("openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", str(d / "ca.key"),
        "-out", str(d / "ca.crt"), "-days", "2", "-subj", f"/CN={cn}",
-       "-addext", "basicConstraints=critical,CA:TRUE")
+       "-addext", "basicConstraints=critical,CA:TRUE", "-addext", "keyUsage=critical,keyCertSign,cRLSign")
+    # keyUsage matters: Python 3.13+ verifies with VERIFY_X509_STRICT, which
+    # rejects a CA certificate without it (Main runs 3.14).
 
 
 d = TMP / "tls"; d.mkdir()
 make_ca(d, "Test Fleet CA")
 sh("openssl", "req", "-newkey", "rsa:2048", "-nodes", "-keyout", str(d / "server.key"),
    "-out", str(d / "server.csr"), "-subj", "/CN=localhost")
-(d / "ext.cnf").write_text("subjectAltName=DNS:localhost,IP:127.0.0.1\nbasicConstraints=CA:FALSE\n")
+(d / "ext.cnf").write_text("subjectAltName=DNS:localhost,IP:127.0.0.1\nbasicConstraints=CA:FALSE\n"
+                          "keyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\n")
 sh("openssl", "x509", "-req", "-in", str(d / "server.csr"), "-CA", str(d / "ca.crt"), "-CAkey", str(d / "ca.key"),
    "-CAcreateserial", "-out", str(d / "server.crt"), "-days", "2", "-extfile", str(d / "ext.cnf"))
 other = TMP / "other"; other.mkdir()
