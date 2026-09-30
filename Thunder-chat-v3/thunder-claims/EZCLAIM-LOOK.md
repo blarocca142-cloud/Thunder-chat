@@ -197,6 +197,155 @@ title bar, e.g. `Rejected Claim from Posted 277-CSR Reports` with columns
 
 ---
 
+## 3b. Patient screen ★
+
+**Double-click a row in the Patients grid to open the patient record.**
+(`h-EzAeOTDlQ`) It opens as a document tab labelled
+**`BROOKS, PATIENT D (Age: 53)`** — name plus a computed age, with `*` when
+dirty.
+
+A **`Patient` ribbon tab** appears while it is open, with groups
+`Find` · `New` · `List` · **`Actions`** (`Apply Template`, `Copy Patient`,
+`Merge Patient`) · `Quick Reports` · `Support`.
+
+### Section `Patient Information` (labels right-aligned)
+| Label | Notes |
+|---|---|
+| `Name (Last, First, MI):` | **three separate boxes** — `BROOKS` / `PATIENT` / `D` |
+| `Classification:` | dropdown — `DR BROOKS` |
+| `Address:` and `Address 2:` | |
+| `Claim Template:` | dropdown `<Previous Serv…>` plus a `…` button |
+| `City ST Zip:` | three boxes — `ANYWHERE` / `NY` / `33333` — plus a small button |
+| `Copay Amt:` | `$10.00` **`or Percent`** `0` `%` |
+| `DOB:` | date picker `03/21/1966` |
+| `Sex:` | dropdown `Male` |
+| `Marital:` | dropdown |
+| `Diagnosis A1:` `B2:` | `F34.1` — **default diagnoses carried onto new claims** |
+| `Employment:` | dropdown |
+| `Account #:` | `1003` |
+| `E5 to H8` | a **button** that reveals more diagnosis slots; `C3:` `D4:` beside it |
+
+### Section `Patient Contact Information`
+`Primary Phone #:` · `Home Phone #:` · `Cell Phone #:` · `Work Phone #:` ·
+`Fax #:` · `Primary Email:` (with an `Email` button) · `Secondary Email:`
+(with an `Email` button) · **`Appt Reminder Pref:`** (dropdown, `No Reminders`)
+· `Emergency Contact:` · `Emergency Phone #:` with `Relation:` beside it
+
+### Section `Physician / Facility Library Entries`
+`Billing Provider:` (`HEALTH CLINIC`) and `Rendering Provider:`
+(`RENDERING ROBERTS`), each a **dropdown plus a `…` button plus an `✕`**
+(pick / open the library entry / clear).
+
+### Insurance — a tabbed sub-panel
+Tabs **`Primary Ins`** and **`Secondary Ins`**, with two buttons across the
+top: **`Copy information from the patient`** and **`Delete`**.
+
+Fields: `Name (Last, First, MI):` (three boxes) · `Date of Birth:` with `Sex:` ·
+`Address:` · `City, State, Zip:` (three boxes) · `Phone #:` · `Employer:` ·
+`Payer:` (dropdown + `…` + `✕`) · **`Eligibility:`** (green
+`Active 07/24/19` with inline `CHECK` and `VIEW` buttons) · `Insured's ID #:` ·
+`Group #:` · `Plan or Program Name:` · `Patient Rel to Insured:` (dropdown,
+`Self`) · `Accept Assignment:` (dropdown, `Yes`)
+
+### Right-hand button column
+`Save & Close` · `Save` · `Close` · `Delete` · **`Add Ins`** · **`Lookup`** ·
+**`Replace All with Insurance from Claim`** (a three-line button) ·
+**`Update Claims`**, then two checkboxes: ☑ **`Active`** and ☐ **`Locked`**.
+
+### Patient classifications (`h-EzAeOTDlQ`)
+`Classification` is a free per-patient grouping (values seen: `DR BROOKS`,
+`MEDICARE`, `GENERAL GROUP`, `INSTITUTIONAL P…`). It is **not shown in the
+grid by default** — the video's whole point is that you add it by
+**dragging `Classification` from the `Customization` column chooser into the
+column header**.
+
+The `Customization` chooser for the patient grid lists (alphabetically, with a
+`Search for a column…` box at the top): `Add Payment`, `Address`,
+`Another Custom Field`, `Billing Phy Name`, `Cell #`, `City State Zip`,
+`Classification`, `D.O.B.`, `Eligibility`, `Email`, `Facility Phy Name`,
+`Family Size`, `Fax #`, `First Date of Service`, `First Name`, …
+
+---
+
+## 3c. Claim screen ★
+
+Opens as a document tab labelled **`BELL, DARRELL - 11/23/2018`** —
+**patient name plus first date of service**. (`5aJQBFSmkbU`)
+
+A **`Claim` ribbon tab** appears while it is open:
+
+| Group caption | Buttons |
+|---|---|
+| `Edit` | `Copy`, `Cut`, `Clear`, `Select All`, `Undo` |
+| `Find` | `Find` |
+| `New` | `Claim`, `Payment`, `Task`, `Patient` |
+| `Open` | `Tasks` |
+| `List` | `Tasks` |
+| **`Actions`** | **`Make Recurring`**, **`Copy Claim`**, **`Save as Template`**, **`Write Off Claim`**, **`Pay Off Claim`** |
+| `Quick Reports` | `Quick Reports` |
+| `Support` | `Help Topics` |
+
+(On the Patient screen the same `Actions` group instead holds
+`Apply Template`, `Copy Patient`, `Merge Patient`, and there is an
+`Authorization` / `Services` / `Authorizations` set in `New` / `List`.)
+
+### Top of the claim
+- **`Bill To:`** — a wide dropdown reading
+  **`Primary (1/1) - GEICO - BELL, DARRELL`**, plus a `…` button.
+  The `(1/1)` is the bill-to **sequence** (see `Bill To Sequence` in the report
+  filters).
+- `Prior Auth #:` — dropdown + `…` + a small **ⓘ** info icon
+- `Date of Curr:` — date picker
+
+### Diagnosis block — twelve fixed slots, labelled letter+number
+```
+Diagnosis A1: [H5316]  B2: [S86901A]  C3: [S62111P]  D4: [S066X3A]
+E5: [ ]  F6: [ ]  G7: [ ]  H8: [ ]
+I9: [ ]  J10: [ ]  K11: [ ]  L12: [ ]
+```
+**This is exactly the CMS-1500 box 21 A–L lettering, and EZClaim writes it as
+`A1`, `B2` … `L12` — letter *and* ordinal together.** Codes are entered
+**without the decimal point** (`H5316`, not `H53.16`).
+
+### Two-month calendar strip
+Two month grids side by side (`‹ November › 2018 ›` and `‹ December › 2018 ›`)
+with S M T W T F S columns; the service-line date is highlighted (the `23`).
+**Clicking a day is how you add a service line for that date** — the same
+idea our app already has.
+
+### `Claim Template:` dropdown
+Value `<No Template>`.
+
+### Service line entry grid
+An **entry row across the top with an `ADD` button**, then the saved lines
+below. Hint text between them:
+**"Enter the service line data above and click the 'ADD' butt…"**
+
+Columns: `Srvc Date` · `Place` · `Procedure` · **`M1` `M2` `M3` `M4`**
+(four modifier columns) · … · `Amt.` · `Balance` · `Resp. Party` ·
+`Pat. Amt. Due`. Each saved row has a `＋` expander and an `✕` delete button.
+Footer: **`Services: 1`** plus column totals.
+
+### Right panel `Claim Information` (read-only label/value list)
+`Original Bill Date` · `Status` (`Ready to Submit`) · `Method` (`Electronic`) ·
+`Last Printed` · `Last Exported` · `Invoice #`
+
+### Notes at the bottom
+A prompt **`Click here to add a new note`**, then an automatic note history
+grid — e.g. `11/23/2018 10:32 AM | USER | Claim edited`. **Note entries are
+auto-logged as well as typed.**
+
+### `Make Recurring` → `Create Recurring Claim` dialog (`5aJQBFSmkbU`)
+- `Generate this claim every:` `1` `Month(s)` (dropdown)
+- `Until:` date picker (`11/23/2019`)
+- An `Update` button, then
+  *"This claim (will be generated on) the Follow(ing dates)"* over a list of
+  the generated dates (`12/23/20`, `01/23/20`, `02/23/20`, … `11/23/20`)
+- `Delete Selected Date` button
+- `Save and Close` / `Cancel`
+
+---
+
 ## 4. Payment Entry screen
 
 Opened by `Enter Payment` on the Home flowchart, or the `Payment` button in
@@ -1044,6 +1193,103 @@ defaulting to **`All`**.
 
 **Date sections above** use paired `Start` / `End` rows whose values are
 `No Start Date` / `No End Date`, e.g. under `Last Printed Date`.
+
+---
+
+## 9m. Send Claims + the Errors and Warnings screen
+
+(`sTZilSPX-Fc`, release 616 and later — **this is the current behaviour**)
+
+**What changed:** the `Check for Errors` button is **gone** from the Send
+Claims tab. Error checking now runs **automatically** when you click
+**`Create and Send Batch`**. A popup says it is checking; if anything is found
+you get a chance to review before anything uploads.
+
+**Error vs Warning — EZClaim's exact distinction, worth copying:**
+- **`Error`** = data missing that is important enough to **prevent upload**
+  (example given: missing billing provider).
+- **`Warning`** = data may be missing or incomplete, **the claim will still
+  upload**, but will most likely be rejected at the clearinghouse or payer.
+
+Honest caveat stated in the video: *"this functionality is not a complete claim
+scrubbing system and will not catch all errors. It will catch most of your data
+entry errors though."*
+
+### `Errors and Warnings` document tab
+Grid columns: `Severity` · `Message` · `Name` · `DOB` · `Account #` ·
+`Srvc Date` · `Procedure`.
+
+Real messages seen (useful as wording for our own scrubber):
+```
+Place of Service is missing.
+The Insured's ID # is missing.
+Needs DX
+This service line must have a primary disbursement (enter a $0.00 di…
+The Payer ID for 'CIGNA HEALTHCARE' is missing. Please add the Pa…
+The Other Insured's ID # is missing.
+Procedure Code is missing.
+```
+**Double-click a row to jump to the claim and fix it.**
+
+Right-hand button column: `Check All` (split, ▾) · **`Create Tasks`** ·
+**`Set Claim Status to 'On Hold'`** (a dropdown — any status) · `Close` ·
+**`Report`** (print or export the errors and warnings).
+
+Note the title bar on this capture reads `…Demo_Company_Jaime_B_PERMANENT`
+and the patient grid carries extra columns `Pat. Bal.`, `Tot. Cla…`,
+`Ins. Bal.`, **`Pat. Unapplied Bal.`**, with **negative balances shown in
+parentheses** — `($25.00)`, `($150.00)`, `($122.00)`.
+
+---
+
+## 9n. Find grids: filter editor, sorting, saved layouts
+
+(`p4sCfOq7ftc`) This is how EZClaim users actually work, so it matters for
+feel.
+
+### Sorting
+- Click a column header → A→Z; click again → Z→A.
+- **Shift-click additional columns to sort by more than one.**
+- A sorted column shows an **up arrow (ascending) or down arrow
+  (descending)**.
+
+### Filtering
+- Type into the **filter row** cell — e.g. `90834` in `Procedure` — and the
+  grid narrows live, with totals updating at the footer.
+- For anything more than one value, use the **Filter Editor**, reached two
+  ways:
+  1. **Right-click a column header → `Filter Editor`** from the submenu.
+     *Tip given: right-click from the column you want to filter and the editor
+     is pre-filled with that field.*
+  2. **Hover a column header and click the small filter icon** that appears —
+     this gives a checkbox list of the distinct values, plus a
+     **`Numeric Filters`** tab with `greater than` / value dropdowns.
+
+### Saved layouts
+- **Right-click a column header → `Save Layout`**, give it a name
+  (e.g. `Service lines with balance`).
+- Saved layouts appear as **clickable entries along the bottom of the grid**
+  and persist when the grid is closed and reopened.
+- **They update in real time** as charges and payments are entered.
+- **Layouts are per user and per grid.**
+
+Worked examples given: private-pay patients (`Primary Payer` `is blank`),
+and service lines where `Claim Status equals Ready to Submit` — the latter
+*"because you can't view CPT codes from the send claim screen."*
+
+### Creating a widget from a grid
+**Right-click any column header → `Add as Widget`.** The widget dialog opens
+pre-filled from the current filter. This is how the eight stock widgets are
+extended. (`PsLZgSmi_qs`)
+
+### The `Find` ribbon menu — full item list (`5aJQBFSmkbU`)
+`Find Patient` · `Find Claim` · `Find Service` · `Find Payment` ·
+`Find Task` · `Find Adjustment` · `Find Payer` · `Find Physician` ·
+`Find Disbursement` · `Find Claim Note`
+
+### `Find Task` grid columns (`2ZgChe2rNnE`)
+`OPEN` · `Name` · `Payer` · `Subject` · `Start Date` · `Due Date` · `Status` ·
+`Priority` · `% Complete`
 
 ---
 
