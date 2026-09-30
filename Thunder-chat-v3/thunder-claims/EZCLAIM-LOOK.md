@@ -398,22 +398,67 @@ Value `<No Template>`.
 
 ### Service line entry grid
 An **entry row across the top with an `ADD` button**, then the saved lines
-below. Hint text between them:
-**"Enter the service line data above and click the 'ADD' butt…"**
+below. Two hint texts are used:
+- **"Enter the service line data above and click the 'ADD' butt…"**
+- **"Click a date on the calendars above to enter a new service line"**
+  (`sEgz49YE1lI`)
 
-Columns: `Srvc Date` · `Place` · `Procedure` · **`M1` `M2` `M3` `M4`**
-(four modifier columns) · … · `Amt.` · `Balance` · `Resp. Party` ·
-`Pat. Amt. Due`. Each saved row has a `＋` expander and an `✕` delete button.
-Footer: **`Services: 1`** plus column totals.
+**Full column list** (`sEgz49YE1lI`):
+`Srvc Date` · `Place` · `Procedure` · **`M1` `M2` `M3` `M4`** ·
+**`Diag. #`** · `Charges` · `Units` · `Adjs` · `Paid` · `Applied Amt.` ·
+`Balance` · `Resp. Pa…` · `Pat. Amt.`
 
-### Right panel `Claim Information` (read-only label/value list)
-`Original Bill Date` · `Status` (`Ready to Submit`) · `Method` (`Electronic`) ·
-`Last Printed` · `Last Exported` · `Invoice #`
+`Place` defaults to `11`; `Diag. #` holds the diagnosis pointer as a **number**
+(`1`), not the letter. `Resp. Pa…` shows the payer (`MEDICAR…`).
+Each saved row has a `＋` expander and an `✕` delete button.
+Footer: **`Services: 0`** plus a full row of column totals.
+
+### Right panel — collapsible sections, and it is **editable**
+Not a read-only summary: each row is a dropdown, date picker or checkbox.
+
+**`Claim Information`**
+`Original Bill Date` · **`Status`** (`Ready to Submit`) · **`Method`**
+(`Electronic`) · `Last Printed` · `Last Exported` · `Invoice #` ·
+`Claim ID` (greyed, `New` until saved, then a number) · ☐ **`Locked`**
+
+**`Physician Library Entries`** — each a dropdown + `…` + `✕`:
+`Rendering Provider` (`KEVIN ROBERTS`) · `Referring Provider` (`None`) ·
+**`Service Facility`** (`None`) · `Billing Provider` (`HEALTH CLINIC`)
+
+**`Printing Options`** — ☐ `Totals on Last Page`
+
+**`Date Information`** — `Admitted Date` (and more below the fold)
+
+### Right-hand button column (`sEgz49YE1lI`)
+`Save & Close` · `Save` · `Close` · `Delete` ·
+**`Hide Notes`** (split button, ▾ → `Expand` / `Shrink`) ·
+**`Scrub`** · **`Status`**
+
+**EZClaim calls its claim check `Scrub` too** — our button name already
+matches.
 
 ### Notes at the bottom
-A prompt **`Click here to add a new note`**, then an automatic note history
-grid — e.g. `11/23/2018 10:32 AM | USER | Claim edited`. **Note entries are
-auto-logged as well as typed.**
+A prompt **`Click here to add a new note`** over a notes grid with columns
+**`Time Stamp` · `User` · `Note` · `Balance`**, a filter row, and an `✕` per
+row. Entries are both typed and **auto-logged**, and each records the claim
+balance at that moment:
+```
+05/13/2014 11:43 AM | USER | This is a user note   | $0.00
+05/13/2014 11:40 AM | USER | Claim created.       | $180.00
+11/23/2018 10:32 AM | USER | Claim edited
+```
+Clearinghouse 277 messages land in this same note area (§9m3).
+
+### Document tab title
+`BROOKS, PATIENT D` before a service line exists, becoming
+**`BROOKS, PATIENT D - 04/09/2014`** once there is a first DOS, with `*` while
+dirty.
+
+### Claim status values (collected across all videos)
+`Ready to Submit` · `Submitted` · `On Hold` · `Other`
+(`oZBevrOFRwY`, `erCHIBu51xw`, `uqRGjzNM-KE`, `sTZilSPX-Fc`)
+`Method` values: `Electronic` (and paper, implied by the `All Electronic`
+filter on Send Claims).
 
 ### `Make Recurring` → `Create Recurring Claim` dialog (`5aJQBFSmkbU`)
 - `Generate this claim every:` `1` `Month(s)` (dropdown)
@@ -454,12 +499,29 @@ Columns: `Patient` · `Pmt Amt` · `Applied Amt` · `Remaining` · `Date` ·
 `Save & Close` · `Save` · `Close` · `New Pmt` (`oZBevrOFRwY`)
 
 Then a block **`Need to enter more adjustments?`** with `–` and `+` spinner
-buttons, and a checkbox list:
+buttons — **these add or remove whole `Adjustment N` column groups** — and a
+checkbox list that toggles sub-columns:
 - ☑ `Show Adj Reason Codes`
-- ☐ `Show Adj Remark Codes`
+- ☑ `Show Adj Remark Codes`
 - ☐ `Show Adj Reason Amount`
 - ☐ `Show Payment Reason Codes`
 - ☐ `Show Notes`
+
+With remark codes on, each `Adjustment N` group has **four** sub-columns:
+`Amt` · `Code` · `Reason` · **`Remark`** (`QiiFx0hCFMU`).
+
+### When `Payment Source` is `Patient` rather than `Payer` (`QiiFx0hCFMU`)
+The `Payer:` dropdown is replaced by a **`Patient:`** dropdown, the banner
+reads `Payments from TESTING, MEGAN R with a balance:`, and
+**`Match By Payer ID` greys out** (it is meaningless for a patient payment)
+while `Ignore Responsible Party` stays available. In this build the filter
+options sit directly on the rail rather than behind the `Filter Settings`
+button: ☑ `Ignore Responsible Party`, ☐ `Match By Payer ID`,
+☐ `Include $0.00 Balance Service Lines From DOS:` with a date picker.
+
+The service-line grid also carries a **`Claim ID`** column here
+(`1248`, `1247`, `1242`…), and **every payment row in the top-right grid gets
+its own `DISBURSE` / `MODIFY` pair**, not just the selected one.
 
 At the very bottom right, a **`Filter Settings`** panel showing the active
 settings as plain text, then a `Filter Settings` button:
@@ -1597,100 +1659,206 @@ and `Remaining:` in **red** when money is unapplied (`7Sl9bwm3CxU`) — the red
 
 ## Gaps vs Thunder Claims today
 
-Read against `claims_web.html` as it stands. Ordered by **what an EZClaim user
-would notice first**.
+Read against `claims_web.html` (866 lines) and `claims_web.py` as they stand
+on branch `claude/adoring-keller-htwwch`. Ordered by **what an EZClaim user
+would notice first** on day one.
 
-1. **No ribbon.** EZClaim's whole navigation is a ribbon with named groups
-   (`File / Edit / Find / New / Libraries / Alerts / Support`). We have a
-   left tab strip (`Patients / Claims / Insurers / Providers`) and a right-hand
-   button column (`Save & Close / Save / Close / Print / Scrub`). The button
-   *names* match well — `Save & Close`, `Save`, `Close` are exactly EZClaim's
-   payment-entry column — but there is no ribbon and no `New` group.
+### What we already match (worth saying, so it isn't re-done)
+- **`Save & Close` / `Save` / `Close` in a right-hand button column** — this is
+  exactly EZClaim's layout on the claim, patient, payment and library screens.
+- **A `Scrub` button** — EZClaim's claim screen has the same button, same name.
+- **`Print`** on the same rail.
+- **Clicking a date on a two-month calendar to add a service line** — this is
+  EZClaim's own idiom, hint text and all.
+- **A left record list with a right work area**, and a `Home` tab.
+- CMS-1500 box numbers shown beside field labels (`11c`, `21`, `24A`, `33a`) —
+  EZClaim does *not* do this, and it is arguably better for a small office.
+- `1st DOS` and `Tot. Bal.` column names are already EZClaim's.
 
-2. **No payment entry screen at all.** This is the single biggest gap. EZClaim
-   has a whole `Payment Entry` document tab: check header (payer, amount,
-   date, method, ref #), a service-line grid with `Payment` / `Adjustment 1` /
-   `Adjustment 2` grouped columns, `Auto Apply`, `Remaining`, per-line `Pay`
-   buttons, and the minus-sign convention for refunds/reversals. We have only
-   four fields on the claim record: `Amount paid $`, `Date paid`,
-   `Date submitted`, `Denial reason`. We cannot post a payment against a
-   *service line*, cannot record adjustments with reason codes, and have no
-   concept of a check that spans patients.
+### The gaps
+
+1. **Nothing looks like a ribbon.** EZClaim's entire navigation is a ribbon of
+   named groups — `File / Edit / Find / New / Libraries / Alerts / Support` —
+   and it is **dynamic**: opening a patient or claim adds a `Patient` or
+   `Claim` ribbon tab carrying that record's actions (`Make Recurring`,
+   `Copy Claim`, `Save as Template`, `Write Off Claim`, `Pay Off Claim`,
+   `Merge Patient`…). We have a four-button tab strip and a fixed button rail.
+   This is the first thing the office will notice and the biggest single
+   source of "this isn't EZClaim".
+
+2. **No payment entry, and no payments model at all.** EZClaim's `Payment
+   Entry` is a whole screen: a check header (source radio `Patient`/`Payer`,
+   payer, amount, date, method, ref #), a service-line grid with grouped
+   `Payment` / `Adjustment 1` / `Adjustment 2` columns, per-line `Pay`
+   buttons, `Auto Apply`, a red `Remaining`, and `Filter Settings`. Plus a
+   separate `Payment Modification` screen to edit or delete a posted payment.
+   We have four flat fields on the claim (`Amount paid $`, `Date paid`,
+   `Date submitted`, `Denial reason`). We cannot:
+   - post one check across several patients or claims,
+   - apply money to a **specific service line**,
+   - record an adjustment with a CARC reason code,
+   - enter a **refund or reversal** (EZClaim's convention: type a minus sign
+     in the amount cell),
+   - see a patient's payment history.
 
 3. **No per-column filter row.** Every EZClaim grid has a permanent filter box
-   under each column header plus an `✕` to clear. We have one `Filter by name`
-   box spanning all columns.
+   under each header, an `✕` to clear, and — importantly — the **`%` wildcard**
+   for "contains" (`%tom` finds `JONES, TOM W`), plus a filter-icon menu with
+   blank/non-blank. We have one `Filter by name` box across all columns.
+   **This is cheap to add and is how EZClaim users search for everything.**
 
-4. **No "drag a column header here to group by that column"** band, and no
-   grouping at all. It appears above every EZClaim grid and is part of the
-   look even when unused.
+4. **No account numbers.** EZClaim auto-assigns them (`Next Account Number`,
+   optional prefix, require-unique, all in Program Setup), shows `Account #`
+   in the patients grid, on statements and on reports, and the office refers
+   to patients by them. We key entirely off the name.
 
-5. **No grid footers with totals.** EZClaim shows `Shown: 30` and column
-   money totals under every grid. We have a `totals` element on the claims tab
-   only.
+5. **No patient statements.** EZClaim has a full statements screen —
+   check-all selection, `Min. Pat. Bal.` ($0.01), `Min. Sta. Cycle` (30 days),
+   per-patient `Pat Msg`, a `Global Message`, `Preview`, and a printed layout
+   with a window-envelope address block and the classic aging strip
+   (`0-30 / 31-60 / 61-90 / 91-120 / Over 120 / Ins. Bal. / Please Pay`).
+   **The family office prints and mails — this is a workflow gap, not
+   cosmetic.** We print a CMS-1500 and nothing else.
 
-6. **Our grids are far narrower.** EZClaim patients grid: `Name`,
-   `Account #`, `Classification`, `Eligibility`, `Pri Payer`,
-   `Tot. Cla. Bal.` / `Pat. Bal.`. Ours: `Name`, `DOB`, `Insurance`. We have
-   **no account number at all**, no classification, no eligibility, no
-   patient balance on the list.
+6. **No row colouring by state.** EZClaim tints whole rows: pink/salmon when
+   the patient owes money, green for eligible/ignored. It is user-defined
+   conditional formatting (`[Patient Balance] Is greater than $0.00` →
+   `Red Fill` → ☑ `Apply formatting to an entire row`), but the *effect* is
+   what the office recognises. We use a status pill in one column.
 
-7. **No account numbers.** EZClaim auto-assigns them (`Next Account Number:
-   1012`, optional prefix, require-unique), shows them in grids and on
-   statements, and they are how the office refers to a patient. We key off a
-   name.
+7. **No grid footers with totals or counts.** EZClaim puts `Shown: 30`,
+   `Shown: 1 (Filtered)`, `Shown: 4. Checked: 4.` and money totals under every
+   grid. We have a totals block on the claims tab only.
 
-8. **No row colouring by state.** EZClaim tints rows pink when money is owed
-   and green when eligible/ignored, in the grid itself. We use status pills
-   (`Ready` / `Submitted` / `Paid` / `Partly paid` / `Denied`) on one column.
-   The pill *names* are close to EZClaim's `Ready to Submit` / `Submitted` —
-   worth matching exactly.
+8. **Our grids carry far fewer columns, and none can be changed.** EZClaim
+   patients grid: `Name`, `Account #`, `Classification`, `Eligibility`,
+   `Pri Payer`, `Pat. Bal.`, `Tot. Cla. Bal.`, `Ins. Bal.`,
+   `Pat. Unapplied Bal.` — and any of them can be dragged in from a
+   `Column Chooser`, reordered, resized, removed, sorted multi-column with
+   shift-click, and **saved as a named layout** that persists. Ours are three
+   fixed columns.
 
-9. **No detail pane under the grid.** EZClaim's lower-left pane
-   (`Details / Claims / Services / Payments / Documents`) means you can see a
-   patient's insurance and payment history without opening anything. We have
-   nothing there.
+9. **No detail pane under the record list.** EZClaim's lower-left pane has
+   tabs `Details / Claims / Services / Payments / Documents` and shows the
+   selected patient's address, phones, primary and secondary insurance, and
+   payment history **without opening anything**. We have nothing there — you
+   must open the record.
 
-10. **No patient statements.** EZClaim has a whole statements screen with
-    check-all selection, `Min. Pat. Bal.`, `Min. Sta. Cycle`, statement format,
-    global message, and a print/preview path. We print a CMS-1500 only. Given
-    the family office **prints and mails**, this is a real workflow gap, not a
-    cosmetic one.
+10. **No secondary insurance, and a much thinner patient record.** EZClaim's
+    patient screen has `Primary Ins` / `Secondary Ins` tabs, each with the
+    insured's own name/DOB/sex/address/employer, `Insured's ID #`, `Group #`,
+    `Plan or Program Name`, `Patient Rel to Insured`, `Accept Assignment`,
+    plus a `Copy information from the patient` button. It also has
+    `Classification`, `Copay Amt` (or percent), default diagnoses carried onto
+    new claims, a `Claim Template`, four phone numbers, two emails, emergency
+    contact, and `Active` / `Locked` flags. We store name, DOB, sex, address,
+    phone, insurer.
 
-11. **No document tabs.** EZClaim opens each screen as a closable tab beside a
-    grid that never disappears, and marks dirty tabs with `*`. We have a single
-    `Home` + one record tab.
+11. **No document tabs.** EZClaim keeps the record list visible and opens each
+    patient, claim, report and 835 file as its own closable tab — several at
+    once (`BROOKS, PATIENT D (Age: 48)`, `CARSON, PATIENT (Age: 66)`), with
+    `*` when dirty, and the title bar naming the active screen. We have `Home`
+    plus one record tab.
 
-12. **No Program Setup.** No theme, no printer alignment (EZClaim's is
-    elaborate — 100ths of an inch, test page, per-box shifts), no account
-    number policy, no company description, no font/format settings.
+12. **No tasks.** EZClaim has a `Tasks` grid tab, a `Task` button in the
+    ribbon, `Subject / Assigned To / Due Date / Status / Priority /
+    % Complete`, reminders, and — the part that matters — **`Create Tasks` in
+    bulk from a list of rejected claims**. That is how the office works
+    rejections. We have nothing.
 
-13. **No libraries UI parity.** We have Insurers and Providers lists, but no
-    `Payment Matching Key`, no multi-select + right-click bulk actions, and no
-    `Find Payer` grid.
+13. **No claim notes with history.** EZClaim's claim has a notes grid
+    (`Time Stamp / User / Note / Balance`) that **auto-logs** `Claim created.`
+    / `Claim edited` with the balance at the time, and is where clearinghouse
+    277 rejection messages get posted. We have a single free-text `Notes`
+    textarea.
 
-14. **No eligibility check.** EZClaim shows `CHECK` / `VIEW` inline buttons and
-    an `Active <date>` green cell per patient.
+14. **No Program Setup.** No theme, no printer alignment (EZClaim's is
+    elaborate: 100ths of an inch, `Print Test Page`, per-box shifts for boxes
+    31/32/33, `Courier New 12`, date formats), no account-number policy, no
+    company description, no grid-footer or row-colour options.
 
-15. **No 835/ERA auto-posting**, and no `Apply` / `Track` / `Ignore` vocabulary.
-    Out of scope while we are print-and-mail, but it is the vocabulary the
-    office will expect around adjustments.
+15. **Thin libraries.** We have Insurers and Providers lists. EZClaim's
+    `Physician / Facility Library` has a `Classification` per entry
+    (`Billing / Facility / Ordering / Referring / Rendering / Supervising`),
+    `Person` vs `Non-Person`, `Signature on File`, `Taxonomy Code`,
+    `Tax ID Type`, a `Lookup NPI` link, `Additional ID Numbers` per payer,
+    a `Pay to Address`, `Mark as Inactive`, and an
+    `Entries That Are: Active / Inactive / All` filter. The payer library adds
+    a **`Payment Matching Key`** (settable in bulk by right-clicking a
+    multi-selection in `Find Payer`).
 
 16. **No home-screen workflow flowchart or widget tiles.** EZClaim's Home is
-    `Create Patient → Create Claim → Print Claims / Statements / Enter Payment
-    / Send Claims → View EDI Reports` plus count tiles (`Claims Over 90 Days`,
-    `Unpaid Patient Co-pays`, `Expiring Auths`, `Claims with a Credit Balance`).
-    Our Home has three buttons and a totals block. The **tiles in particular
-    are cheap for us to add and are the first thing the office sees.**
+    the flowchart (`Create Patient → Create Claim → Print Claims / Patient
+    Statements / Enter Payment / Send Claims → View EDI Reports`) plus a
+    column of count tiles (`Claims Over 90 Days`, `Unpaid Patient Co-pays`,
+    `Expiring Auths`, `Claims with a Credit Balance`, `Overdue Statements`,
+    `Batch Status`) each opening a detail grid, with `Updated 2:26 PM` and a
+    `Refresh`. **The tiles are cheap for us to build and are the first thing
+    the office looks at each morning.**
 
-17. **No tasks.** EZClaim has a `Tasks` grid tab and a `Task` button in the
-    ribbon's New group.
+17. **Claim screen is missing several things EZClaim users expect:**
+    - a **`Bill To`** selector with sequence (`Primary (1/1) - GEICO - …`) —
+      we have a flat `Bill To` text field
+    - **twelve diagnosis slots** labelled `A1 … L12` (we have a dynamic list)
+    - **four modifier columns** `M1 M2 M3 M4` (we have one `M1`)
+    - a numeric **`Diag. #`** pointer per line (we use letters)
+    - `Prior Auth #`, `Date of Curr`, `Admitted Date`, `Service Facility`,
+      `Claim Template`, `Invoice #`, `Locked`
+    - per-line `Adjs`, `Paid`, `Applied Amt.`, `Resp. Party`, `Pat. Amt.`
+    - `Make Recurring` (generate every N months until a date)
 
-18. **Wording differences to consider aligning**: EZClaim says
-    `1st DOS` (we match), `Tot. Chg.` / `Tot. Bal.` (we say `Tot. Bal.` —
-    match), `Pri Payer` (we say `Insurance`), `Ready to Submit` (we say
-    `Ready`), `Pat. Bal.`, `Ins Bal`, `Account #`.
+18. **No 835/ERA auto-posting**, and none of its vocabulary —
+    `Apply` / `Track` / `Ignore`, `Balance Exceeded`, `Payer Not Linked`,
+    `Service Line Not Found`, `Recheck Payer Links`, `Close and Archive`.
+    Out of scope while we are print-and-mail, but this is the language the
+    office uses about adjustments, and `Track` (post a $0.00 adjustment to
+    keep the claim followable) is a genuinely good idea worth stealing.
+
+19. **No reports.** EZClaim ships thirteen (`Accounts Receivable`,
+    `Adjustments`, `Authorizations`, `Claim List`, `Disbursements`,
+    `Patient Demographics`, `Patient Ledger`, `Patient List`, `Patient Notes`,
+    `Patient Services`, `Payment List`, `Procedure Code Summary`,
+    `Production Summary`) each with a `Report Criteria` panel and a printable
+    grouped output with `Grand Totals`. We have none.
+
+20. **No eligibility check** (`CHECK` / `VIEW` inline buttons, green
+    `Active <date>` cell), and no `Errors and Warnings` screen separating
+    **`Error`** (blocks submission) from **`Warning`** (submits but will
+    likely reject) — a distinction our scrubber could adopt immediately.
+
+21. **Wording to align.** EZClaim says `Pri Payer` (we say `Insurance`),
+    `Ready to Submit` (we say `Ready`), `Account #`, `Pat. Bal.`, `Ins Bal`,
+    `Tot. Chg.`, `Srvc Date` (we say `Svc Date`), `Proc` / `Procedure`,
+    `Place` (we say `Place`), `Resp. Party`, `Disbursement` for applying money
+    to a line. Negative money is shown **in parentheses** — `($100.00)`.
+    Patient names are **`LAST, FIRST M` in upper case** throughout.
 
 ---
 
-*Study in progress — more videos to follow.*
+## Coverage
+
+**37 of the 38 videos** in the list were downloaded, frame-sampled and read
+(plus captions wherever YouTube served them — some caption fetches returned
+`429 Too Many Requests` even when the video downloaded fine).
+
+Not captured: **`ikUIM2AVURQ`** (How Find Grids Improves Efficiency, 37 min).
+Its subject is covered in depth by `p4sCfOq7ftc` (How to Use Find Grids) and
+`B2WenGr6fcQ` (Navigation and Grids), both of which were read in full — see
+§1b, §2 and §9n.
+
+Several videos needed retries with backoff; `403 Forbidden` and `429` from
+YouTube were transient and cleared on a later attempt.
+
+Frames and captions live in `~/ezclaim-study/frames/<video-id>/` on
+thunder-main and are **deliberately not in this repo** — they are EZClaim's
+copyrighted material.
+
+### Videos read, by id
+`DZ0spaFoFz4` `_UZktuXNBxc` `h8BdQO3FuPw` `oZBevrOFRwY` `QqvTxnAk2uE`
+`7SeDsTtfBNU` `gO7UQeKlmFM` `puSJeow-pkk` `ciHa8ZgTTKE` `m85vv2jh148`
+`N2hFJQDke_I` `qG699P9sC0o` `Y_glBgEkSHs` `vZb1Uzv7I7c` `i-7SoiBCpjk`
+`uqRGjzNM-KE` `-JrFNkPqilw` `u-TuvmCVj-M` `erCHIBu51xw` `PsLZgSmi_qs`
+`p4sCfOq7ftc` `h-EzAeOTDlQ` `5aJQBFSmkbU` `2ZgChe2rNnE` `CN2twFAShj0`
+`N9QcUnB5kkY` `sTZilSPX-Fc` `b1AJePNYbcs` `hfhR0DsWxaY` `7Sl9bwm3CxU`
+`JX5Esi1Vzp0` `5mj4eSiGSv0` `B2WenGr6fcQ` `Q6ytCiouF4I` `sEgz49YE1lI`
+`QiiFx0hCFMU`
