@@ -84,7 +84,7 @@ input.yes { border-color: #3c9a6a; } input.no { border-color: var(--block); back
 /* left: search pane */
 .left { display: flex; flex-direction: column; min-width: 0; min-height: 0; border-right: 1px solid var(--edge); background: var(--pane); }
 .ptabs { display: flex; gap: 2px; padding: 4px 4px 0; background: var(--win); border-bottom: 1px solid var(--edge); }
-.ptabs button { border-radius: 3px 3px 0 0; border-bottom: 0; padding: 4px 7px; background: linear-gradient(#f3f1e8, #dcd7c4); margin-bottom: -1px; }
+.ptabs button { border-radius: 3px 3px 0 0; border-bottom: 0; padding: 3px 1px; flex: 1 1 0; min-width: 0; font-size: 12px; line-height: 1.15; text-align: center; overflow: hidden; background: linear-gradient(#f3f1e8, #dcd7c4); margin-bottom: -1px; }
 .ptabs button.on { background: var(--pane); font-weight: 700; border-bottom: 1px solid var(--pane); }
 .band { margin: 4px 4px 0; padding: 5px 8px; background: #e9e4d6; border: 1px solid var(--edge-soft); color: #807a66; display: flex; gap: 6px; align-items: center; min-height: 28px; }
 .band.over { background: #fff3cf; border-color: #d6ad4f; }
@@ -295,6 +295,29 @@ td.pip-late, td.pip-overdue { color: var(--block); font-weight: 700; } td.pip-so
 .stpage td { padding: 2px 4px; border-bottom: 1px solid #ddd; vertical-align: top; }
 .stpage .n { text-align: right; font-variant-numeric: tabular-nums; }
 .stpage .due { border: 1.5px solid #000; padding: 6px 10px; }
+.left.rep .gridwrap.replist { flex: 0 1 auto; } .left.rep .detail { flex: 1 1 60%; }
+.repcrit .rc input[type=checkbox] { justify-self: start; width: auto; }
+.replist table { width: 100%; border-collapse: collapse; } .replist th { text-align: left; background: linear-gradient(var(--bar1), var(--bar2)); padding: 3px 6px; font-weight: 700; border-bottom: 1px solid var(--edge); }
+.replist td { padding: 3px 6px; border-bottom: 1px solid #eeeae0; cursor: default; } .replist tr.sel td { background: var(--sel); color: var(--sel-ink); }
+.replist td.ic { width: 44px; white-space: nowrap; } .replist td.ic button { border: 0; background: none; padding: 0 2px; cursor: pointer; }
+.repdesc { padding: 6px 8px; border-top: 1px solid var(--edge); background: var(--white); color: #333; min-height: 34px; }
+.repcrit h3 { margin: 0; padding: 3px 8px; font-size: 12px; background: linear-gradient(var(--bar1), var(--bar2)); color: var(--bar-ink); cursor: pointer; }
+.repcrit h3::before { content: "▾ "; } .repcrit .shut h3::before { content: "▸ "; } .repcrit .shut .rc { display: none; }
+.repcrit .rc { display: grid; grid-template-columns: 44% 1fr; gap: 3px 6px; padding: 5px 8px; align-items: center; }
+.repcrit .rc label { color: #333; } .repcrit .dr { display: grid; grid-template-columns: 1fr 1fr 22px; gap: 3px; }
+.repcrit .run { padding: 8px; display: flex; gap: 6px; }
+.rpage { background: #fff; color: #000; font: 9pt/1.3 Arial, Helvetica, sans-serif; padding: 0.45in 0.5in; box-shadow: 0 2px 8px rgba(0,0,0,.35); margin: 0 auto 12px; width: 8.5in; box-sizing: border-box; min-height: 11in; }
+.rpage.land { width: 11in; min-height: 8.5in; }
+.rpage .rh { display: flex; justify-content: space-between; align-items: flex-start; }
+.rpage .rh h1 { font-size: 18pt; margin: 0; font-weight: 700; } .rpage .rh .pa { text-align: right; font-size: 9pt; }
+.rpage .echo { font-size: 7.5pt; color: #333; margin: 6px 0 8px; border-bottom: 1px solid #000; padding-bottom: 4px; }
+.rpage table { width: 100%; border-collapse: collapse; } .rpage th { text-align: left; border-bottom: 1.5px solid #000; padding: 2px 4px; font-size: 8.5pt; }
+.rpage td { padding: 1.5px 4px; vertical-align: top; font-size: 8.5pt; } .rpage .n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rpage tr.b td { font-weight: 700; } .rpage tr.l0 td { padding-top: 4px; }
+.rpage tr[data-open] { cursor: pointer; } .rpage tr[data-open]:hover td { background: #fff3c4; }
+.rpage tr.gt td { border-top: 1.5px solid #000; font-weight: 700; padding-top: 4px; }
+.rpage .ft { margin-top: 10px; font-size: 7.5pt; color: #555; display: flex; justify-content: space-between; }
+#print .rpage { box-shadow: none; margin: 0; padding: 0; width: auto; min-height: 0; }
 .stpage.letter { padding: 0.7in 0.8in; box-sizing: border-box; font: 11pt/1.4 "Times New Roman", Times, serif; }
 .stpage.letter p { margin: 0 0 9pt; }
 .stpage.letter h2 { font-size: 13pt; text-align: center; margin: 12pt 0; letter-spacing: 0.5px; }
@@ -367,21 +390,24 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   <!-- ===== search pane ===== -->
   <div class="left">
     <div class="ptabs" id="ptabs">
-      <button data-k="patient">👤 Patients</button>
-      <button data-k="claim" class="on">📄 Claims</button>
-      <button data-k="payer">🏛 Insurers</button>
-      <button data-k="provider">🩺 Providers</button>
-      <button data-k="payment">💵 Payments</button>
-      <button data-k="procedure" title="Procedure Code Library">🧾 Codes</button>
+      <button data-k="patient">👤<br>Patients</button>
+      <button data-k="claim" class="on">📄<br>Claims</button>
+      <button data-k="payer">🏛<br>Insurers</button>
+      <button data-k="provider">🩺<br>Providers</button>
+      <button data-k="payment">💵<br>Payments</button>
+      <button data-k="procedure" title="Procedure Code Library">🧾<br>Codes</button>
+      <button data-k="reports">📊<br>Reports</button>
     </div>
     <div class="band" id="band"></div>
     <div class="gridwrap" id="gridwrap"><table class="g" id="grid"><colgroup id="gcols"></colgroup>
       <thead id="ghead"></thead><tbody id="gbody"></tbody><tfoot id="gfoot"></tfoot></table></div>
+    <div class="gridwrap replist" id="repList" hidden></div>
     <div class="detail">
       <div class="dtabs2" id="dtabs2">
         <button data-d="details" class="on">Details</button><button data-d="claims">Claims</button><button data-d="payments">Payments</button>
       </div>
       <div class="dbody" id="dbody"></div>
+      <div class="dbody repcrit" id="repCrit" hidden></div>
     </div>
   </div>
 
@@ -700,6 +726,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
         </div>
 
         <!-- PATIENT STATEMENTS -->
+        <div id="repView" hidden><div class="status"><span class="msg" id="repmsg"></span></div><div id="repOut"></div></div>
         <div id="stmtView" hidden>
           <div class="status"><span class="msg" id="stmsg"></span></div>
           <div class="gridwrap" style="margin:0;min-height:300px;max-height:calc(100vh - 330px)"><table class="g" id="stGrid">
@@ -797,7 +824,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   var LETTERS = "ABCDEFGHIJKL";
   var BILL = { draft: "Ready to Submit", sent: "Submitted", hold: "On Hold", partial: "Partly Paid", paid: "Paid", denied: "Denied" };
   var OWING = { sent: 1, hold: 1, partial: 1, denied: 1 };
-  var KIND_ICON = { patient: "👤", claim: "📄", payer: "🏛", provider: "🩺", payment: "💵", procedure: "🧾", statements: "✉", help: "❓" };
+  var KIND_ICON = { patient: "👤", claim: "📄", payer: "🏛", provider: "🩺", payment: "💵", procedure: "🧾", report: "📊", statements: "✉", help: "❓" };
   var DIR = {
     payer: { title: "Payer Library", name: "name", fields: [
       ["name", "Insurer Name:", 1], ["address", "Claims Mailing Address:", 1], ["payer_id", "Payer ID:"], ["phone", "Phone #:"],
@@ -861,7 +888,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
     return Promise.all(["claim", "patient", "payer", "provider", "payment", "procedure"].map(function (k) {
       return api("GET", "/api/list?kind=" + k).then(function (r) { S.data[k] = r.records; });
     })).then(function () {
-      S.loadedAt = new Date(); fillPickers(); fillLibList(); renderGridBody(); renderDetail(); renderRibbon();
+      S.loadedAt = new Date(); fillPickers(); fillLibList(); if (typeof RP !== "undefined") RP.cat = null; renderGridBody(); renderDetail(); renderRibbon();
       if (S.active < 0) renderHome();
     }).catch(function (e) { $("gbody").innerHTML = '<tr class="empty"><td colspan="6">Couldn’t load: ' + esc(e.message) + '</td></tr>'; });
   }
@@ -979,8 +1006,11 @@ body.locked > :not(.login):not(#print) { display: none !important; }
     }).join("") + '</tr>';
   }
   function selectLeftTab(k) {
-    S.tab = k; qa("#ptabs button").forEach(function (b) { b.classList.toggle("on", b.dataset.k === k); });
-    renderGridHead(); renderGridBody(); renderDetail();
+    qa("#ptabs button").forEach(function (b) { b.classList.toggle("on", b.dataset.k === k); });
+    var rp = k === "reports"; document.querySelector(".left").classList.toggle("rep", rp);
+    ["band", "gridwrap", "dtabs2", "dbody"].forEach(function (id) { $(id).hidden = rp; }); $("repList").hidden = !rp; $("repCrit").hidden = !rp;
+    if (rp) return showReports();
+    S.tab = k; renderGridHead(); renderGridBody(); renderDetail();
   }
   $("ptabs").addEventListener("click", function (e) { var b = e.target.closest("button[data-k]"); if (b) selectLeftTab(b.dataset.k); });
   $("ghead").addEventListener("input", function (e) {
@@ -1216,6 +1246,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
     if (d.kind === "claim") return (x.patient_name || "New Claim") + (x.date_of_service ? " - " + x.date_of_service : "");
     if (d.kind === "statements") return "Statements";
     if (d.kind === "payment") return d.id ? "Payment - " + ((x.source === "payer" ? x.payer : x.patient_name) || "?") + " " + (x.date || "") : "Payment Entry";
+    if (d.kind === "report") return d.name;
     if (d.kind === "procedure") return x.code ? "Code " + x.code + (x.modifier ? "-" + x.modifier : "") : "New Procedure Code";
     return x.name || (d.kind === "payer" ? "New Payer" : "New Physician/Facility");
   }
@@ -1340,10 +1371,11 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   function renderWork() {
     var d = cur(), k = d ? d.kind : "home";
     $("homeView").hidden = k !== "home"; $("helpView").hidden = k !== "help"; $("claimView").hidden = k !== "claim";
-    $("patView").hidden = k !== "patient"; $("dirView").hidden = !DIR[k]; $("payView").hidden = k !== "payment"; $("stmtView").hidden = k !== "statements";
+    $("patView").hidden = k !== "patient"; $("dirView").hidden = !DIR[k]; $("payView").hidden = k !== "payment"; $("stmtView").hidden = k !== "statements"; $("repView").hidden = k !== "report";
     $("work").classList.toggle("nobtn", k === "home" || k === "help");
     renderButtons();
     if (k === "home") renderHome();
+    if (k === "report") renderReport();
     if (k === "claim") renderClaim();
     if (k === "patient") renderPatient();
     if (DIR[k]) renderDir();
@@ -1359,6 +1391,8 @@ body.locked > :not(.login):not(#print) { display: none !important; }
     if (k === "patient") h = '<button class="primary" data-b="saveClose">Save &amp; Close</button><button data-b="save">Save</button><button data-b="close">Close</button>' +
       '<button disabled title="' + SOON + '">Delete</button><div class="gap"></div><button data-b="newClaim">New Claim</button>' +
       '<label class="' + (d.data.active !== false ? "act" : "") + '"><input type="checkbox" data-b="active"' + (d.data.active !== false ? " checked" : "") + '> Active</label>';
+    if (k === "report") h = '<button class="primary" data-b="repPrint">Print</button><button data-b="repRefresh">Refresh</button><button data-b="repCsv">Export (.csv)</button><button data-b="close">Close</button>' +
+      '<div class="gap"></div><div class="hint" style="padding:0 4px">Click a line to open that record.</div>';
     if (DIR[k]) h = '<button class="primary" data-b="saveClose">Save &amp; Close</button><button data-b="save">Save</button><button data-b="close">Close</button>';
     if (k === "statements") h = '<label style="display:block">Statement Format:<select id="st_format" style="margin-top:2px"><option>Statement</option></select></label>' +
       '<button class="primary" data-b="stPrint">Print</button><button data-b="stPreview">Preview</button><button data-b="stOptions">Options</button><button data-b="close">Close</button>' +
@@ -1388,6 +1422,9 @@ body.locked > :not(.login):not(#print) { display: none !important; }
       case "notes": notesHidden = !notesHidden; $("notesBox").hidden = notesHidden; renderButtons(); break;
       case "scrub": scrub(); break;
       case "print": printClaim(); break;
+      case "repPrint": printReport(d); break;
+      case "repRefresh": runReport(d.name, d.crit, d); break;
+      case "repCsv": reportCsv(d); break;
       case "savePatient": savePatientFromClaim(); break;
       case "newClaim": newClaimForDoc(d); break;
       case "newPmt": newPayment(); break;
@@ -2251,6 +2288,114 @@ body.locked > :not(.login):not(#print) { display: none !important; }
     return h + '</div>';
   }
   function setPageMargin(red) { $("pagestyle").textContent = "@page { size: letter; margin: " + (red ? "0" : "0.35in") + "; }"; }
+
+  // ============ reports (EZClaim's Reports tab) ============
+  var RP = { cat: null, sel: null, crit: {} };
+  function fmtR(n) { n = +n || 0; if (Math.abs(n) < 0.005) return ".00"; var s = Math.abs(n).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ","); s = s.replace(/^0\./, "."); return (n < 0 ? "-" : "") + s; }
+  function showReports() {
+    (RP.cat ? Promise.resolve(RP.cat) : api("GET", "/api/reports")).then(function (c) {
+      RP.cat = c; if (!RP.sel) RP.sel = "Claim List"; renderRepList(); renderCrit();
+    }).catch(function (e) { $("repList").innerHTML = '<div class="dempty">Couldn’t load reports: ' + esc(e.message) + '</div>'; });
+  }
+  function repDef(n) { return (RP.cat.reports.filter(function (r) { return r.name === n; })[0]) || null; }
+  function renderRepList() {
+    var d = repDef(RP.sel);
+    $("repList").innerHTML = '<table><thead><tr><th></th><th>Report Name</th></tr></thead><tbody>' + RP.cat.reports.map(function (r) {
+      return '<tr data-rep="' + esc(r.name) + '"' + (r.name === RP.sel ? ' class="sel"' : "") + '><td class="ic"><button data-reprun="' + esc(r.name) + '" title="Run">▶</button><button data-reprun="' + esc(r.name) + '" title="Preview">👁</button></td><td>' + esc(r.name) + '</td></tr>'; }).join("") +
+      '</tbody></table><div class="repdesc">' + esc(d ? d.description : "") + '</div>';
+  }
+  var REL = ["All", "Today", "This Week", "This Month", "Last Month", "This Year", "Last Year", "Last 30 Days", "Last 90 Days"];
+  function relRange(k) {
+    var t = new Date(), y = t.getFullYear(), m = t.getMonth(), D = function (a, b, c) { return mdy(new Date(a, b, c)); };
+    switch (k) {
+      case "Today": return [mdy(t), mdy(t)];
+      case "This Week": var s0 = new Date(y, m, t.getDate() - t.getDay()); return [mdy(s0), mdy(new Date(s0.getFullYear(), s0.getMonth(), s0.getDate() + 6))];
+      case "This Month": return [D(y, m, 1), D(y, m + 1, 0)];
+      case "Last Month": return [D(y, m - 1, 1), D(y, m, 0)];
+      case "This Year": return [D(y, 0, 1), D(y, 11, 31)];
+      case "Last Year": return [D(y - 1, 0, 1), D(y - 1, 11, 31)];
+      case "Last 30 Days": return [mdy(new Date(Date.now() - 29 * 864e5)), mdy(t)];
+      case "Last 90 Days": return [mdy(new Date(Date.now() - 89 * 864e5)), mdy(t)];
+    }
+    return ["", ""];
+  }
+  function renderCrit() {
+    var d = repDef(RP.sel); if (!d) return;
+    var c = RP.crit[d.name] = RP.crit[d.name] || {}, secs = {}, order = [];
+    d.criteria.forEach(function (x) { if (!secs[x.section]) { secs[x.section] = []; order.push(x.section); } secs[x.section].push(x); });
+    var opt = function (x) {
+      var list = typeof x.options === "string" ? RP.cat.options[x.options] || [] : x.options, first = x.k === "group_by" || x.k === "show";
+      return '<select data-rc="' + x.k + '">' + (first ? "" : '<option value="">All</option>') + list.map(function (o) { return '<option' + (c[x.k] === o ? " selected" : "") + '>' + esc(o) + '</option>'; }).join("") + '</select>'; };
+    $("repCrit").innerHTML = '<div class="gb" style="margin:0;border:0"><h2 style="margin:0">Report Criteria - ' + esc(d.name) + '</h2></div>' + order.map(function (sec) {
+      return '<div class="rsec"><h3>' + esc(sec) + '</h3><div class="rc">' + secs[sec].map(function (x) {
+        var v = function (k) { return esc(c[k] || ""); };
+        var inp = x.type === "select" ? opt(x)
+          : x.type === "check" ? '<input type="checkbox" data-rc="' + x.k + '"' + (c[x.k] ? " checked" : "") + '>'
+          : x.type === "daterange" ? '<div><select data-rrel="' + x.k + '">' + REL.map(function (r) { return "<option" + (c[x.k + "_rel"] === r ? " selected" : "") + ">" + r + "</option>"; }).join("") + '</select>' +
+              '<div class="dr" style="margin-top:2px"><input data-rc="' + x.k + '_start" placeholder="No Start Date" value="' + v(x.k + "_start") + '"><input data-rc="' + x.k + '_end" placeholder="No End Date" value="' + v(x.k + "_end") + '">' +
+              '<button data-rclr="' + x.k + '" title="Clear">✕</button></div></div>'
+          : x.type === "date" ? '<input data-rc="' + x.k + '" placeholder="' + mdy(new Date()) + '" value="' + v(x.k) + '">'
+          : '<input data-rc="' + x.k + '" inputmode="decimal" value="' + v(x.k) + '">';
+        return '<label>' + esc(x.label) + '</label>' + inp; }).join("") + '</div></div>'; }).join("") +
+      '<div class="run"><button class="primary" data-reprun="' + esc(d.name) + '">▶ Run Report</button><button data-rreset="1">Reset</button></div>';
+  }
+  $("repList").addEventListener("click", function (e) {
+    var run = e.target.closest("[data-reprun]"); if (run) { RP.sel = run.dataset.reprun; renderRepList(); renderCrit(); return runReport(RP.sel, RP.crit[RP.sel] || {}); }
+    var tr = e.target.closest("[data-rep]"); if (tr) { RP.sel = tr.dataset.rep; renderRepList(); renderCrit(); }
+  });
+  $("repList").addEventListener("dblclick", function (e) { var tr = e.target.closest("[data-rep]"); if (tr) runReport(tr.dataset.rep, RP.crit[tr.dataset.rep] || {}); });
+  $("repCrit").addEventListener("change", function (e) {
+    var t = e.target, c = RP.crit[RP.sel];
+    if (t.dataset.rc) c[t.dataset.rc] = t.type === "checkbox" ? t.checked : t.value;
+    if (t.dataset.rrel) { var r = relRange(t.value), k = t.dataset.rrel; c[k + "_rel"] = t.value; c[k + "_start"] = r[0]; c[k + "_end"] = r[1]; renderCrit(); }
+  });
+  $("repCrit").addEventListener("click", function (e) {
+    var t = e.target, c = RP.crit[RP.sel];
+    if (t.dataset.rclr) { var k = t.dataset.rclr; delete c[k + "_start"]; delete c[k + "_end"]; delete c[k + "_rel"]; renderCrit(); }
+    if (t.dataset.rreset) { RP.crit[RP.sel] = {}; renderCrit(); }
+    if (t.dataset.reprun) runReport(t.dataset.reprun, c);
+    if (t.tagName === "H3") t.parentNode.classList.toggle("shut");
+  });
+  function runReport(name, crit, into) {
+    var sent = {}; Object.keys(crit || {}).forEach(function (k) { if (!/_rel$/.test(k)) sent[k] = crit[k]; });
+    setMsg("Running " + name + "…");
+    return api("POST", "/api/report", JSON.stringify({ name: name, criteria: sent })).then(function (out) {
+      if (into) { into.out = out; if (cur() === into) renderReport(); }
+      else addDoc({ kind: "report", id: "rep" + (++S.seq), name: name, crit: clone(crit || {}), out: out, dirty: false });   // several can be open, as in EZClaim
+      setMsg("");
+    }).catch(function (e) { setMsg("Couldn’t run " + name + ": " + e.message); });
+  }
+  function reportHtml(o) {
+    var cols = o.columns, cell = function (c, v) { return c.m ? (v == null || v === "" ? "" : fmtR(v)) : esc(v == null ? "" : v); };
+    return '<div class="rpage' + (o.landscape ? " land" : "") + '"><div class="rh"><h1>' + esc(o.title) + '</h1><div class="pa">' + (o.practice || []).map(esc).join("<br>") + '</div></div>' +
+      '<div class="echo">' + esc(o.echo || "") + '</div><table><thead><tr>' + cols.map(function (c) { return '<th' + (c.m ? ' class="n"' : "") + '>' + esc(c.t) + '</th>'; }).join("") + '</tr></thead><tbody>' +
+      (o.rows.length ? o.rows.map(function (r) {
+        return '<tr class="l' + r.level + (r.bold ? " b" : "") + '"' + (r.open && r.open.id ? ' data-open="' + esc(r.open.kind) + ':' + esc(r.open.id) + '"' : "") + '>' + cols.map(function (c, i) {
+          return '<td' + (c.m ? ' class="n"' : "") + (i === 0 && r.level ? ' style="padding-left:' + (4 + r.level * 14) + 'px"' : "") + '>' + cell(c, r.cells[c.k]) + '</td>'; }).join("") + '</tr>'; }).join("")
+        : '<tr><td colspan="' + cols.length + '"><i>Nothing matches these criteria.</i></td></tr>') +
+      '<tr class="gt">' + cols.map(function (c, i) { return i === 0 ? '<td colspan="1" style="white-space:nowrap">' + esc(o.totals_label || "") + '</td>' : '<td' + (c.m ? ' class="n"' : "") + '>' + (c.m && o.totals[c.k] != null ? fmtR(o.totals[c.k]) : "") + '</td>'; }).join("") + '</tr>' +
+      '</tbody></table><div class="ft"><span>Printed ' + esc(o.run_at) + ' · Thunder Claims · ' + esc(S.company || "") + '</span><span>' + esc(o.title) + '</span></div></div>';
+  }
+  function renderReport() {
+    var d = cur(); if (!d || d.kind !== "report") return;
+    $("repOut").innerHTML = reportHtml(d.out);
+    $("repmsg").textContent = d.out.rows.length + " line(s)" + (d.out.landscape ? " · prints landscape" : "");
+  }
+  $("repOut").addEventListener("click", function (e) {
+    var tr = e.target.closest("[data-open]"); if (!tr) return;
+    var p = tr.dataset.open.split(":"); openRec(p[0], p.slice(1).join(":"));
+  });
+  function printReport(d) {
+    $("pagestyle").textContent = "@page { size: letter " + (d.out.landscape ? "landscape" : "portrait") + "; margin: 0.4in; }";
+    $("print").innerHTML = reportHtml(d.out); window.print();
+  }
+  function reportCsv(d) {
+    var o = d.out, q = function (s) { s = String(s == null ? "" : s); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+    var lines = [o.columns.map(function (c) { return q(c.t); }).join(",")].concat(o.rows.map(function (r) {
+      return o.columns.map(function (c) { var v = r.cells[c.k]; return q(c.m && v != null && v !== "" ? (+v).toFixed(2) : v); }).join(","); }));
+    var a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([lines.join("\r\n")], { type: "text/csv" }));
+    a.download = d.name.replace(/\W+/g, "_") + ".csv"; a.click();
+  }
 
   // ============ demand letter (627.736(10)) ============
   function demandPage(d, st) {

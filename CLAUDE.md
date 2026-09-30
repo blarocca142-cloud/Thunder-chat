@@ -55,7 +55,7 @@ assumed.
   adduser <name>` (also `users`, `passwd`, `disable`, `enable`). Lockout after
   5 wrong tries (15 min), auto-logoff after 15 idle minutes, sessions in memory
   only. `access.log` in the vault dir records who/ip/path/status (ids only),
-  and the vault audit credits the logged-in person. `test_claims_web.py` = 79
+  and the vault audit credits the logged-in person. `test_claims_web.py` = 86
   checks, mostly attacks. **Synthetic patients only**; nothing is ever
   submitted to a payer. The UI mimics EZClaim on purpose - see
   `thunder-claims/EZCLAIM-LOOK.md` (EZClaim's videos studied frame by frame).
@@ -85,6 +85,13 @@ assumed.
   companies; per-user access with `claims_web.py grant|revoke <user>
   <Company|*>` (`companies` lists them). Users with no list = all. **Backups are
   per company**: `THUNDER_VAULT=<company dir> vault.py backup`.
+  **Reports** (`reports.py`, left Reports tab + Report Criteria panel, as in
+  EZClaim): Accounts Receivable, Adjustments, Claim List, Insurance Follow-Up,
+  Patient Ledger, Patient List, Payment List, PIP Deadlines, Procedure Code
+  Summary, Production Summary. Each is a definition (fn + criteria spec +
+  description); output opens as its own tab, prints with the practice address
+  and a criteria echo line, money EZClaim-style (no $, zero ".00"), rows drill
+  down to the record.
 - `/status`'s `gpu` block now reads the **real** GPU — nvidia-smi plus Ollama's
   `/api/ps` (`gpu_state()` in `app.py`). It used to ask thunder-genai on :9010,
   so once that was disabled `gpu.up` was stuck false and the phone showed the

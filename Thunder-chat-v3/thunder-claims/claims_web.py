@@ -58,6 +58,7 @@ sys.path.insert(0, str(HERE))
 import intake  # noqa: E402  (brings vault, extract, repair, validate, codelist)
 from intake import codelist, vault  # noqa: E402
 import fl_pip  # noqa: E402
+import reports  # noqa: E402
 import validate  # noqa: E402
 
 PAGE = HERE / "claims_web.html"
@@ -1028,6 +1029,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"records": list_records(kind)})
         if u.path == "/api/settings":
             return self._send(200, get_settings())
+        if u.path == "/api/reports":
+            return self._send(200, reports.catalogue(sys.modules[__name__]))
         if u.path == "/api/statements":
             q = {k: v[0] for k, v in parse_qs(u.query).items()}
             return self._send(200, {"rows": statement_list(money(q.get("min", "0.01")), int(money(q.get("cycle", "30"))), q.get("zero") == "1")})
@@ -1110,6 +1113,9 @@ class Handler(BaseHTTPRequestHandler):
             if pid and not (ID_RE.match(pid) and kind_of(pid) == "patient"):
                 return self._send(400, {"error": "bad record id"})
             return self._send(200, patient_benefits(pid, b.get("data") or {}))
+        if u.path == "/api/report":
+            b = json.loads(self._body() or b"{}")
+            return self._send(200, reports.run(sys.modules[__name__], str(b.get("name") or ""), b.get("criteria") or {}))
         if u.path == "/api/procedures/from_claims":
             return self._send(200, procedures_from_claims(who))
         if u.path == "/api/check":

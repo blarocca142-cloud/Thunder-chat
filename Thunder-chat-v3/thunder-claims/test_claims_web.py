@@ -299,6 +299,23 @@ check("seeding twice adds nothing", req("POST", "/api/procedures/from_claims", {
 st, _, _ = req("POST", "/api/procedures/from_claims", {})
 check("the library needs a login", st == 401)
 
+print("reports")
+st, cat, _ = req("GET", "/api/reports", token=TOK)
+check("the report list has EZClaim's names", st == 200 and {"Claim List", "Accounts Receivable", "Payment List", "Patient Ledger"} <= {r["name"] for r in cat["reports"]}, cat)
+lst = req("GET", "/api/list?kind=claim", token=TOK)[1]["records"]
+st, cl, _ = req("POST", "/api/report", {"name": "Claim List", "criteria": {}}, token=TOK)
+check("Claim List grand total balance matches the claims grid", st == 200 and abs(cl["totals"]["balance"] - round(sum(r["balance"] for r in lst), 2)) < 0.01, (cl.get("totals"), sum(r["balance"] for r in lst)))
+check("Claim List echoes its criteria for the printout", "Group By: None" in cl["echo"], cl["echo"])
+st, ar, _ = req("POST", "/api/report", {"name": "Accounts Receivable", "criteria": {"aging_date": "12/31/2030"}}, token=TOK)
+check("A/R buckets add up to its total, and old bills age into Over 120", abs(sum(ar["totals"][b] for b in ("0-30", "31-60", "61-90", "91-120", "Over 120")) - ar["totals"]["total"]) < 0.01
+      and ar["totals"]["Over 120"] > 0, ar["totals"])
+st, pl, _ = req("POST", "/api/report", {"name": "Payment List", "criteria": {"pay_date_start": "01/01/2099"}}, token=TOK)
+check("Payment List honours its date range", st == 200 and pl["rows"] == [], pl["rows"][:1])
+st, _, _ = req("POST", "/api/report", {"name": "Claim List", "criteria": {}})
+check("reports need a login", st == 401)
+st, j, _ = req("POST", "/api/report", {"name": "../etc", "criteria": {}}, token=TOK)
+check("an unknown report is refused", st == 400)
+
 print("company files")
 st, j, _ = req("GET", "/api/companies", token=TOK)
 check("one company to start with, and it is open", st == 200 and j["companies"] == ["Main"] and j["current"] == "Main", j)
