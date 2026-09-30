@@ -1,0 +1,66 @@
+{
+  "name": "thunder-claims",
+  "productName": "Thunder Claims",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Thunder Claims - the office's claims program. Talks only to the claims server on Main, over TLS pinned to the Thunder fleet CA.",
+  "author": "Thunder",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist:win": "electron-builder --win nsis --x64",
+    "dist:linux": "electron-builder --linux dir"
+  },
+  "devDependencies": {
+    "electron": "33.4.11",
+    "electron-builder": "25.1.8"
+  },
+  "build": {
+    "appId": "com.thunder.claims",
+    "productName": "Thunder Claims",
+    "copyright": "Thunder",
+    "files": [
+      "main.js",
+      "offline.html",
+      "package.json",
+      "build/icon.png"
+    ],
+    "extraResources": [
+      {
+        "from": "thunder_ca.crt",
+        "to": "thunder_ca.crt"
+      }
+    ],
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png",
+      "artifactName": "ThunderClaims-Setup.exe"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "Thunder Claims",
+      "uninstallDisplayName": "Thunder Claims"
+    },
+    "linux": {
+      "target": "dir",
+      "icon": "build/icon.png",
+      "category": "Office"
+    },
+    "publish": null
+  }
+}

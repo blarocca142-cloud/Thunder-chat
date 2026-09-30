@@ -1,0 +1,90 @@
+name: Build Thunder Claims (Windows)
+
+# Builds the Windows installer for the Thunder Claims desktop program on a real
+# Windows runner (the NSIS installer and the .exe icon need Windows tooling),
+# and publishes it as a release asset with a stable name.
+#
+# The release is created with --latest=false ON PURPOSE: the phone app's
+# updater and /app/version read GitHub's "latest release" to find thunder.apk.
+# If this release became "latest", every phone would stop seeing updates.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, "claude/**"]
+    paths:
+      - "Thunder-chat-v3/thunder-claims/desktop/**"
+      - ".github/workflows/build-claims-desktop.yml"
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: bash
+        working-directory: Thunder-chat-v3/thunder-claims/desktop
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      # The whole security model rests on the program trusting exactly the
+      # Thunder fleet CA. Refuse to build if the bundled certificate is not it.
+      - name: Check the bundled CA is the Thunder fleet CA
+        run: |
+          FP=$(openssl x509 -in thunder_ca.crt -noout -fingerprint -sha256 | cut -d= -f2)
+          echo "bundled CA: $FP"
+          test "$FP" = "5C:5A:88:C2:EA:79:5F:2B:91:60:5B:F7:45:9C:A8:D5:DA:11:F6:CF:6F:05:DA:16:C2:1E:C6:48:91:69:7C:D0"
+          cmp thunder_ca.crt ../../thunder-android/app/src/main/res/raw/thunder_ca.crt
+
+      - name: Build installer
+        run: npx electron-builder --win nsis --x64 --publish never
+
+      - name: Check the build
+        run: |
+          ls -la dist
+          test -f dist/ThunderClaims-Setup.exe
+          cmp dist/win-unpacked/resources/thunder_ca.crt thunder_ca.crt
+          sha256sum dist/ThunderClaims-Setup.exe | tee dist/sha256.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: thunder-claims-windows
+          path: Thunder-chat-v3/thunder-claims/desktop/dist/ThunderClaims-Setup.exe
+          retention-days: 7
+
+      # A stable download link for the office:
+      #   .../releases/download/claims-desktop/ThunderClaims-Setup.exe
+      - name: Publish release (not marked latest)
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION=$(node -p "require('./package.json').version")
+          SHA=$(cut -d' ' -f1 dist/sha256.txt)
+          NOTES="Thunder Claims $VERSION for Windows (64-bit).
+
+          Install: run ThunderClaims-Setup.exe. Windows SmartScreen will warn that the publisher is unknown (the installer is not code-signed): click More info, then Run anyway.
+
+          The program connects only to the claims server on Main (https://10.168.168.10:8770) and trusts only the Thunder fleet CA.
+
+          SHA-256: $SHA
+          Commit: $GITHUB_SHA"
+          TAG=claims-desktop
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/ThunderClaims-Setup.exe --repo "$GITHUB_REPOSITORY" --clobber
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --title "Thunder Claims $VERSION (Windows)" --notes "$NOTES" --latest=false
+          else
+            gh release create "$TAG" dist/ThunderClaims-Setup.exe --repo "$GITHUB_REPOSITORY" \
+              --title "Thunder Claims $VERSION (Windows)" --notes "$NOTES" --latest=false \
+              --target "$GITHUB_SHA"
+          fi
+          echo "Published $TAG ($VERSION)"

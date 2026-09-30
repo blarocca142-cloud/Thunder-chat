@@ -232,9 +232,24 @@ label b, .pg td b { font-family: var(--mono); color: var(--block); font-weight: 
 .updated { display: flex; gap: 8px; align-items: center; color: var(--mute); padding: 6px 0; }
 .help p, .help li { max-width: 720px; }
 
+/* login */
+.login { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(circle at 30% 20%, #fbf2dc, #e3d2a6); }
+body.locked > :not(.login):not(#print) { display: none !important; }
+.lbox { width: min(380px, calc(100vw - 32px)); background: var(--pane); border: 1px solid var(--rib-edge); border-radius: 4px; box-shadow: 0 6px 24px rgba(0,0,0,.18); }
+.lbox .lt { background: linear-gradient(#d9892b, #b8621a); color: #fff; font-weight: 700; padding: 8px 12px; border-radius: 3px 3px 0 0; font-size: 14px; }
+.lbox .lt span { color: #ffe6b8; }
+.lbox .lin { padding: 16px; display: grid; grid-template-columns: max-content 1fr; gap: 8px 10px; align-items: center; }
+.lbox .lin label { text-align: right; }
+.lbox .lbtn { grid-column: 2; display: flex; gap: 8px; }
+.lbox .lbtn button { font-weight: 700; padding: 6px 18px; }
+.lbox .lmsg { grid-column: 1 / -1; min-height: 16px; color: var(--block); }
+.lbox .lnote { border-top: 1px solid var(--edge-soft); padding: 8px 16px; color: var(--mute); font-size: 11px; }
+
 /* status bar */
 .statusbar { flex: none; display: flex; gap: 16px; padding: 3px 10px; background: linear-gradient(#f4ecd8, #e2d3ae); border-top: 1px solid var(--rib-edge); color: #4d3a12; font-size: 11px; }
 .statusbar .r { margin-left: auto; }
+.statusbar button { padding: 0 8px; font-size: 11px; }
 
 /* ---- CMS-1500 style print page ---- */
 #print { display: none; }
@@ -258,7 +273,19 @@ label b, .pg td b { font-family: var(--mono); color: var(--block); font-weight: 
 #print .note { font-size: 7pt; margin-top: 6px; }
 </style>
 </head>
-<body>
+<body class="locked">
+<div class="login" id="login">
+  <form class="lbox" id="loginForm" autocomplete="off">
+    <div class="lt">Thunder <span>Claims</span> - Log In</div>
+    <div class="lin">
+      <label for="luser">User Name:</label><input id="luser" autocomplete="username" autocapitalize="none" spellcheck="false">
+      <label for="lpass">Password:</label><input id="lpass" type="password" autocomplete="current-password">
+      <div class="lmsg" id="loginMsg"></div>
+      <div class="lbtn"><button type="submit" id="loginBtn">Log In</button></div>
+    </div>
+    <div class="lnote">Encrypted on Main · every access is logged · nothing is ever sent to a payer. Synthetic patients only.</div>
+  </form>
+</div>
 <!-- ===== ribbon ===== -->
 <div class="ribbon">
   <div class="rtabs" id="rtabs"></div>
@@ -529,7 +556,7 @@ label b, .pg td b { font-family: var(--mono); color: var(--block); font-weight: 
   </div>
 </div>
 
-<div class="statusbar"><span id="loggedIn">Logged in as: …</span><span>Local · encrypted on Main · nothing is ever sent to a payer</span>
+<div class="statusbar"><span id="loggedIn">Logged in as: …</span><button id="logoutBtn" type="button">Log Out</button><span>Local · encrypted on Main · nothing is ever sent to a payer</span>
   <span class="r banner" style="margin:0">Synthetic patients only</span></div>
 <input type="file" id="scanFile" accept=".png,.jpg,.jpeg,.tif,.tiff,.bmp,.pdf" hidden>
 <div id="print"></div>
@@ -555,7 +582,8 @@ label b, .pg td b { font-family: var(--mono); color: var(--block); font-weight: 
   // ============ state ============
   var S = {
     tab: "claim", data: { claim: [], patient: [], payer: [], provider: [] },
-    grids: {}, docs: [], active: -1, rtab: "home", dtab: "details", widget: "owed", user: "", seq: 0, loadedAt: null
+    grids: {}, docs: [], active: -1, rtab: "home", dtab: "details", widget: "owed", user: "", seq: 0, loadedAt: null,
+    token: null, idle: 15
   };
   ["claim", "patient", "payer", "provider"].forEach(function (k) { S.grids[k] = { f: {}, sort: [], group: null, shut: {}, sel: null }; });
 
@@ -574,8 +602,15 @@ label b, .pg td b { font-family: var(--mono); color: var(--block); font-weight: 
   function age(dob) { var d = parseDate(dob); if (!d) return ""; var n = new Date(), a = n.getFullYear() - d.getFullYear();
     if (n.getMonth() < d.getMonth() || (n.getMonth() === d.getMonth() && n.getDate() < d.getDate())) a--; return a; }
   function api(method, url, body, headers) {
-    return fetch(url, { method: method, body: body, headers: headers || (body ? { "Content-Type": "application/json" } : {}) })
-      .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || r.statusText); return j; }); });
+    var h = headers ? Object.assign({}, headers) : (body ? { "Content-Type": "application/json" } : {});
+    if (S.token) h.Authorization = "Bearer " + S.token;
+    return fetch(url, { method: method, body: body, headers: h, cache: "no-store" })
+      .then(function (r) {
+        return r.json().catch(function () { return {}; }).then(function (j) {
+          if (r.status === 401 && url !== "/api/login") lock("Your session ended. Log in again to carry on.");
+          if (!r.ok) throw new Error(j.error || r.statusText); return j;
+        });
+      });
   }
   function clone(o) { return JSON.parse(JSON.stringify(o)); }
   function cur() { return S.docs[S.active] || null; }
@@ -854,7 +889,8 @@ label b, .pg td b { font-family: var(--mono); color: var(--block); font-weight: 
     if (S.rtab === "tools") return [
       { cap: "Import", items: [big("📷", "Claim from a Scan", scanCmd)] },
       { cap: "Options", items: [big("⚙", "Program Setup", null, false, SOON)] },
-      { cap: "Security", small: 1, items: [small("🔒", "Security Settings", null, false, SOON), small("🔑", "Change Password", null, false, "Set on Main in ~/.thunder/claims_web.env")] },
+      { cap: "Security", small: 1, items: [small("🚪", "Log Out", function () { lock("Logged out."); }), small("👥", "Login as another user", function () { lock("Log in as another user."); }),
+        small("🔑", "Change Password", null, false, "On Main: claims_web.py passwd <name>")] },
       { cap: "Company", items: [big("💾", "Backup", null, false, "Run vault.py backup on Main")] }, help];
     if (S.rtab === "support") return [help, { cap: "About", items: [big("⚡", "Thunder Claims", openHelp)] }];
     return [file, edit, find,
@@ -1405,8 +1441,37 @@ label b, .pg td b { font-family: var(--mono); color: var(--block); font-weight: 
   }
 
   // ============ start ============
-  api("GET", "/api/whoami").then(function (r) { S.user = r.user; $("loggedIn").textContent = "Logged in as: " + r.user.toUpperCase(); }).catch(function () {});
-  selectLeftTab("claim"); activate(-1); loadAll();
+  // ============ login, logoff ============
+  var lastAct = Date.now();
+  function showLogin(msg) {
+    document.body.classList.add("locked"); $("login").hidden = false;
+    $("loginMsg").textContent = msg || ""; $("lpass").value = "";
+    ($("luser").value ? $("lpass") : $("luser")).focus();
+  }
+  function lock(msg) {
+    if (S.token) fetch("/api/logout", { method: "POST", headers: { Authorization: "Bearer " + S.token } }).catch(function () {});
+    S.token = null; closeMenu(); showLogin(msg);
+  }
+  $("loginForm").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var user = $("luser").value.trim().toLowerCase(), pw = $("lpass").value;
+    if (!user || !pw) return showLogin("Enter your user name and password.");
+    $("loginBtn").disabled = true; $("loginMsg").textContent = "Checking…";
+    api("POST", "/api/login", JSON.stringify({ user: user, password: pw })).then(function (r) {
+      if (S.user && S.user !== r.user) { S.docs = []; S.active = -1; }  // someone else's open records never carry over
+      S.token = r.token; S.user = r.user; S.idle = r.idle_minutes || 15; lastAct = Date.now();
+      $("lpass").value = ""; $("login").hidden = true; document.body.classList.remove("locked");
+      $("loggedIn").textContent = "Logged in as: " + r.user.toUpperCase();
+      activate(S.active); loadAll();
+    }).catch(function (err) { showLogin(err.message); }).finally(function () { $("loginBtn").disabled = false; });
+  });
+  $("logoutBtn").onclick = function () { lock("Logged out."); };
+  ["mousedown", "keydown", "wheel", "touchstart"].forEach(function (ev) { document.addEventListener(ev, function () { lastAct = Date.now(); }, true); });
+  setInterval(function () {  // automatic logoff, matched by the server's own idle limit
+    if (S.token && Date.now() - lastAct > S.idle * 60000) lock("Locked after " + S.idle + " idle minutes. Log in to carry on.");
+  }, 15000);
+
+  selectLeftTab("claim"); activate(-1); showLogin("");
 })();
 </script>
 </body>

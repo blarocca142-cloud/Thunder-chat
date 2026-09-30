@@ -36,18 +36,29 @@ assumed.
 
 - **Main**: `thunder-main` (FastAPI :8080), `ollama` (:11434). `thunder-genai`
   is **stopped and disabled** as of 2026-09-29 — see below.
-- **Thunder Claims web on Main :8770** (2026-09-29) — the claim screen in a
-  browser, for the Windows laptop on the LAN: http://10.168.168.10:8770/,
-  user `blayne`. `thunder-claims/claims_web.py`, stdlib only, system
-  `/usr/bin/python3` (3.14, cryptography 46.0.5). Runs as the **systemd user**
-  service `thunder-claims-web` (no sudo to restart:
-  `systemctl --user restart thunder-claims-web`); the unit is kept in the repo
-  at `thunder-claims/thunder-claims-web.service`. HTTP basic auth, password in
-  `~/.thunder/claims_web.env` (mode 600) — **never in the repo**, and
-  `claims_web.py` refuses to bind off-loopback without one. **LAN only** (plain
-  http, no TLS yet) and **synthetic patients only**. Saves go into the same
-  encrypted vault as the CLI (`~/.thunder/keys/vault.key`); nothing is ever
-  submitted to a payer from here.
+- **Thunder Claims on Main :8770 - https only** (2026-09-30). The office uses
+  the **Thunder Claims Windows program** (`thunder-claims/desktop/`, Electron),
+  not a browser: it trusts **only the Thunder fleet CA** (same `thunder_ca.crt`
+  as the APK, fingerprint `5C:5A:88:...:7C:D0`, checked in CI), refuses every
+  other origin, keeps nothing on the laptop (in-memory session), grants no
+  permissions. Installer: GitHub release **`claims-desktop`**, asset
+  `ThunderClaims-Setup.exe`, built on a Windows runner by
+  `.github/workflows/build-claims-desktop.yml`. That release is published
+  **`--latest=false` on purpose** - the phone updater reads "latest release"
+  for `thunder.apk`; never let a desktop release become latest.
+  Server: `thunder-claims/claims_web.py`, stdlib only, systemd **user** unit
+  `thunder-claims-web` (`systemctl --user restart thunder-claims-web`, no sudo),
+  unit kept in the repo. TLS with Main's fleet cert
+  (`thunder-main-api/thunder-data/tls/server.{crt,key}`); it refuses to listen
+  off loopback without TLS. **One login per person** in
+  `~/.thunder/claims_users.json` (scrypt, mode 600): `python3 claims_web.py
+  adduser <name>` (also `users`, `passwd`, `disable`, `enable`). Lockout after
+  5 wrong tries (15 min), auto-logoff after 15 idle minutes, sessions in memory
+  only. `access.log` in the vault dir records who/ip/path/status (ids only),
+  and the vault audit credits the logged-in person. `test_claims_web.py` = 33
+  checks, mostly attacks. **Synthetic patients only**; nothing is ever
+  submitted to a payer. The UI mimics EZClaim on purpose - see
+  `thunder-claims/EZCLAIM-LOOK.md` (EZClaim's videos studied frame by frame).
 - `/status`'s `gpu` block now reads the **real** GPU — nvidia-smi plus Ollama's
   `/api/ps` (`gpu_state()` in `app.py`). It used to ask thunder-genai on :9010,
   so once that was disabled `gpu.up` was stuck false and the phone showed the

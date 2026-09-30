@@ -1,23 +1,29 @@
 [Unit]
-# Thunder Claims - the claim screen, in a browser.
+# Thunder Claims server - what the Thunder Claims desktop program talks to.
 # A systemd *user* service (blayne has lingering enabled on thunder-main), so
 # it needs no root and no sudo:
 #     cp thunder-claims-web.service ~/.config/systemd/user/
 #     systemctl --user daemon-reload
 #     systemctl --user enable --now thunder-claims-web
 #
-# The password lives in ~/.thunder/claims_web.env (mode 600), never here and
-# never in the repo:
-#     THUNDER_CLAIMS_PASSWORD=<password>
-# claims_web.py refuses to bind anywhere but loopback without one.
-Description=Thunder Claims web (LAN, synthetic patients only)
+# Serves https only, with Main's fleet-CA certificate (the one :8443 uses);
+# claims_web.py refuses to listen on the network without TLS. The office uses
+# the Thunder Claims desktop program (desktop/), which trusts only that CA.
+#
+# Logins are per person, in ~/.thunder/claims_users.json (mode 600):
+#     python3 claims_web.py adduser dad      # also: users, passwd, disable
+# ~/.thunder/claims_web.env still holds THUNDER_CLAIMS_PASSWORD: on the first
+# start with no users it becomes blayne's password, so the upgrade is seamless.
+Description=Thunder Claims server (LAN, TLS, synthetic patients only)
 After=network-online.target
 
 [Service]
 Type=simple
 WorkingDirectory=%h/Thunder-chat/Thunder-chat-v3/thunder-claims
 EnvironmentFile=%h/.thunder/claims_web.env
-ExecStart=/usr/bin/python3 claims_web.py --host 10.168.168.10 --port 8770
+ExecStart=/usr/bin/python3 claims_web.py --host 10.168.168.10 --port 8770 \
+  --tls-cert %h/Thunder-chat/Thunder-chat-v3/thunder-main-api/thunder-data/tls/server.crt \
+  --tls-key %h/Thunder-chat/Thunder-chat-v3/thunder-main-api/thunder-data/tls/server.key
 Restart=on-failure
 RestartSec=3
 

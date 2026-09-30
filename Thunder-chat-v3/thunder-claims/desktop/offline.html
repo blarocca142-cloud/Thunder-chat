@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<title>Can't reach Thunder Claims</title>
+<style>
+  body { margin: 0; height: 100vh; display: flex; align-items: center; justify-content: center; font: 13px/1.5 Tahoma, "Segoe UI", sans-serif;
+    background: radial-gradient(circle at 30% 20%, #fbf2dc, #e3d2a6); color: #1b1b1b; }
+  .box { width: min(460px, calc(100vw - 32px)); background: #f8f4ea; border: 1px solid #c9a55a; border-radius: 4px; box-shadow: 0 6px 24px rgba(0,0,0,.18); }
+  .t { background: linear-gradient(#d9892b, #b8621a); color: #fff; font-weight: 700; padding: 8px 12px; border-radius: 3px 3px 0 0; font-size: 14px; }
+  .in { padding: 14px 16px; }
+  code { background: #fff; border: 1px solid #dcd3bd; padding: 1px 5px; }
+  .why { color: #6b6450; font-size: 12px; margin-top: 8px; }
+  button { font: inherit; font-weight: 700; padding: 6px 18px; border: 1px solid #8e8a7a; border-radius: 3px; background: linear-gradient(#fdfdfb, #e6e2d3); cursor: pointer; }
+</style>
+</head>
+<body>
+<div class="box"><div class="t">Thunder Claims - can't reach the server</div><div class="in">
+  <p>Thunder Claims couldn't connect to <code id="srv"></code>.</p>
+  <ul>
+    <li>Is Main switched on?</li>
+    <li>Is this computer on the office network?</li>
+  </ul>
+  <p>If Main is on and this keeps happening, the server's certificate may not be the Thunder one - this program refuses any other, on purpose.</p>
+  <button id="retry">Try Again</button>
+  <div class="why" id="why"></div>
+</div></div>
+<script>
+  var q = new URLSearchParams(location.search);
+  document.getElementById("srv").textContent = q.get("server") || "";
+  document.getElementById("why").textContent = q.get("reason") ? "Details: " + q.get("reason") : "";
+  document.getElementById("retry").onclick = function () { location.hash = "retry"; };
+  setTimeout(function () { location.hash = "retry"; }, 15000);
+</script>
+</body>
+</html>

@@ -61,6 +61,7 @@ import os
 import secrets
 import sys
 import tarfile
+import threading
 import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
@@ -161,13 +162,23 @@ def blind(index_key: bytes, field: str, value: str) -> str:
 # audit
 # --------------------------------------------------------------------------
 
+_actor = threading.local()
+
+
+def set_actor(name: str | None) -> None:
+    """Name the person behind the calls this thread makes, for the audit log.
+    The claims server serves several logged-in people from one process, so
+    the Unix account alone would credit every access to the same user."""
+    _actor.name = name
+
+
 def audit(action: str, record: str, ok: bool, note: str = "") -> None:
     """Record ids and actions only. Putting the patient's name in the audit log
     would mean the log itself is PHI sitting in plaintext."""
     VAULT.mkdir(parents=True, exist_ok=True)
     line = json.dumps({
         "at": now(),
-        "who": os.environ.get("THUNDER_USER") or getpass.getuser(),
+        "who": getattr(_actor, "name", None) or os.environ.get("THUNDER_USER") or getpass.getuser(),
         "pid": os.getpid(),
         "action": action,
         "record": record,
