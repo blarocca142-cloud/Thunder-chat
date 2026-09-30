@@ -1322,6 +1322,95 @@ parentheses** — `($25.00)`, `($150.00)`, `($122.00)`.
 
 ---
 
+## 9m2. Send Claims screen
+
+Document tab `Send Claims`, reached from `Send Claims` on the Home flowchart
+or the `Electronic Billing` ribbon. (`Q6ytCiouF4I`)
+
+**Header row:**
+- `Connection:` dropdown (`Clearinghouse`) with a `…` button
+- `Submitter/Receiver:` dropdown (`CLEARINGHOUSE - ANSI 837 w/~`) with a `…`
+
+**Grid columns:** checkbox · `Name` · `1st DOS` · `Tot. Chg.` · `Tot. Bal.` ·
+`Billing` · `Billing NPI` · `Bill To Sequ…` · `Payer`
+Footer: **`Shown: 2, Checked: 0, Charges Checked: $0.00`**
+
+**Right-hand button column:**
+`Check for Errors` (split, ▾) — **removed in release 616, see §9m** ·
+**`Create and Send Batch`** · `Close` · `Check All` · `Uncheck All` ·
+`Check Selected` · `Uncheck Selected` · **`Select Previous Batch`**
+
+**Bottom right:** ☐ `Export as a Zip File`, then a radio group captioned
+**`Claims that are:`** — ⦿ `Ready to Submit` / ○ `All Electronic` / ○ `All`.
+
+### What makes a claim appear in the list — the rule (`Q6ytCiouF4I`)
+**A claim shows up only when `Claim Status` = `Ready to Submit` *and*
+`Method` = `Electronic`.** Change either and it drops off the list.
+The `Claims that are:` radios widen this: `All Electronic` ignores status,
+`All` ignores both. *"Under most circumstances this filter is set to Ready to
+Submit."*
+
+### Sending — the happy path
+1. `Send Claims` → the list of claims ready to submit.
+2. `Check All` (or select a subset — *"helpful if you want to batch your claims
+   by provider or payer"*).
+3. `Create and Send Batch`. (In older builds, `Check for Errors` first.)
+4. **A green confirmation message** on successful upload.
+5. You are offered a **printed/exported claims report** — `No` skips it.
+6. **The status flips from `Ready to Submit` to `Submitted`, so the claims
+   disappear from the list.**
+
+### Connection Library
+Document tab `Connection Library`, same two-pane library shape as the
+Physician/Facility Library: an `Entry Name` list whose first row is
+**`Add new entry…`** (then `Clearinghouse`), and a form with `Name:`
+(placeholder *"Type entry name here…"*) and `Type:` (`None selected`).
+Buttons: `Save & New` · `Save & Close` · `Close` · `Delete` ·
+**`Test Connection`**.
+
+---
+
+## 9m3. Claim status messages and the rejected-claims workflow
+
+(`JX5Esi1Vzp0`) This is the loop the office actually lives in, and it is worth
+copying wholesale.
+
+A clearinghouse 277 / 277CA report arrives as **two files** in `EDI Reports`:
+- a **`.dat`** — *"the human readable version"*, `Type` = `Claim Status Report`.
+  Double-click to view; **printing switches to landscape**.
+- a **`.csr`** — the machine version *"used by the program to attach messages
+  to the claim history."*
+
+**Double-clicking the `.csr` posts the messages onto each claim's history.**
+A confirmation shows how many claims the file contained. If any were rejected,
+**a window opens listing the rejected claims** — this is where the workflow
+starts.
+
+- Click the **`＋`** at the left of a row to drill into the claim history —
+  which merges notes from **EZClaim, the clearinghouse and potentially the
+  payer**.
+- **The posted messages stay permanently in the claim note area.**
+- Few claims → double-click and fix them here.
+- Many claims, or later → tick them and click **`Create Tasks`** (see §9g).
+  *"The advantage of using tasks is they can be assigned to other users, have
+  due dates, show popup reminders."*
+- Then: open the claim from the task, review the status notes, fix it,
+  **mark it `Ready to Submit`**, mark the task complete, next.
+
+### EDI Reports grid — `Type` and extra columns (`JX5Esi1Vzp0`)
+`Type` values seen: `Claim Status Report`, `ERA - ANSI 835`, `Text Document`,
+`Daily Verification`. This capture also shows a **`Size`** column (`2.33 KB`)
+and adds an **`Un-Archive`** button under `Apply to Checked`.
+
+Hint text in the preview pane when a file can't be previewed:
+```
+Double click the report file to view the contents.
+You cannot 'Quick View' this file type.
+'Quick View' is only intended for non-ANSI, non-HTML, text-based reports.
+```
+
+---
+
 ## 9n. Find grids: filter editor, sorting, saved layouts
 
 (`p4sCfOq7ftc`) This is how EZClaim users actually work, so it matters for
