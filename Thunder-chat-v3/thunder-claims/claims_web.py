@@ -1054,6 +1054,45 @@ def new_company(name: str) -> dict:
     return c
 
 
+# EZClaim's per-user permissions, cut to what a paper-billing office needs.
+# The owner always has everything and is the only one who can change these.
+PERMS = {
+    "payments": "Enter and change payments",
+    "writeoff": "Write off claims",
+    "delete": "Delete records (and merge patients)",
+    "setup": "Change Program Setup",
+    "reports": "Run reports",
+}
+
+
+class Forbidden(Exception):
+    pass
+
+
+def perms_of(user: str) -> list[str]:
+    """No list = everything (everyone who existed before permissions did)."""
+    u = load_users().get(user) or {}
+    if u.get("role") == "owner" or u.get("perms") in (None, "*"):
+        return list(PERMS)
+    return [p for p in PERMS if p in u["perms"]]
+
+
+def need(user: str, perm: str) -> None:
+    if perm not in perms_of(user):
+        raise Forbidden(f"your login is not allowed to {PERMS[perm].lower()} - ask the owner")
+
+
+def set_perms(name: str, perms) -> list[str]:
+    users = load_users()
+    if name not in users:
+        raise ValueError(f"no user {name}")
+    if users[name].get("role") == "owner":
+        raise ValueError("the owner always has every permission")
+    users[name]["perms"] = "*" if perms == "*" else [p for p in PERMS if p in (perms or [])]
+    save_users(users)
+    return perms_of(name)
+
+
 def allowed_companies(user: str) -> list[str]:
     """A user's Company Permissions. Owners and users with no list (everyone
     before company files existed) may open all of them."""
@@ -1215,6 +1254,8 @@ class Handler(BaseHTTPRequestHandler):
             (self._get if method == "GET" else self._post)(u, who, ip)
         except ValueError as e:
             self._send(400, {"error": str(e)})
+        except Forbidden as e:
+            self._send(403, {"error": str(e)})
         except BaseException as e:
             self._send(500, {"error": str(e).splitlines()[0] if str(e) else type(e).__name__})
         finally:
@@ -1237,7 +1278,14 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, get_prefs(who))
         if u.path == "/api/whoami":
             c = current_company()
-            return self._send(200, {"user": who, "idle_minutes": IDLE_SECONDS // 60, "company": c["name"] if c else None})
+            return self._send(200, {"user": who, "idle_minutes": IDLE_SECONDS // 60, "company": c["name"] if c else None,
+                                    "perms": perms_of(who), "owner": (load_users().get(who) or {}).get("role") == "owner"})
+        if u.path == "/api/security":
+            if (load_users().get(who) or {}).get("role") != "owner":
+                raise Forbidden("only the owner can manage security")
+            us = load_users()
+            return self._send(200, {"perms": PERMS, "users": [{"name": n, "role": x.get("role", "user"), "disabled": bool(x.get("disabled")),
+                                                               "perms": perms_of(n), "companies": allowed_companies(n)} for n, x in sorted(us.items())]})
         if u.path == "/api/companies":
             c = current_company()
             return self._send(200, {"current": c["name"] if c else None, "companies": allowed_companies(who),
@@ -1254,6 +1302,7 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/api/find":
             return self._send(200, reports.find(sys.modules[__name__], (parse_qs(u.query).get("what") or [""])[0]))
         if u.path == "/api/reports":
+            need(who, "reports")
             return self._send(200, reports.catalogue(sys.modules[__name__]))
         if u.path == "/api/statements":
             q = {k: v[0] for k, v in parse_qs(u.query).items()}
@@ -1327,6 +1376,7 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/api/prefs":
             return self._send(200, set_prefs(who, json.loads(self._body() or b"{}")))
         if u.path == "/api/settings":
+            need(who, "setup")
             return self._send(200, set_settings(json.loads(self._body() or b"{}")))
         if u.path == "/api/statements/printed":
             b = json.loads(self._body() or b"{}")
@@ -1351,12 +1401,17 @@ class Handler(BaseHTTPRequestHandler):
             b = json.loads(self._body() or b"{}")
             return self._send(200, {"updated": claims_printed(b.get("ids") or [], str(b.get("date") or time.strftime("%m/%d/%Y"))[:10], who)})
         if u.path == "/api/delete":
+            need(who, "delete")
             b = json.loads(self._body() or b"{}")
+            if kind_of(str(b.get("id") or "")) == "payment":
+                need(who, "payments")
             return self._send(200, delete_record(str(b.get("id") or ""), who))
         if u.path == "/api/merge":
+            need(who, "delete")
             b = json.loads(self._body() or b"{}")
             return self._send(200, merge_patients(str(b.get("keep") or ""), str(b.get("drop") or ""), who))
         if u.path == "/api/writeoff":
+            need(who, "writeoff")
             b = json.loads(self._body() or b"{}")
             return self._send(200, write_off(str(b.get("id") or ""), str(b.get("group") or "CO"), str(b.get("reason") or "45"), who))
         if u.path == "/api/password":
@@ -1369,14 +1424,22 @@ class Handler(BaseHTTPRequestHandler):
             set_password(who, str(b.get("new") or ""))
             return self._send(200, {"ok": True})
         if u.path == "/api/report":
+            need(who, "reports")
             b = json.loads(self._body() or b"{}")
             return self._send(200, reports.run(sys.modules[__name__], str(b.get("name") or ""), b.get("criteria") or {}))
         if u.path == "/api/procedures/from_claims":
             return self._send(200, procedures_from_claims(who))
         if u.path == "/api/check":
             return self._send(200, assess(json.loads(self._body() or b"{}")))
+        if u.path == "/api/security":
+            if (load_users().get(who) or {}).get("role") != "owner":
+                raise Forbidden("only the owner can manage security")
+            b = json.loads(self._body() or b"{}")
+            return self._send(200, {"perms": set_perms(str(b.get("user") or ""), b.get("perms"))})
         if u.path == "/api/save":
             b = json.loads(self._body() or b"{}")
+            if b.get("kind") == "payment":
+                need(who, "payments")
             return self._send(200, save(b.get("kind") or "", b.get("id"), b.get("data") or {}, who))
         if u.path == "/api/scan":
             return self._send(200, scan(self._body(), self.headers.get("X-Filename", "")))
@@ -1416,7 +1479,7 @@ def ask_password() -> str:
 def accounts(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="claims_web.py", description="Manage Thunder Claims logins.")
     ap.add_argument("cmd", choices=["users", "adduser", "passwd", "disable", "enable",
-                                    "companies", "newcompany", "grant", "revoke"])
+                                    "companies", "newcompany", "grant", "revoke", "perms"])
     ap.add_argument("name", nargs="?")
     ap.add_argument("company", nargs="?", help="grant/revoke: a company name, or * for all")
     a = ap.parse_args(argv)
@@ -1425,6 +1488,16 @@ def accounts(argv: list[str]) -> int:
         for c in load_companies():
             who = [n for n in sorted(users) if c["name"] in allowed_companies(n)]
             print(f"{c['name']:24} {c['path']}\n{'':24} users: {', '.join(who) or '-'}")
+        return 0
+    if a.cmd == "perms":
+        if a.name not in users:
+            raise SystemExit("usage: perms <user> [*|none|payments,writeoff,delete,setup,reports]")
+        if a.company:
+            try:
+                set_perms(a.name, "*" if a.company == "*" else [] if a.company == "none" else a.company.split(","))
+            except ValueError as e:
+                raise SystemExit(str(e))
+        print(f"{a.name}: {', '.join(perms_of(a.name)) or 'none'}   (possible: {', '.join(PERMS)})")
         return 0
     if a.cmd == "newcompany":
         try:
@@ -1479,7 +1552,7 @@ def accounts(argv: list[str]) -> int:
 
 
 def main() -> int:
-    if len(sys.argv) > 1 and sys.argv[1] in ("users", "adduser", "passwd", "disable", "enable", "companies", "newcompany", "grant", "revoke"):
+    if len(sys.argv) > 1 and sys.argv[1] in ("users", "adduser", "passwd", "disable", "enable", "companies", "newcompany", "grant", "revoke", "perms"):
         return accounts(sys.argv[1:])
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--host", default="127.0.0.1")

@@ -398,6 +398,30 @@ check("saving a layout leaves the printer settings alone", j["print"]["form"] ==
 st, j, _ = req("POST", "/api/prefs", {"grids": {}}, token=TOK)
 check("Restore Grid clears it", j["grids"] == {})
 
+print("permissions")
+os.environ["CLAIMS_NEW_PASSWORD"] = "limited clerk passphrase 3"
+subprocess.run([sys.executable, str(Path(__file__).parent / "claims_web.py"), "adduser", "limited"], env=os.environ, capture_output=True, check=True)
+st, j, _ = req("POST", "/api/security", {"user": "limited", "perms": ["reports"]}, token=TOK)
+check("the owner sets a login's permissions", st == 200 and j["perms"] == ["reports"], j)
+LT = req("POST", "/api/login", {"user": "limited", "password": "limited clerk passphrase 3"})[1]["token"]
+check("whoami tells the screen what this login may do", req("GET", "/api/whoami", token=LT)[1]["perms"] == ["reports"])
+st, j, _ = req("POST", "/api/delete", {"id": SCID}, token=LT)
+check("without 'delete' the server refuses a delete", st == 403, j)
+st, j, _ = req("POST", "/api/writeoff", {"id": SCID}, token=LT)
+check("without 'writeoff' the server refuses a write-off", st == 403)
+st, j, _ = req("POST", "/api/save", {"kind": "payment", "data": {"source": "payer", "payer": "X", "date": "01/01/2026"}}, token=LT)
+check("without 'payments' the server refuses a payment", st == 403)
+st, j, _ = req("POST", "/api/settings", {"setup": {"alt_rows": True}}, token=LT)
+check("without 'setup' the server refuses Program Setup changes", st == 403)
+st, j, _ = req("POST", "/api/save", {"kind": "claim", "data": {"patient_name": "CLERK, MADE", "procedures": [{"code": "98941", "charge": "10"}]}}, token=LT)
+check("a limited login can still enter claims", st == 200, j)
+check("and run reports when allowed", req("POST", "/api/report", {"name": "Patient List", "criteria": {}}, token=LT)[0] == 200)
+st, j, _ = req("POST", "/api/security", {"user": "limited", "perms": "*"}, token=LT)
+check("only the owner can change permissions", st == 403 and req("GET", "/api/security", token=LT)[0] == 403)
+st, j, _ = req("POST", "/api/security", {"user": "blayne", "perms": []}, token=TOK)
+check("the owner's own permissions cannot be taken away", st == 400)
+req("POST", "/api/logout", token=LT)
+
 print("find grids")
 ok = True
 for w in ("patient", "claim", "service", "payment", "task", "adjustment", "payer", "physician", "note"):

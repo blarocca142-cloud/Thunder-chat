@@ -755,6 +755,9 @@ body.locked > :not(.login):not(#print) { display: none !important; }
         </div>
         <div id="findView" hidden><div class="status"><span class="msg" id="findmsg"></span></div>
           <div class="gridwrap" style="margin:0"><table class="g fgrid"><thead id="fhead"></thead><tbody id="fbody"></tbody><tfoot id="ffoot"></tfoot></table></div></div>
+        <div id="secView" hidden><div class="gb"><h2>Manage Security - who can do what <span class="pick msg" style="font-size:11px">the server enforces these, not just the buttons</span></h2>
+          <div class="gridwrap" style="margin:0;border:0"><table class="g" style="table-layout:auto"><thead id="secHead"></thead><tbody id="secRows"></tbody></table></div>
+          <p class="hint" style="padding:6px 10px">The owner always has everything. New logins and passwords are still made on Main (claims_web.py adduser) so nobody's password ever passes through this screen. Which companies a login can open: claims_web.py grant / revoke.</p></div></div>
         <div id="setupView" hidden><div class="setup"><div class="optlist" id="suList"></div><div class="supane"><h2 id="suTitle"></h2><div class="form" id="suForm"></div><p class="hint" id="suHint"></p></div></div></div>
         <div id="repView" hidden><div class="status"><span class="msg" id="repmsg"></span></div><div id="repOut"></div></div>
         <div id="stmtView" hidden>
@@ -865,7 +868,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   var LETTERS = "ABCDEFGHIJKL";
   var BILL = { draft: "Ready to Submit", sent: "Submitted", hold: "On Hold", partial: "Partly Paid", paid: "Paid", denied: "Denied" };
   var OWING = { sent: 1, hold: 1, partial: 1, denied: 1 };
-  var KIND_ICON = { find: "🔎", printclaims: "🖨", task: "☑", setup: "⚙", patient: "👤", claim: "📄", payer: "🏛", provider: "🩺", payment: "💵", procedure: "🧾", report: "📊", statements: "✉", help: "❓" };
+  var KIND_ICON = { security: "🛡", find: "🔎", printclaims: "🖨", task: "☑", setup: "⚙", patient: "👤", claim: "📄", payer: "🏛", provider: "🩺", payment: "💵", procedure: "🧾", report: "📊", statements: "✉", help: "❓" };
   var DIR = {
     payer: { title: "Payer Library", name: "name", fields: [
       ["name", "Insurer Name:", 1], ["address", "Claims Mailing Address:", 1], ["payer_id", "Payer ID:"], ["phone", "Phone #:"],
@@ -1145,6 +1148,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   function selectLeftTab(k) {
     if (typeof closeCust === "function") closeCust();
     qa("#ptabs button").forEach(function (b) { b.classList.toggle("on", b.dataset.k === k); });
+    if (k === "reports" && !can("reports")) { setMsg("Reports are " + NOPE.toLowerCase()); return; }
     var rp = k === "reports"; document.querySelector(".left").classList.toggle("rep", rp);
     ["band", "gridwrap", "dtabs2", "dbody"].forEach(function (id) { $(id).hidden = rp; }); $("repList").hidden = !rp; $("repCrit").hidden = !rp;
     if (rp) return showReports();
@@ -1315,36 +1319,37 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   // ============ ribbon ============
   function big(icon, label, fn, on, title) { return { big: 1, icon: icon, label: label, fn: fn, on: on !== false, title: title }; }
   function small(icon, label, fn, on, title) { return { icon: icon, label: label, fn: fn, on: on !== false, title: title }; }
-  var SOON = "Not built yet";
+  var SOON = "Not built yet", NOPE = "Not allowed for your login - ask the owner";
+  function can(p) { return !S.perms || S.perms.indexOf(p) >= 0; }
   function ribbonConfig() {
     var d = cur(), isRec = d && d.kind !== "help", isClaim = d && d.kind === "claim";
     var blocked = S.data.claim.filter(function (c) { return c.status === "BLOCK"; }).length;
     var today0 = new Date(new Date().toDateString()), tasksDue = S.data.task.filter(function (t) { var dd = parseDate(t.due); return !t.done && (!t.assigned || t.assigned === S.user) && dd && dd <= today0; }).length;
     var file = { cap: "File", items: [big("🏠", "Home", goHome), big("🖨", "Print", printClaim, isClaim), big("💾", "Save", function () { saveDoc(cur()); }, isRec),
-      big("✖", "Close", function () { closeDoc(S.active); }, !!d), big("🗑", "Delete", deleteDoc, !!(d && d.id && DELETABLE[d.kind]))] };
+      big("✖", "Close", function () { closeDoc(S.active); }, !!d), big("🗑", "Delete", deleteDoc, !!(d && d.id && DELETABLE[d.kind]) && can("delete"), can("delete") ? "" : NOPE)] };
     var edit = { cap: "Edit", small: 1, items: [small("📋", "Paste", editCmd("paste")), small("⧉", "Copy", editCmd("copy")), small("✂", "Cut", editCmd("cut")),
       small("↶", "Undo", editCmd("undo")), small("▣", "Select All", editCmd("selectAll")), small("⌫", "Clear", editCmd("clear"))] };
     var find = { cap: "Find", items: [big("🔎", "Find ▾", findMenu)] };
     var help = { cap: "Support", items: [big("❓", "Help Topics", openHelp)] };
     if (S.rtab === "claim" && isClaim) return [file, edit,
-      { cap: "New", items: [big("📄", "Claim", newClaim), big("👤", "Patient", newPatient), big("💵", "Payment", newPaymentForClaim)] },
+      { cap: "New", items: [big("📄", "Claim", newClaim), big("👤", "Patient", newPatient), big("💵", "Payment", newPaymentForClaim, can("payments"), can("payments") ? "" : NOPE)] },
       { cap: "Actions", small: 1, items: [small("⧉", "Copy Claim", copyClaim), small("☑", "New Task", function () { newTask(cur()); }), small("📑", "Save as Template", saveTemplate),
-        small("✎", "Write Off Claim", writeOffClaim), small("✔", "Pay Off Claim", payOff), small("🧹", "Scrub", scrub)] },
+        small("✎", "Write Off Claim", writeOffClaim, can("writeoff"), can("writeoff") ? "" : NOPE), small("✔", "Pay Off Claim", payOff), small("🧹", "Scrub", scrub)] },
       { cap: "Patient", items: [big("👤", "Save to Patient List", savePatientFromClaim)] }, help];
     if (S.rtab === "patient" && d && d.kind === "patient") return [file, edit,
       { cap: "New", items: [big("📄", "Claim", function () { newClaimForDoc(cur()); }), big("👤", "Patient", newPatient)] },
-      { cap: "Actions", small: 1, items: [small("⧉", "Copy Patient", copyPatient), small("🔀", "Merge Patient", mergePatient), small("☑", "New Task", function () { newTask(cur()); })] },
+      { cap: "Actions", small: 1, items: [small("⧉", "Copy Patient", copyPatient), small("🔀", "Merge Patient", mergePatient, can("delete"), can("delete") ? "" : NOPE), small("☑", "New Task", function () { newTask(cur()); })] },
       { cap: "List", items: [big("📄", "Claims", function () { listPatientClaims(cur()); })] }, help];
     if (S.rtab === "tools") return [
       { cap: "Import", items: [big("📷", "Claim from a Scan", scanCmd)] },
       { cap: "Patients", items: [big("✉", "Patient Statements", openStatements, true, "Not used for PIP billing - patients are never billed")] },
-      { cap: "Options", items: [big("🖨", "Printer Adjustment", openAdjust), big("⚙", "Program Setup", openSetup)] },
-      { cap: "Security", small: 1, items: [small("🚪", "Log Out", function () { lock("Logged out."); }), small("👥", "Login as another user", function () { lock("Log in as another user."); }),
+      { cap: "Options", items: [big("🖨", "Printer Adjustment", openAdjust), big("⚙", "Program Setup", openSetup, can("setup"), can("setup") ? "" : NOPE)] },
+      { cap: "Security", small: 1, items: [small("🛡", "Manage Security", openSecurity, !!S.owner, S.owner ? "" : "Only the owner manages security"), small("🚪", "Log Out", function () { lock("Logged out."); }), small("👥", "Login as another user", function () { lock("Log in as another user."); }),
         small("🔑", "Change Password", function () { $("pw_old").value = $("pw_new").value = $("pw_new2").value = ""; $("pw_msg").textContent = ""; $("pwdlg").hidden = false; $("pw_old").focus(); })] },
       { cap: "Company", items: [big("💾", "Backup", null, false, "Run vault.py backup on Main")] }, help];
     if (S.rtab === "support") return [help, { cap: "About", items: [big("⚡", "Thunder Claims", openHelp)] }];
     return [file, edit, find,
-      { cap: "New", items: [big("👤", "Patient", newPatient), big("📄", "Claim", newClaim), big("💵", "Payment", function () { newPayment(); }),
+      { cap: "New", items: [big("👤", "Patient", newPatient), big("📄", "Claim", newClaim), big("💵", "Payment", function () { newPayment(); }, can("payments"), can("payments") ? "" : NOPE),
         big("☑", "Task", function () { newTask(); })] },
       { cap: "Libraries", items: [big("🏛", "Payer", function () { selectLeftTab("payer"); }), big("🩺", "Physician Facility", function () { selectLeftTab("provider"); }),
         big("🧾", "Procedure Code", function () { selectLeftTab("procedure"); })] },
@@ -1402,6 +1407,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
     if (d.kind === "setup") return "Setup";
     if (d.kind === "printclaims") return "Print Claims";
     if (d.kind === "find") return d.title;
+    if (d.kind === "security") return "Manage Security";
     if (d.kind === "task") return x.subject ? "Task - " + x.subject : "New Task";
     if (d.kind === "procedure") return x.code ? "Code " + x.code + (x.modifier ? "-" + x.modifier : "") : "New Procedure Code";
     return x.name || (d.kind === "payer" ? "New Payer" : "New Physician/Facility");
@@ -1533,7 +1539,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   function renderWork() {
     var d = cur(), k = d ? d.kind : "home";
     $("homeView").hidden = k !== "home"; $("helpView").hidden = k !== "help"; $("claimView").hidden = k !== "claim";
-    $("patView").hidden = k !== "patient"; $("dirView").hidden = !DIR[k]; $("payView").hidden = k !== "payment"; $("stmtView").hidden = k !== "statements"; $("repView").hidden = k !== "report"; $("setupView").hidden = k !== "setup"; $("pcView").hidden = k !== "printclaims"; $("findView").hidden = k !== "find";
+    $("patView").hidden = k !== "patient"; $("dirView").hidden = !DIR[k]; $("payView").hidden = k !== "payment"; $("stmtView").hidden = k !== "statements"; $("repView").hidden = k !== "report"; $("setupView").hidden = k !== "setup"; $("pcView").hidden = k !== "printclaims"; $("findView").hidden = k !== "find"; $("secView").hidden = k !== "security";
     $("work").classList.toggle("nobtn", k === "home" || k === "help");
     renderButtons();
     if (k === "home") renderHome();
@@ -1541,6 +1547,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
     if (k === "setup") renderSetup();
     if (k === "printclaims") renderPrintClaims();
     if (k === "find") renderFind();
+    if (k === "security") renderSecurity();
     if (k === "claim") renderClaim();
     if (k === "patient") renderPatient();
     if (DIR[k]) renderDir();
@@ -1551,11 +1558,12 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   function renderButtons() {
     var d = cur(), k = d ? d.kind : "home", h = "";
     if (k === "claim") h = '<button class="primary" data-b="saveClose">Save &amp; Close</button><button data-b="save">Save</button><button data-b="close">Close</button>' +
-      '<button data-b="delete">Delete</button><div class="gap"></div><button data-b="notes">' + (notesHidden ? "Show Notes" : "Hide Notes") + '</button>' +
+      '<button data-b="delete"' + (can("delete") ? "" : ' disabled title="' + NOPE + '"') + '>Delete</button><div class="gap"></div><button data-b="notes">' + (notesHidden ? "Show Notes" : "Hide Notes") + '</button>' +
       '<button data-b="scrub">Scrub</button><button data-b="print">Print</button><button data-b="savePatient" title="Save this patient to the patient list">Save Patient</button>';
     if (k === "patient") h = '<button class="primary" data-b="saveClose">Save &amp; Close</button><button data-b="save">Save</button><button data-b="close">Close</button>' +
-      '<button data-b="delete">Delete</button><div class="gap"></div><button data-b="newClaim">New Claim</button>' +
+      '<button data-b="delete"' + (can("delete") ? "" : ' disabled title="' + NOPE + '"') + '>Delete</button><div class="gap"></div><button data-b="newClaim">New Claim</button>' +
       '<label class="' + (d.data.active !== false ? "act" : "") + '"><input type="checkbox" data-b="active"' + (d.data.active !== false ? " checked" : "") + '> Active</label>';
+    if (k === "security") h = '<button data-b="close">Close</button>';
     if (k === "find") h = '<button class="primary" data-b="fRefresh">Refresh</button><button data-b="fCsv">Export (.csv)</button><button data-b="close">Close</button>' +
       '<div class="gap"></div><div class="hint" style="padding:0 4px">Type in the grey filter row to narrow the list (% is a wildcard). Click a heading to sort. OPEN opens the record.</div>';
     if (k === "printclaims") h = '<button class="primary" data-b="pcPrint">Print Claims</button><button data-b="pcPreview">Print Preview</button><button data-b="close">Close</button>' +
@@ -1565,7 +1573,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
     if (k === "setup") h = '<button class="primary" data-b="saveClose">Save &amp; Close</button><button data-b="save">Save</button><button data-b="close">Close</button>';
     if (k === "report") h = '<button class="primary" data-b="repPrint">Print</button><button data-b="repRefresh">Refresh</button><button data-b="repCsv">Export (.csv)</button><button data-b="close">Close</button>' +
       '<div class="gap"></div><div class="hint" style="padding:0 4px">Click a line to open that record.</div>';
-    if (DIR[k]) h = '<button class="primary" data-b="saveClose">Save &amp; Close</button><button data-b="save">Save</button><button data-b="close">Close</button><button data-b="delete">Delete</button>';
+    if (DIR[k]) h = '<button class="primary" data-b="saveClose">Save &amp; Close</button><button data-b="save">Save</button><button data-b="close">Close</button><button data-b="delete"' + (can("delete") ? "" : ' disabled title="' + NOPE + '"') + '>Delete</button>';
     if (k === "statements") h = '<label style="display:block">Statement Format:<select id="st_format" style="margin-top:2px"><option>Statement</option></select></label>' +
       '<button class="primary" data-b="stPrint">Print</button><button data-b="stPreview">Preview</button><button data-b="stOptions">Options</button><button data-b="close">Close</button>' +
       '<div class="gap"></div><button data-b="stAll">Check All</button><button data-b="stNone">Uncheck All</button><div class="gap"></div>' +
@@ -1573,7 +1581,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
       '<label style="display:block">Min. Pat. Bal.:<input id="st_min" value="' + esc(d.opts.min) + '" inputmode="decimal"></label>' +
       '<label style="display:block">Min. Sta. Cycle (days):<input id="st_cycle" value="' + esc(d.opts.cycle) + '" inputmode="numeric"></label>' +
       '<button data-b="stRefresh">Refresh</button>';
-    if (k === "payment") h = '<button class="primary" data-b="saveClose">Save &amp; Close</button><button data-b="save">Save</button><button data-b="close">Close</button><button data-b="delete">Delete</button>' +
+    if (k === "payment") h = (can("payments") ? '<button class="primary" data-b="saveClose">Save &amp; Close</button><button data-b="save">Save</button>' : '<div class="hint">' + NOPE + '</div>') + '<button data-b="close">Close</button><button data-b="delete"' + (can("delete") && can("payments") ? "" : ' disabled title="' + NOPE + '"') + '>Delete</button>' +
       '<button data-b="newPmt">New Pmt</button><div class="gap"></div>' +
       '<div class="fsum">Filter Settings:<br>Ignore Responsible Party - ' + (d.opts.ignore ? "Checked" : "Unchecked") +
       '<br>Include $0.00 Balance Lines - ' + (d.opts.zero ? "Checked" : "Unchecked") + '</div>' +
@@ -2502,6 +2510,29 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   }
   function setPageMargin(red) { $("pagestyle").textContent = "@page { size: letter; margin: " + (red ? "0" : "0.35in") + "; }"; }
 
+  // ============ Manage Security (owner) ============
+  function openSecurity() {
+    for (var i = 0; i < S.docs.length; i++) if (S.docs[i].kind === "security") return activate(i);
+    api("GET", "/api/security").then(function (r) { addDoc({ kind: "security", id: "security", sec: r, dirty: false }); })
+      .catch(function (e) { setMsg(e.message); });
+  }
+  function renderSecurity() {
+    var d = cur(), keys = Object.keys(d.sec.perms);
+    $("secHead").innerHTML = '<tr><th>Login</th><th>Status</th>' + keys.map(function (k) { return '<th title="' + esc(d.sec.perms[k]) + '">' + esc(d.sec.perms[k]) + '</th>'; }).join("") + '<th>Companies</th></tr>';
+    $("secRows").innerHTML = d.sec.users.map(function (u) {
+      var own = u.role === "owner";
+      return '<tr class="item"><td><b>' + esc(u.name.toUpperCase()) + '</b>' + (own ? " (owner)" : "") + '</td><td>' + (u.disabled ? "Disabled" : "Active") + '</td>' + keys.map(function (k) {
+        return '<td style="text-align:center"><input type="checkbox" data-secu="' + esc(u.name) + '" data-secp="' + k + '"' + (u.perms.indexOf(k) >= 0 ? " checked" : "") + (own ? " disabled" : "") + '></td>'; }).join("") +
+        '<td>' + esc(u.companies.join(", ")) + '</td></tr>'; }).join("");
+  }
+  $("secView").addEventListener("change", function (e) {
+    var d = cur(), name = e.target.dataset.secu; if (!d || d.kind !== "security" || !name) return;
+    var perms = [].slice.call(document.querySelectorAll('#secRows [data-secu="' + name + '"]')).filter(function (x) { return x.checked; }).map(function (x) { return x.dataset.secp; });
+    api("POST", "/api/security", JSON.stringify({ user: name, perms: perms })).then(function (r) {
+      d.sec.users.forEach(function (u) { if (u.name === name) u.perms = r.perms; }); setMsg("Saved - " + name.toUpperCase() + " can now: " + (r.perms.join(", ") || "view and enter claims only") + ".");
+    }).catch(function (err) { setMsg("Not saved: " + err.message); renderSecurity(); });
+  });
+
   // ============ Find menu - EZClaim's Find grids ============
   var FINDS = [["patient", "Find Patient"], ["claim", "Find Claim"], ["service", "Find Service"], ["payment", "Find Payment"], ["task", "Find Task"],
     ["adjustment", "Find Adjustment"], ["payer", "Find Payer"], ["physician", "Find Physician"], ["note", "Find Claim Note"]];
@@ -3023,6 +3054,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
       $("loggedIn").textContent = "Logged in as: " + r.user.toUpperCase();
       S.company = r.company; $("coName").textContent = r.company || "none";
       if (!r.company) setMsg("You don’t have permission for any company yet - ask Blayne.");
+      api("GET", "/api/whoami").then(function (w) { S.perms = w.perms; S.owner = w.owner; renderRibbon(); renderButtons(); }).catch(function () {});
       activate(S.active); loadAll(); loadLayout();
     }).catch(function (err) { showLogin(err.message); }).finally(function () { $("loginBtn").disabled = false; });
   });
