@@ -878,6 +878,175 @@ Confirmation toast: **`Task(s) Created — 1 task has been created.`** with `OK`
 
 ---
 
+## 9h. Statement Options dialog
+
+`Options` button on the Statements screen. Modal titled **`Statement Options`**.
+Intro line: *"The following options will be used when printing and exporting
+statements."* (`-JrFNkPqilw`)
+
+**Two address columns side by side:**
+- **`Return Address`** — `Name:`, `Address 1:`, `Address 2:`,
+  `City ST Zip:` (three boxes), `Phone #:`, then
+  ☐ `Use Patient's Billing Provider's Address Instead`
+- **`Pay To Address`** — gated by ☐ `Use a 'Pay To Address' different than the
+  'Return Address'` at the top; its fields (`Name:`, `Address 1:`,
+  `Address 2:`, `City ST Zip:`) stay greyed until that is ticked.
+  **Note printed in the dialog:** *"Note: No 'Pay To Address' is shown on the
+  'Standard' statement format."*
+
+**Left checkbox column:**
+- ☐ `Hide Diagnostic Codes`
+- ☐ `Hide Procedure Codes`
+- ☐ `Hide Aging Section`
+- ☐ `Include Insurance Balances in Aging`
+
+**Middle checkbox column:**
+- ☐ `Show Payment Reason Descriptions`
+- ☑ `Include $0 Balance Service Lines`
+- ☑ `Include $0 Patient Balance Service Lines`
+- `Days of History` — spinner, value `30`
+
+**Right column:**
+- ☑ `Show Last Payment Information`
+- ☐ `Show Tracking Adjustments with the following Reason Codes:` with a
+  combo below it containing `1, 2, 3`
+
+Buttons: `OK` / `Cancel`.
+
+**`Statement Format:` dropdown** on the Statements screen selects the layout;
+the value seen throughout is `Statement` (the "Standard" format referenced in
+the note above).
+
+---
+
+## 9i. Conditional formatting — how the row colours are made
+
+**The pink/green row tinting is not hardcoded — it is user-defined conditional
+formatting on any grid.** (`erCHIBu51xw`)
+
+A modal titled **`Custom Condition`** with the heading
+**`Format cells that match the following condition:`**:
+- A condition builder row starting with an `And` node and a `＋` to add
+  clauses, e.g.
+  `[Patient Balance] Is greater than $0.00` or
+  `[Claim Status] Begins with <enter a value>`,
+  each clause with a pencil (edit) and a `⊗` (remove) icon.
+- A **`with`** dropdown choosing the format. Options seen, in order:
+  ```
+  Bold Text
+  Green Fill with Bold Text
+  Green Fill
+  Green Fill with Green Text
+  Green Text
+  Italic Text
+  Red Bold Text
+  Red Fill
+  Red Fill with Red Text
+  Red Text
+  Strikethrough Text
+  Yellow Fill with Yellow Text
+  ```
+- ☐ **`Apply formatting to an entire row`** — this is what turns a cell rule
+  into the whole-row pink/green tint seen on the patient grid.
+- `OK` / `Cancel`.
+
+So the look to copy is: **"patient balance > 0" → Red Fill, applied to the
+entire row.** That single rule produces the salmon rows that dominate every
+EZClaim screenshot.
+
+---
+
+## 9j. Find grids (`Find Claim`, `Find Service Line`, `Find Payer`)
+
+Reached from the ribbon `Find` split button. Each opens as its own document
+tab (`Find Claim`, `Find Service Line`). (`erCHIBu51xw`, `CN2twFAShj0`,
+`QqvTxnAk2uE`)
+
+### `Find Claim` grid columns, in order
+`OPEN` (an inline button on every row) · `Name` · `1st DOS` · `Claim Status` ·
+`Bill Date` · `Total Charge` · `Total Balance` · `Insurance Balance` ·
+`Patient Balance` · `Rendering Physician` · `Billing Physician` · `Claim ID`
+
+`Claim Status` values seen: **`On Hold`**, **`Other`**, **`Ready to Submit`**.
+(`erCHIBu51xw`) — added to the earlier list of `Submitted`.
+
+### `Find Service Line` grid columns
+`OPEN` · `Name` · `Srvc Date` · `Place` · `Procedure` · `M1` · `Charges` ·
+`Units` · `Adjs` · `Paid` · `Balance` (`CN2twFAShj0`)
+
+Typing `brook` into the `Name` filter cell narrows instantly — **the filter row
+is the primary way people search in EZClaim**, not a separate search box.
+
+### Column chooser
+Right-click a column header → a floating panel titled **`Customization`**
+listing the available-but-hidden columns, which you drag into the header.
+Entries seen: `1st DOS`, `Bill To`, `Billing Phy`, `Claim ID`,
+`Classification`, `Created Date`, `Custom Currency Value`, `Custom Date Value`,
+`Custom Number Value`, `Custom Text Value`, `Custom True / False Value`,
+`Diagnosis`, `Exported`, `Facility`, `Invoice #`, `Last DOS`, `Modified Date`…
+(`PsLZgSmi_qs`)
+
+---
+
+## 9k. Widgets (the Home-screen tiles)
+
+Home tiles are configurable objects from a **`Widget Library`**, opened as a
+document tab. (`PsLZgSmi_qs`)
+
+**Library grid columns:** `Show` (checkbox) · `Name` · `Description`, and
+three inline buttons per row at the right: **`EDIT`** · **`COPY`** ·
+**`DELETE`**.
+
+**The stock widget list, with their descriptions as written:**
+| Name | Description |
+|---|---|
+| `Claims Over 90 Days (Max 50)` | Shows the oldest 50 claims that are over 90 days due. |
+| `Unpaid Patient Co-pays` | Shows service lines that have a patient amount due that the patient has not fully paid. |
+| `Batch Status` | |
+| `Expiring Auths` | Shows a list of active authorizations that are within 30 days or 3 units of expiring. |
+| `Rejected Claim from Posted 277-CSR Reports` | |
+| `Denied Claims from Posted 835 Files` | |
+| `Claims with a Credit Balance (Max 50)` | Shows the 50 claims with the highest credit balance. |
+| `Overdue Statements` | Shows a list of patients that have had 2 or more statements in the last 75 days without making a payment and … |
+| (further rows, partly occluded) | "…that have not been fully disbursed", "…have not been applied to any service line charges", "…riginal Bill Date 45-60 days old with no disbursements applied", "…riginal Bill Date greater than 90 days old with no disbursements applied", "…are 'Ready to Submit' and 'Electronic' that have an Auth number assigned but the ser…", "…riginal Bill Date 60-90 days old with no disbursements applied", "…es that have a future date." |
+
+**Widget editor modal** — titled `<Widget Name> … (UNSAVED)`:
+- `Widget Name:` text box
+- `Description:` multi-line box
+- `# of Rows:` — `50`
+- **`Click Action:`** dropdown — `Show Claim`
+- **`Layout:`** — a live preview of the widget's own grid, with its title bar
+  (`Claims Over 90 Days (Max 50)`) and columns (`Name` · `Bill Date` ·
+  `Ins. Bal.` · `Tot. Bal.`), footer `Shown: 6`
+- `OK` / `Cancel`
+
+So each tile is: a name, a row cap, a click action, and a column layout —
+and the big number on the Home screen is that widget's row count.
+
+---
+
+## 9l. Claim List Report — the report filter panel
+
+(`N9QcUnB5kkY`) Reports are driven by a long **label / value grid of filters**,
+grouped into collapsible sections with a `▲` chevron. Each value is a dropdown
+defaulting to **`All`**.
+
+**Section `Claim`:**
+`Claim Bill To Payer` · `Bill To Sequence` · `Claim Primary Payer` ·
+`Claim Rendering Provider` · `Claim Billing Provider` · `Claim Facility` ·
+`Claim Ordering Provider` · `Invoice # Starts With` · `Claim Minimum Balance` ·
+`Insurance Minimum Balance` · `Patient Minimum Balance` · `Printed` ·
+`Exported` · `Self Pay` · `Claim Balance Is` · `Claim Classification`
+
+**Section `Patient`:**
+`Patient Classification` · `Patient` (with a picker and an `✕`) ·
+`Account # Starts With` · `Active Status`
+
+**Date sections above** use paired `Start` / `End` rows whose values are
+`No Start Date` / `No End Date`, e.g. under `Last Printed Date`.
+
+---
+
 ## 10. Reports (names only so far)
 
 From the overview video's report list (`_UZktuXNBxc`):
