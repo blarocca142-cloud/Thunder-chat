@@ -1293,12 +1293,121 @@ extended. (`PsLZgSmi_qs`)
 
 ---
 
-## 10. Reports (names only so far)
+## 10. Reports screen ★
 
-From the overview video's report list (`_UZktuXNBxc`):
-`Accounts Receivable` · `Adjustments` · `Authorizations` ·
-`Carrier Mail Labels` · `Claims List` · `Dispursments` [sic — spelled that way
-on screen] · `EZClaim Receipt` …
+The `Reports` tab is the **third of the four left-hand grid tabs**. Selecting
+it replaces the record grid with a **report list**, and puts a
+**`Report Criteria`** panel underneath. (`5mj4eSiGSv0`)
+
+### Report list — exact names, in the order shown
+```
+Accounts Receivable
+Adjustments
+Authorizations
+Claim List
+Disbursements
+Patient Demographics
+Patient Ledger
+Patient List
+Patient Notes
+Patient Services
+Payment List
+Procedure Code Summary
+Production Summary
+```
+(scrolls further). Each row has **two small icons at the left** (run / preview
+variants). Column header is just `Report Name`.
+
+**Below the list, a one-line description of the selected report**, e.g.
+`AR report showing the outstanding balances to` (Accounts Receivable) or
+`Shows patient name, invoice #, primary` (Claim List).
+
+The overview video (`_UZktuXNBxc`) also names `Carrier Mail Labels` and
+`EZClaim Receipt`, and spells Disbursements as `Dispursments` on its slide —
+the in-program spelling is **`Disbursements`**.
+
+### `Report Criteria` panel
+A label/value grid with collapsible sections (`▲`), every value a dropdown
+defaulting to **`All`**, or a date dropdown defaulting to
+`No Start Date` / `No End Date`.
+
+**Accounts Receivable criteria** (`5mj4eSiGSv0`):
+- `General`: `Aging as of Date` (`06/12/2014`), `Group By` (`None`),
+  ☐ `Calculate Aging by DOS`, ☐ `Hide Detail`
+- `Claim`: `Claim Primary Payer`, `Claim Rendering Provider`, `Claim Status`
+- `Patient`: `Patient Classification`, `Patient` (with a picker and `✕`)
+
+**Claim List criteria**: `General`: `Group By` (`None`),
+☐ `Show Service Line Detail`; `Dates`: `Original Bill Date`,
+`Claim Paid Date`, `Claim Created Date`, `1st DOS` — each with `Start` / `End`
+rows; `Claim`: `Claim Bill To Payer`, `Bill To Sequence`,
+`Claim Primary Payer`, `Claim Rendering Provider`, `Claim Billing Provider`,
+`Invoice # Starts With`, `Claim Minimum Balance`, … (full list in §9l)
+
+**Multi-select payer dropdown**: `Claim Bill To Payer` opens a **checkbox
+list** headed `(Select All)`, then `BLUE CROSS`, `HUMANA`,
+`INSTITUTIONAL PAYER`, `MEDICAID`, `MEDICARE`, `VALUE OPTIONS`, with
+`OK` / `Cancel`.
+
+### Report output
+Opens as **its own document tab named after the report** (several `Claim List`
+tabs can be open at once), containing an embedded preview with a menu bar
+(`File`, `View`, `Background`), a toolbar, and a zoom box (`100%`), footer
+`Page 1 of 1`.
+
+**Printed `Claim List` layout:**
+- Title `Claim List` top-left; **practice name and address top-right**
+  (`Community Counseling / 555 Main Street, Suite 100 / Anytown, MI 55555`)
+- A line echoing the criteria:
+  `Group By: None, Show Service Line Detail: Unchecked`
+- Column headings:
+  `Name` · `Inv # or ID` · `Diag` · `1st DOS` · `Bill Date` · `Paid Date` ·
+  `Charges` · `Pat Disb` · `Ins Disb` · `Adjs` · `Balance`
+- Rows are **grouped under the patient name**, with the patient's totals on
+  the name line and each claim indented beneath (invoice number in the first
+  column). With `Show Service Line Detail` checked, service lines indent a
+  further level showing DOS, procedure and units.
+- With `Group By: Claim Rendering Provider`, provider names become the
+  outer group headers (`RENDERING NOT SELECTED`, `EDWARD MATTHEWS`) with
+  their own subtotals.
+- Ends with a **`Grand Totals`** line.
+- Money is printed **without dollar signs**, zero as `.00`.
+
+### Support ribbon (`5mj4eSiGSv0`)
+Groups and buttons: `Support` → `Help Topics`; `Updates` →
+**`Download Reports`**; `License` → `Register Software`; `About` →
+`About EZClaim Billing`.
+(The widgets video also mentions a **`Download Widgets`** button on this
+ribbon.)
+
+---
+
+## 11. Old vs new — which look is current
+
+The videos span roughly 2013–2025 and **the chrome changed once**, so it is
+worth knowing which screenshots to copy.
+
+| | **Older (≈8.0.46x–8.0.47x)** | **Current (≈8.0.65x–8.0.67x)** |
+|---|---|---|
+| Seen in | `5mj4eSiGSv0`, `7Sl9bwm3CxU` | `oZBevrOFRwY`, `gO7UQeKlmFM`, `puSJeow-pkk`, `DZ0spaFoFz4`, `h-EzAeOTDlQ` |
+| Window chrome | **Aero blue** gradient title bar, glassy | **Caramel** tan/orange, flat |
+| Ribbon | Larger icons, more padding | Tighter, smaller icons |
+| Alerts group | `EDI Reports`, **`Messages`**, `Review Incoming` | `EDI Reports (n NEW)` ▾, `Reminders`, `Review Incoming (n Files)` |
+| Support group | `Help Topics`, `EZView` | `Help Topics`, **`Ticket`** (newest) |
+| Home flowchart | includes a **`Coding Advisor`** box | no `Coding Advisor` |
+| Home widgets | two side-by-side panels with a `SHOW WIDGET` dropdown ("classic view") | a **column of tiles** + detail grid ("tile view") |
+| Payment Entry right rail | filter checkboxes laid out loose (`Ignore Responsible Party`, `Match By Payer ID`, `Include $0.00 Balance Service Lines From DOS:` + date) | collapsed into a **`Filter Settings`** button with the state summarised as text |
+| Payment Entry adjustments | `Adjustment 1` only | `Adjustment 1` **and** `Adjustment 2` |
+| Send Claims | had a **`Check for Errors`** button | **removed in release 616** — checking is automatic on `Create and Send Batch` (`sTZilSPX-Fc`) |
+
+**Copy the caramel look.** The two view modes for widgets are a real setting:
+Program Setup → `Main Screen` → widget layout, **tile** (default) or
+**classic**; changing it needs the admin password (`PsLZgSmi_qs`).
+
+Also note the older Payment Entry showed the hint
+**`Payments from the selected payer with a balance (Double click to disburse):`**
+and `Remaining:` in **red** when money is unapplied (`7Sl9bwm3CxU`) — the red
+`Remaining` is still there in the current build.
 
 ---
 
