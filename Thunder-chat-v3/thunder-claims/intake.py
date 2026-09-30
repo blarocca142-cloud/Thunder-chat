@@ -50,7 +50,7 @@ import vault  # noqa: E402
 from extract import extract  # noqa: E402
 import codelist  # noqa: E402
 from repair import parse_note, repair_claim  # noqa: E402
-from validate import check  # noqa: E402
+from validate import ICD10, check  # noqa: E402
 
 try:
     import workpool  # noqa: E402
@@ -129,7 +129,9 @@ def unknown_codes(claim: dict) -> list[str]:
     out = []
     for dx in claim.get("diagnoses") or []:
         code = (dx or {}).get("code")
-        if code and codelist.icd10_exists(code) is False:
+        # A malformed code is already a BLOCK from validate; saying it is
+        # "well-formed but not real" as well would contradict that.
+        if code and ICD10.match(str(code).strip()) and codelist.icd10_exists(code) is False:
             out.append(f"diagnosis {code} is well-formed but is not a real "
                        f"ICD-10 code")
     return out
