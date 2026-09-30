@@ -605,6 +605,21 @@ below. Two hint texts are used:
 - **"Click a date on the calendars above to enter a new service line"**
   (`sEgz49YE1lI`)
 
+**The hint is dynamic and counts the template's lines** (`-vHuSb1e9iU`). With
+a template selected — `Claim Template: 2 Region Adjustment with Massage and
+Ultrasound` — it changes to
+**`Click a date on the calendars above to enter the 3 services line from the
+selected template`**, and one click on a date adds all three lines at once
+(`98940`, `97124`, `97035`, each `$25`–`$55`, `Units 1`). The grammar is wrong
+in EZClaim's own UI ("3 services line"); the behaviour — *a template is a set
+of service lines, and the hint tells you how many you are about to get* — is
+worth copying exactly.
+
+**Two more columns appear at 8.0.655/656** (`TDIWTgfUJ2g`): a **`Sort`** column
+and **`SrvID`**, plus a `Print…` checkbox column and a trailing `…` ellipsis
+button per row. `SrvID` is the service line's own id, which is what the 835
+matcher (§9d) is trying to find.
+
 **Full column list** (`sEgz49YE1lI`):
 `Srvc Date` · `Place` · `Procedure` · **`M1` `M2` `M3` `M4`** ·
 **`Diag. #`** · `Charges` · `Units` · `Adjs` · `Paid` · `Applied Amt.` ·
@@ -1381,6 +1396,12 @@ Anytown, MI  55555
 selections, and shift-click multi-select.**
 
 ---
+
+> **Note: there are two different web products called "portal", eight years
+> apart, and they are not the same thing.** §9 below is
+> **EZClaim Premier + Pay (2025)** — payer-facing, takes card payments, dark
+> navy rail. §9o is the **EZClaim Portal (2017)** — provider-facing, read-only
+> reporting, orange accents, built by a third party. Don't merge them.
 
 ## 9. The web portal — EZClaim Premier + Pay (2025, `DZ0spaFoFz4`)
 
@@ -2589,6 +2610,110 @@ extended. (`PsLZgSmi_qs`)
 
 ---
 
+## 9o. The *other* web portal — EZClaim Portal (2017, `D5CVTNTdCHw`) ★
+
+Dated **June 28th, 2017**, hosted by Andy Henry. This is a **read-only,
+provider-facing reporting portal** at `https://portal.ezclaim.com`, sold at
+**$10 per user per month**. Its purpose, in the billing-service webinar's
+words: *"give providers access to some reports without giving them complete
+access to your Premier program. They will only be able to see what you want
+them to."* (`tJsKQEAoRw4`)
+
+**It was not built by EZClaim.** The page footer reads
+`2017 © Copyright by CIM Consulting, L.L.C.`
+
+### Chrome
+White, flat, Bootstrap-era; `EZclaim | Portal` logo top-left with the word
+`Portal` in orange; a **thin orange bar** under the header; grey footer.
+Top-right: `Logged in as: support@ezclaim.com  Logout`, and beneath it
+**`Connected to: EZClaim_TestDatabase22 ▾`** — a company-file picker, so the
+portal sits on top of the same multi-database model as the desktop (§1c).
+
+**Nav bar, left to right:**
+`Patients` · `Widgets` · `Reports` · `Dashboards` · `Manage Users` ·
+`Manage Group Permissions` · `Log`
+
+### `Patients` page
+Split screen: list left, **report viewer right**. The list is a card captioned
+`Patients` with a gear icon, and a table whose **first column is a per-row
+report launcher** — a dropdown (`Claim List`) above a **`Show`** button on each
+row. Then `Patient Name` · `Account #` · `Classification` ·
+`Primary Insured's ID #` · `Primary Payer` · `Pat Bal`.
+
+**The filter row under the headers is there too** — the desktop grid idiom
+carried onto the web, which is the right instinct.
+
+Pager at the bottom: `Page 1 of 1 (8 items)`, numbered buttons,
+`Page size: 20`.
+
+The right pane starts with placeholder text **`Click 'Show' button to view
+report`**, then renders the report with a toolbar: search, print, export
+icons, `Page 1 of 1` navigation, and an **export-format dropdown defaulting to
+`PDF`**.
+
+### `Reports` page
+A left sidebar captioned `Reports` listing every report by name (the inventory
+in §10), a middle **`Preview <Report> Report`** criteria panel that is a
+faithful copy of the desktop's, and the same viewer on the right.
+
+**The criteria panel is the desktop's, label for label** — `General`
+(`Group By`, `Show Service Line Detail`), `Dates` (`Original Bill Date`,
+`Claim Paid Date`, `Claim Created Date`, `1st DOS`, `Last Exported Date`,
+`Last Printed Date`), `Claim` (`Claim Bill To Payer`, `Bill To Sequence`,
+`Claim Primary Payer`, `Claim Rendering Provider`, …), all defaulting to `All`
+/ `No Start Date` / `No End Date`. **One report engine, two front ends.**
+
+### `Manage Users`
+Page heading `Manage Users - All Company Files`. Two buttons stacked in the
+first column: **`New User`** and **`New Manager`** — so there are two user
+kinds. Columns:
+`Email` · `Phone Number` · `User Type` · `Note` · `Confirmed` · `Disabled` ·
+`Disabled Message` · `Company Permissions and Associated Groups` · `Delete`,
+with a filter row. Empty state: **`No data to display`**.
+
+**`Create New User` form:**
+`Email:*` · `Confirm Email:*` · `Phone Number:*` · **`NPI:*`** ·
+`Account Note:` (placeholder **`Not visible to client`**), then
+**`Company Permissions:`** — one checkbox **per company file**, each with a
+group dropdown beside it (`EZClaim_TestDatabase22` ☑ `testing`; `EZClaim1` ☐
+`No groups available for con…`; `EZClaimTestDB3` ☐ `Default`).
+Buttons `Add` / `Cancel`.
+
+**`NPI` is a required field on a portal user** — because a portal user *is* a
+provider, and access is scoped per company file. That is a clean model and it
+is the one a family billing operation would actually need if Dad's providers
+ever wanted to look at their own numbers.
+
+### `Manage Group Permissions`
+Grid: `New` · `Name` · `Notes` · `Users in Group` · `Delete`, with an `Edit`
+button per row. `Edit` opens a modal **`Group Properties`** with four tabs:
+
+`General` · **`Patient Reports`** · `Widgets` · `Reports`
+
+The `Patient Reports` tab is a captioned checkbox list
+(`Permitted Patient Reports:`) with **`Select None` / `Select All`** buttons
+and `Save` / `Cancel`. So permissions are **per report, per group** — and the
+same shape repeats for widgets and for the general reports.
+
+### The pitch slides
+`Portal Benefits`: *Reduce Delays in Communication · Visibility for Providers ·
+Low-Price Tag, only $10/month per user.*
+`Features Overview`: *Patient Information (Name, DOB, Primary Payer, Account #,
+Balance and more!) · Run Reports (**Admins can limit which reports users can
+see**) · Widgets · NEW Feature: **Dashboards** — graphically view data through
+charts and graphs.*
+Contact: `877-650-0904` / `sales@ezclaim.com`.
+
+**Why this matters to us more than the 2025 Pay portal:** it is the exact shape
+of the thing Blayne will eventually want — a *read-only, permissioned, per-user
+view onto the billing data for someone who is not the biller* — and EZClaim
+priced it at $10/user/month and shipped it as a bolt-on rather than building it
+into the program. Our claims web screen on :8770 is already a web front end
+onto the same data; the missing pieces are groups, per-report permissions and
+a user who is not `blayne`.
+
+---
+
 ## 10. Reports screen ★
 
 The `Reports` tab is the **third of the four left-hand grid tabs**. Selecting
@@ -2670,6 +2795,124 @@ Worth carrying into our own design: the report that ships with the obvious name
 is not the one the vendor's own trainers use. If we build one A/R view, build
 the **filtered claim list with totals**, not the classic aging report.
 
+### The full report inventory — **it is thirty-plus, and some are per-customer** ★
+
+The EZClaim Portal's `Reports` page (`D5CVTNTdCHw`) lists the same reports in a
+single scrolling column, which is the most complete inventory in any capture:
+```
+Accounts Receivable
+Accounts Receivable including Zero Balances
+Accounts Receivable with Balances (No Credits)
+Adjustments
+Appointment List
+Appointment Status Summary
+AR Lovaas Institute
+Authorizations
+Claim List
+Claim Notes
+Claim Statement
+Claim Statement - No Ins or Adj
+Daily Schedule by Resource
+Deleted Records
+Delivery Ticket
+Deposit Slip
+Deposit Slip - Disbursements
+Diagnosis Code Usage Count
+Disbursements
+Insurance Followup
+Patient Address List
+Patient Balances
+Patient Demographics
+Patient Followup
+Patient ICD-9 to ICD-10 Worksheet
+Patient Insurance ID List
+Patient Ledger
+Patient Ledger - Elite Radiology
+Patient Ledger - Enils
+Patient List
+Patient Mailing Labels
+Patient Notes
+Patient Receipt
+Patient Services
+Payment List
+Procedure Code Summary
+Production Summary
+Receipt
+Refund List
+Statement History
+Transaction List
+Transaction List with Disbursements
+User Claim Activity
+User Patient Activity
+```
+(still scrolling past `Receipt`, so this is a floor, not a ceiling —
+`-vHuSb1e9iU` and `TDIWTgfUJ2g` supply the entries the portal list cuts off.)
+
+**Three of these are named after customers** — `AR Lovaas Institute`,
+`Patient Ledger - Elite Radiology`, `Patient Ledger - Enils`. Combined with the
+`Created 9/28/2016` / `Updated 08/17/2018` dates in the description strip, the
+conclusion is firm: **reports are a data layer EZClaim adds to per site, not
+compiled features.** Anyone can get a bespoke report by asking.
+
+Where we quote "thirteen reports" in the gaps list below, that number came from
+one visible screenful and is wrong. **The real gap is bigger and the real
+lesson is different**: what we need is not thirteen reports but *a report
+engine plus a criteria panel*, so that the next request is a definition rather
+than a release.
+
+### Reports are navigable — **drill-down** ★ (`-vHuSb1e9iU`)
+The report preview is not a picture. **Clicking a row in the rendered report
+opens the underlying record as a document tab**, stacking alongside whatever
+else is open:
+- clicking a patient line opens the **patient** tab (`Doedoe, Johnny (Age: 21)`)
+- clicking a claim line opens the **claim** tab (`IVY, ABIGAIL - 09/13/2018`)
+
+So the A/R report *is* the worklist — you read it and click straight through to
+fix things, without going back to a find grid. Cheap for us (our report rows
+already know their record id) and it removes the most annoying part of paper
+reports.
+
+Each report row in the list carries **two small icons**: the second one's
+tooltip is **`Preview`**.
+
+### The printed report layout, in detail (`-vHuSb1e9iU`, `D5CVTNTdCHw`)
+Top of page: report name left in large type, **practice address block right**
+(`Community Counseling / 555 Main Street, Suite 100 / Anytown, MI 55555`).
+
+Then a **criteria echo line in small type**, so the paper says how it was
+filtered:
+```
+Group By: Claim Billing Provider, Show Service Line Detail: Checked
+Group By: None, 1st DOS: This Month, 1st DOS: 06/01/2017 00:00:00, 1st DOS: 06/30/2017 00:00:00
+```
+**Copy this.** A printed report that doesn't say what it filtered on is a
+support call waiting to happen.
+
+`Claim List` column band:
+`Name` · `Inv # or ID` · `Diag` · `1st DOS` · `Bill Date` · `$0 Bal Dt`
+(or `Paid Date`) · `Charges` · `Pat Disb` · `Ins Disb` · `Adjs` · `Balance`
+
+**Three nesting levels, by indentation and weight**, when grouped and detailed:
+```
+Acme Treatment Services                        605.00  .00  .00  .00   605.00   ← group, bold
+  Doedoe, Johnny                               500.00  .00  .00  .00   500.00   ← patient
+  94   F1120  06/01/17  08/06/19               500.00  .00  .00  .00   500.00   ← claim, bold
+       06/01/17  90837  AJ  1                  125.00  .00  .00  .00   125.00   ← service line
+```
+Money is right-aligned and printed **without a `$`** inside the table (`605.00`,
+`.00`) — the currency symbol appears only in headers and the address block.
+A leading zero is dropped: zero is `.00`, not `0.00`.
+
+Last row is **`Grand Totals`**, and it carries counts as well as money:
+`Grand Totals    Claim Count: 4    Units: 20    1,000.00  .00  .00  .00  1,000.00`
+
+### Relative date ranges in the criteria panel (`D5CVTNTdCHw`)
+Date filters are not only `All` / start / end. The first dropdown offers named
+ranges — **`This Month`** was selected and auto-filled `6/1/2017` and
+`6/30/2017` into the two boxes below, with an **`✕` to clear back to `All`**.
+So the criteria panel has both relative and absolute dates, and the relative
+choice resolves to concrete dates you can then edit.
+
 ### `Report Criteria` panel
 A label/value grid with collapsible sections (`▲`), every value a dropdown
 defaulting to **`All`**, or a date dropdown defaulting to
@@ -2744,6 +2987,91 @@ worth knowing which screenshots to copy.
 | Payment Entry adjustments | `Adjustment 1` only | `Adjustment 1` **and** `Adjustment 2` |
 | Send Claims | had a **`Check for Errors`** button | **removed in release 616** — checking is automatic on `Create and Send Batch` (`sTZilSPX-Fc`) |
 
+### There is an older *product*, not just an older build: **EZClaim Advanced 10** ★
+
+`TDIWTgfUJ2g` is a side-by-side sales comparison, and it is the only capture of
+**EZClaim Advanced 10 Release 11** — a separate, cheaper product, not an early
+Premier. Knowing what it looks like matters because **some small offices are
+still on it**, and if the family business ever worked with one, this is the
+look they would describe.
+
+**Chrome:** classic Win32. A **menu bar**
+(`File · Edit · Patient · Claim · Libraries · Tools · Electronic Claims! ·
+View · Support/Help · EZClaim.com!`) over a **large-icon toolbar with text
+labels**: `New Patient`, `Patient Template`, `Find Patient`, `Find Claim`,
+`New Claim`, `Electronic Claims`, `Payer Library`, `Physician Library`,
+`Report List`, `Backup Data`, `Exit Program`. **No ribbon, no document tabs.**
+
+Title bar names the record, not the screen:
+`SAMPLE, PATIENT (Age: 12) - 10134 - Dr. Doctor - EZClaim Advanced 10 Release 11`
+
+**Layout:** patient list top-left with a `Group: All Groups` dropdown; a
+tabbed detail panel top-right; a claims grid across the bottom with a
+**filter strip of checkboxes** —
+`Filters - Only Show Claims:` ☑`Not Printed` ☑`Not Exported` ☑`Not Permanent`
+☑`Not Paid` ☑`Not Archived`.
+
+**Instead of document tabs it uses a tab strip of claims**: `Patient/Insured
+Info`, `Physician/Diagnostic Info`, `Payers/Other Info`, `New Charges`, then
+**one tab per existing claim labelled by date and amount** (`10/22/2019
+$200.00`, `5/28/2019 $74.00`…) with ◀ ▶ scroll arrows. Cramped, but note the
+idea: the claim history *is* the navigation.
+
+**Security is three shared passwords, and that is the whole point of the
+video.** A `Security` tab captioned `Program Access Security` with
+`Admin Password` / `User Password` / `Read Only Password` and confirmations.
+Its own warning text:
+> "IMPORTANT: If the password is lost or forgotten, there will be a charge to
+> reset the password."
+> "If all of the passwords are left blank, the program WILL NOT ask for a
+> password at start up."
+
+The video overlays the caption **"No User Tracking"** across it — which is
+exactly the gap Premier's `User Management` (§1d) fills.
+
+**Other Advanced-only details worth recording**, since several are things
+Premier hides in Program Setup:
+- `Payers/Other Info` tab has two orange panels with
+  `Click to Select Primary Payer` / `Click to Select Secondary Payer` and
+  `Clear Primary` / `Clear Secondary`, plus `Primary Claim Filing Ind:` (`BL`),
+  `Responsibility Sequence:`, `Patient Relationship to Other Insured`
+  (`Self / Spouse / Child / Other`).
+- Sub-tabs `EDI Notes`, `Optional Billing Data`, `Misc Patient Data`,
+  `Provider ID Numbers`, `Indicators`, `Print Options`, `Contact Info`.
+- **`Print Options` per patient** (Premier moves this to Program Setup):
+  ☐`If any dollar amount is zero, leave blank (don't print zeros).`
+  ☐`If the Amount Paid (Box 29) is zero, leave blank`
+  ☐`Summarize Service Line Items`, plus
+  `Box 24A (Date's of Service) Format: MM DD YY`,
+  `General Date Format: MM DD YYYY`, `Currency Format: DD CC`.
+- ☐`Lock Record` and ☑`Patient Is Active` — **the ancestors of Premier's
+  `Locked` / `Active`**, and here `Lock Record` is plainly a per-record flag.
+- `New Charges` service grid columns: `From` · `To` · `Place` · `EMG` ·
+  `Procedure Code` · `Modifiers` · `Diagnosis Pointer` · `Charge` ·
+  `Applied Amt` · `Units` · `EPSDT Qual` · `Print/Export` · `Rend Prov ID` ·
+  `CMN`, each row with its own `Del` button, footer `Line Count 3`.
+- Right rail: `Print 1500` · `Preview` · `Notes` · `Reports` ·
+  `View Extra Fields` · **`Scrub Setup`** · **`Scrub Claim`** · `Ambulance` ·
+  `Chiropractic` · `Attach CMN` · `Claim Status`.
+  **`Scrub` is older than Premier** — and `Scrub Setup` sitting beside
+  `Scrub Claim` says the scrubber was configurable from the start.
+- Payment entry is a modal, **`Line Item Payments and Adjustments`**, with
+  `Patient Amount Due`, `Allowed/Approved Amt`, an adjustment row
+  (type dropdown `Contract Adj`, amount, date, `Ref 2/Deposit #`,
+  `Reason Code`, `Payment Note`, `Add`), a grid
+  `Del · Payment Type · Amount · Date · Reference 1 · Ref 2/Deposit # ·
+  Reason Code · Payment Note`, a per-line summary
+  (`$200.00 Service Charge On 10/22/2019` / `$175.00 Applied Amount` /
+  `$25.00 Balance - Responsible Party: 2 Secondary Insurance`), and the
+  navigation button **`Goto Next Service Line`**. Hint text:
+  `Double click a payment line item to edit.`
+
+**The through-line:** `Scrub`, per-service-line payment application,
+responsible-party sequencing and the `Locked` flag are all present in Advanced
+10. They are not Premier inventions — they are **the vocabulary of this corner
+of the industry**, which is more reason to adopt the words rather than invent
+our own.
+
 ### The build range is wider than "old and new" — a timeline ★
 
 The skipped videos filled in the middle of the range, and they change the
@@ -2752,11 +3080,12 @@ are spread out.** Builds now seen on screen, in order:
 
 | Build | Seen in | What it tells us |
 |---|---|---|
+| *(Advanced 10 Rel. 11)* | `TDIWTgfUJ2g` | a different product entirely — menus + toolbar, no ribbon, three shared passwords |
 | 8.0.46x–47x | `5mj4eSiGSv0`, `7Sl9bwm3CxU` | Aero blue chrome, `Coding Advisor`, `Messages` in Alerts |
 | **8.0.581** | `uEox7GQtBhI` | **already caramel**, still has `Coding Advisor`, `EZView`, no `Ticket` |
 | **8.0.596** | `tJsKQEAoRw4` | caramel, `Coding Advisor`, adds `ICD Indicator` to the claim, `Database Maintenance` on the Tools ribbon |
 | 8.0.600 | `ikUIM2AVURQ` | caramel; grid behaviour identical to the newest |
-| **8.0.655** | `ctXeB-wct-A` | **`Coding Advisor` is gone** from the Home flowchart; still `EZView`, no `MerchantTrack`/`EZClaimPay` |
+| **8.0.655/656** | `ctXeB-wct-A`, `TDIWTgfUJ2g` | **`Coding Advisor` is gone** from the Home flowchart; still `EZView`, no `MerchantTrack`/`EZClaimPay`; claim service grid gains `Sort` and `SrvID` columns |
 | 8.0.664–670 | `Y_glBgEkSHs`, `oZBevrOFRwY`, `gO7UQeKlmFM` | `Ticket`, `MerchantTrack`, `EZClaimPay`, `Pending Data`, `BillFlash ePay` |
 
 So, correcting the table above:
@@ -3062,4 +3391,5 @@ copyrighted material.
 were passed over the first time as marketing or sales material; on watching
 them they all show the program on screen, and three of them are among the most
 useful in the whole set:
-`uEox7GQtBhI` `ctXeB-wct-A` `tJsKQEAoRw4`
+`uEox7GQtBhI` `ctXeB-wct-A` `tJsKQEAoRw4` `D5CVTNTdCHw` `TDIWTgfUJ2g`
+`-vHuSb1e9iU`
