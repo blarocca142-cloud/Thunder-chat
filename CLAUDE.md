@@ -128,6 +128,10 @@ assumed.
   deleted at once; the page sees only `window.thunder.scan` (preload.js).
   Untested on a real scanner until it runs on an office PC; Add File works
   everywhere.
+  The offices mostly use **Epson ES-400 / ES-500 / FF-680W** (Epson Scan 2 =
+  TWAIN, WIA uncertain), so scan.ps1 falls back to the free **NAPS2** console
+  (`--driver twain`, one PDF of every page) when WIA sees no scanner. NAPS2
+  must be installed once per office PC for that route.
 - `/status`'s `gpu` block now reads the **real** GPU — nvidia-smi plus Ollama's
   `/api/ps` (`gpu_state()` in `app.py`). It used to ask thunder-genai on :9010,
   so once that was disabled `gpu.up` was stuck false and the phone showed the

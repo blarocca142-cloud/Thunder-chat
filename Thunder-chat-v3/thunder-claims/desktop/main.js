@@ -131,9 +131,9 @@ ipcMain.handle("thunder-scan", async (event) => {
     });
     const lines = out.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
     const bad = lines.find((l) => l.startsWith("ERROR:"));
-    const files = lines.filter((l) => l.toLowerCase().endsWith(".jpg") && path.dirname(l) === dir && fs.existsSync(l));
+    const files = lines.filter((l) => /\.(jpg|pdf)$/i.test(l) && path.dirname(l) === dir && fs.existsSync(l));
     if (!files.length) return { error: bad ? bad.slice(6).trim() : "Nothing was scanned." };
-    return { pages: files.map((f) => ({ type: "image/jpeg", data: fs.readFileSync(f).toString("base64") })) };
+    return { pages: files.map((f) => ({ type: /\.pdf$/i.test(f) ? "application/pdf" : "image/jpeg", data: fs.readFileSync(f).toString("base64") })) };
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

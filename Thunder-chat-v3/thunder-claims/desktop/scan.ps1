@@ -6,10 +6,26 @@
 param([Parameter(Mandatory = $true)][string]$OutDir, [int]$Dpi = 200)
 $ErrorActionPreference = "Stop"
 $JPEG = "{B96B3CAE-0728-11D3-9D7B-0000F81EF32E}"
+
+# Second route, for scanners whose drivers only speak TWAIN (Epson's ES-400 /
+# ES-500 / FF-680W install through Epson Scan 2, which is TWAIN): the free
+# NAPS2 scanner tool, if it is installed. It scans every page in the feeder
+# into one PDF.
+function Invoke-Naps2 {
+  $exe = @("$env:ProgramFiles\NAPS2\NAPS2.Console.exe", "${env:ProgramFiles(x86)}\NAPS2\NAPS2.Console.exe") | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+  if (-not $exe) {
+    Write-Output "ERROR: Windows can't see a scanner directly. For Epson ES-400 / ES-500 / FF-680W scanners, install the free NAPS2 scanner tool (naps2.com) once on this computer, then Scan again. Or scan with Epson's app and use Add File."
+    $global:LASTEXITCODE = 2; return
+  }
+  $pdf = Join-Path $OutDir "scan.pdf"
+  & $exe -o $pdf --driver twain --dpi $Dpi --force 2>&1 | Out-Null
+  if (Test-Path $pdf) { Write-Output $pdf; $global:LASTEXITCODE = 0 }
+  else { Write-Output "ERROR: NAPS2 could not scan. Check the scanner is on and the pages are loaded."; $global:LASTEXITCODE = 6 }
+}
 try {
   $dm = New-Object -ComObject WIA.DeviceManager
   $scanners = @($dm.DeviceInfos | Where-Object { $_.Type -eq 1 })
-  if ($scanners.Count -eq 0) { Write-Output "ERROR: No scanner found. Check it is plugged in and switched on, then try again."; exit 2 }
+  if ($scanners.Count -eq 0) { Invoke-Naps2; exit $LASTEXITCODE }
   $dlg = New-Object -ComObject WIA.CommonDialog
   # one scanner: use it; several: Windows asks which
   if ($scanners.Count -eq 1) { $dev = $scanners[0].Connect() } else { $dev = $dlg.ShowSelectDevice(1, $true, $false) }
@@ -54,5 +70,6 @@ try {
     if ($n -ge 200) { break }
   }
 } catch {
+  if (-not $n) { Invoke-Naps2; exit $LASTEXITCODE }   # Windows' scanner service itself failed: try the TWAIN route
   Write-Output ("ERROR: " + $_.Exception.Message); exit 1
 }
