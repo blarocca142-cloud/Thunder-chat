@@ -473,7 +473,56 @@ st, j, _ = req("POST", "/api/save", {"kind": "claim", "id": cid, "data": {**open
 check("a payment posted while the claim was open also counts as a change", st == 409, j)
 st, j, _ = req("POST", "/api/save", {"kind": "claim", "id": cid, "data": {**opened, "_rev": {"n": 999}}}, token=TOK)
 check("a made-up revision number doesn't get past it either", st == 409)
+
+print("live updates (several screens)")
+st, j, _ = req("POST", "/api/live", {"open": [cid]}, token=TOK)
+check("first live call answers at once with where the stream is", st == 200 and isinstance(j.get("seq"), int) and j["events"] == [], j)
+SEQ = j["seq"]
+st, j, _ = req("POST", "/api/live", {"since": SEQ, "open": [cid], "wait": 0}, token=D2)
+st, j, _ = req("POST", "/api/live", {"since": SEQ, "open": [cid], "wait": 0}, token=TOK)
+check("who else has the record open: desk2, and never yourself", j["here"].get(cid) == ["desk2"], j)
+SEQ = j["seq"]
+box = {}
+def waiter():
+    t0 = time.time()
+    box["r"] = req("POST", "/api/live", {"since": SEQ, "open": [cid], "wait": 8}, token=TOK)
+    box["t"] = time.time() - t0
+th = threading.Thread(target=waiter); th.start()
+time.sleep(0.6)
+cur_ = req("GET", f"/api/rec/{cid}", token=D2)[1]["data"]
+st, saved, _ = req("POST", "/api/save", {"kind": "claim", "id": cid, "data": {**cur_, "claim_number": "LIVE-1"}}, token=D2)
+th.join(10)
+evs = [e for e in box.get("r", (0, {"events": []}))[1].get("events", []) if e.get("type") == "saved" and e.get("id") == cid]
+check("a waiting screen hears about another desk's save within seconds, not at the timeout",
+      evs and box["t"] < 6 and evs[-1]["by"] == "desk2" and evs[-1]["rev"] == saved["data"]["_rev"]["n"], (box.get("t"), box.get("r")))
+check("the event carries ids and names only - never the record", "SHARED" not in json.dumps(box.get("r", [0, {}])[1]) and "LIVE-1" not in json.dumps(box.get("r", [0, {}])[1]))
+SEQ = box["r"][1]["seq"]
+req("POST", "/api/delete", {"id": req("POST", "/api/save", {"kind": "task", "data": {"subject": "live test", "due": "01/01/2030"}}, token=D2)[1]["id"]}, token=D2)
+seen = []
+for _ in range(4):   # PostgreSQL announces the save and the delete separately
+    st, j, _ = req("POST", "/api/live", {"since": SEQ, "open": [cid], "wait": 3}, token=TOK)
+    SEQ = j["seq"]; seen += j["events"]
+    if any(e.get("type") == "deleted" for e in seen):
+        break
+check("a delete is announced too", any(e.get("type") == "deleted" and e.get("kind") == "task" and e.get("by") == "desk2" for e in seen), seen)
+SEQ = j["seq"]
+req("POST", "/api/live", {"since": SEQ, "open": [], "wait": 0}, token=D2)   # desk2 closes the claim
+st, j, _ = req("POST", "/api/live", {"since": SEQ, "open": [cid], "wait": 3}, token=TOK)
+check("closing a record tells the others", any(e.get("type") == "here" and e.get("id") == cid for e in j["events"]) and j["here"].get(cid) == [], j)
+tok_s = cw.SESSIONS.live[TOK]
+before = tok_s["last"] = time.time() - 600
+req("POST", "/api/live", {"since": j["seq"], "open": [cid], "wait": 0}, token=TOK)
+check("the live poll does not count as using the program (idle logoff still works)", cw.SESSIONS.live[TOK]["last"] == before)
+req("GET", "/api/whoami", token=TOK)
+check("...while a real request does", cw.SESSIONS.live[TOK]["last"] > before)
+acc = (Path(os.environ["THUNDER_VAULT"]) / "access.log").read_text()
+check("successful live polls are not written to the access log", '"/api/live"' not in acc)
+st, j, _ = req("POST", "/api/live", {"since": 0, "open": ["../x", cid], "wait": 0}, token=None)
+check("live needs a login", st == 401)
+req("POST", "/api/company/open", {"name": "Main"}, token=D2)
 req("POST", "/api/logout", token=D2)
+st, j, _ = req("POST", "/api/live", {"since": SEQ, "open": [cid], "wait": 0}, token=TOK)
+check("logging out takes you off every record", j["here"].get(cid) == [], j)
 
 print("find grids")
 ok = True

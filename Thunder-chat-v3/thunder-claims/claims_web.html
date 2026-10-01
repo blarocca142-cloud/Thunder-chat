@@ -139,6 +139,11 @@ table.g tfoot td { position: sticky; bottom: 0; background: #f1ecdf; border-top:
   white-space: nowrap; display: flex; gap: 6px; align-items: center; flex: none; }
 .doctabs .dt.on { background: var(--win); font-weight: 700; border-bottom: 1px solid var(--win); }
 .doctabs .dt .x { color: #fff; background: #cf5a50; border-radius: 2px; padding: 0 4px; font-size: 10px; font-weight: 700; border: 0; line-height: 14px; }
+.livebar { flex: none; }
+.livebar .lv { padding: 4px 10px; border-bottom: 1px solid var(--edge-soft); display: flex; gap: 10px; align-items: center; }
+.livebar .lv.newer { background: #fff3c4; color: #5c4400; font-weight: 700; }
+.livebar .lv.gone { background: #fde2df; color: #8a1f12; font-weight: 700; }
+.livebar .lv.here { background: #eef4ff; color: #23406e; }
 .work { flex: 1; display: grid; grid-template-columns: 1fr 118px; gap: 8px; padding: 8px; min-height: 0; overflow: auto; }
 .work.nobtn { grid-template-columns: 1fr; }
 @media (max-width: 640px) { .work { grid-template-columns: 1fr; } .btncol { order: -1; flex-direction: row !important; flex-wrap: wrap; position: static !important; } .btncol button { width: auto !important; } }
@@ -432,6 +437,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   <!-- ===== work area ===== -->
   <div class="right">
     <div class="doctabs" id="doctabs"></div>
+    <div class="livebar" id="liveBar" hidden></div>
     <div class="work" id="work">
       <div style="min-width:0">
 
@@ -1431,9 +1437,12 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   }
   function renderDocTabs() {
     $("doctabs").innerHTML = '<button class="dt' + (S.active < 0 ? " on" : "") + '" data-doc="-1">🏠 Home</button>' + S.docs.map(function (d, i) {
-      return '<button class="dt' + (i === S.active ? " on" : "") + '" data-doc="' + i + '">' + KIND_ICON[d.kind] + " " + esc(docTitle(d)) + (d.dirty ? "*" : "") +
+      var others = d.id && S.here && (S.here[d.id] || []).length;
+      return '<button class="dt' + (i === S.active ? " on" : "") + '" data-doc="' + i + '"' + (others ? ' title="Also open by ' + esc(S.here[d.id].join(", ").toUpperCase()) + '"' : "") + '>' +
+        KIND_ICON[d.kind] + " " + esc(docTitle(d)) + (d.dirty ? "*" : "") + (d.newer || d.gone ? " ⚠" : "") + (others ? " 👥" : "") +
         '<span class="x" data-close="' + i + '" title="Close">✕</span></button>'; }).join("");
     var d = cur(); document.title = (d ? docTitle(d) : "Home") + (S.company ? " - " + S.company : "") + " - Thunder Claims";
+    renderLive();
   }
   $("doctabs").addEventListener("click", function (e) {
     var x = e.target.closest("[data-close]"); if (x) { e.stopPropagation(); return closeDoc(+x.dataset.close); }
@@ -1448,10 +1457,10 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   function closeDoc(i) {
     var d = S.docs[i]; if (!d) return;
     if (d.dirty && !confirm("Close " + docTitle(d) + " without saving?")) return;
-    S.docs.splice(i, 1);
+    S.docs.splice(i, 1); liveKick();
     activate(S.active > i ? S.active - 1 : S.active === i ? Math.min(i, S.docs.length - 1) : S.active);
   }
-  function addDoc(d) { d.key = ++S.seq; S.docs.push(d); activate(S.docs.length - 1); }
+  function addDoc(d) { d.key = ++S.seq; S.docs.push(d); activate(S.docs.length - 1); liveKick(); }
   function openRec(kind, id) {
     for (var i = 0; i < S.docs.length; i++) if (S.docs[i].id === id) return activate(i);
     api("GET", "/api/rec/" + id).then(function (r) {
@@ -2080,12 +2089,15 @@ body.locked > :not(.login):not(#print) { display: none !important; }
     setMsg("Not saved - " + e.message);
     var reload = confirm(e.message + "\n\nOK: load their version now (what you typed here is dropped).\nCancel: keep your screen so you can note what you typed, then reopen the record.");
     if (!reload || !d.id) return false;
+    return reloadDoc(d).then(function (r) { setMsg("Loaded the latest version, saved by " + ((r.data._rev || {}).by || "someone").toUpperCase() + "."); return false; });
+  }
+  function reloadDoc(d) {
     return api("GET", "/api/rec/" + d.id).then(function (r) {
-      d.data = prep(d.kind, r.data); d.dirty = false;
+      d.data = prep(d.kind, r.data); d.dirty = false; d.newer = null; d.gone = null;
       if (r.ledger) d.ledger = r.ledger; if (r.benefits) d.benefits = r.benefits; if (d.kind === "claim") { d.codes = r.codes || d.codes; d.check = r; }
       if (d.kind === "payment") { d.alloc = allocFromLines(d.data.lines); d.rows = null; }
-      if (cur() === d) renderWork(); renderDocTabs(); setMsg("Loaded the latest version, saved by " + ((r.data._rev || {}).by || "someone").toUpperCase() + ".");
-      return false;
+      if (cur() === d) renderWork(); renderDocTabs();
+      return r;
     });
   }
 
@@ -3159,7 +3171,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
       S.company = r.company; $("coName").textContent = r.company || "none";
       if (!r.company) setMsg("You don’t have permission for any company yet - ask Blayne.");
       api("GET", "/api/whoami").then(function (w) { S.perms = w.perms; S.owner = w.owner; renderRibbon(); renderButtons(); }).catch(function () {});
-      activate(S.active); loadAll(); loadLayout();
+      activate(S.active); loadAll(); loadLayout(); S.liveSeq = null; liveKick();
     }).catch(function (err) { showLogin(err.message); }).finally(function () { $("loginBtn").disabled = false; });
   });
   $("logoutBtn").onclick = function () { lock("Logged out."); };
@@ -3196,6 +3208,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
     S.company = name; $("coName").textContent = name || "none";
     Object.keys(S.data).forEach(function (k) { S.data[k] = []; });
     Object.keys(S.grids).forEach(function (k) { S.grids[k].sel = null; S.grids[k].f = {}; });
+    S.liveSeq = null; S.here = {}; liveKick();
     activate(-1); renderDocTabs(); loadAll(); setMsg(name ? "Opened company " + name + "." : "");
   }
   function openCompany(name) {
@@ -3216,6 +3229,73 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   setInterval(function () {  // automatic logoff, matched by the server's own idle limit
     if (S.token && Date.now() - lastAct > S.idle * 60000) lock("Locked after " + S.idle + " idle minutes. Log in to carry on.");
   }, 15000);
+
+  // ============ live updates: several people, one record ============
+  // One request per screen waits at /api/live and comes back when anything in
+  // this company is saved or deleted, or someone opens or closes a record.
+  // A record open here that has not been touched reloads itself; one being
+  // typed in gets a yellow bar instead, because reloading would throw the
+  // typing away. Each tab shows who else has the same record open.
+  var RECKINDS = { claim: 1, patient: 1, payment: 1, payer: 1, provider: 1, procedure: 1, template: 1, task: 1 };
+  var REFRESH = { claim: ["claim", "patient"], patient: ["patient"], payment: ["payment", "claim", "patient"], payer: ["payer"], provider: ["provider"],
+                  procedure: ["procedure"], template: ["template"], task: ["task"], document: ["patient"] };
+  S.here = {}; S.liveSeq = null;
+  var liveRun = 0, liveKinds = {}, liveTimer = null, kickTimer = null;
+  function openIds() { return S.docs.filter(function (d) { return d.id && RECKINDS[d.kind]; }).map(function (d) { return d.id; }); }
+  function liveKick() { clearTimeout(kickTimer); kickTimer = setTimeout(function () { liveLoop(++liveRun); }, 300); }
+  function liveLoop(run) {
+    if (run !== liveRun) return;
+    if (!S.token || !S.company) return setTimeout(function () { liveLoop(run); }, 3000);
+    var co = S.company;
+    api("POST", "/api/live", JSON.stringify({ since: S.liveSeq, open: openIds() })).then(function (r) {
+      if (run !== liveRun || co !== S.company) return;   // superseded (records opened/closed, company switched)
+      var first = S.liveSeq === null; S.liveSeq = r.seq; S.here = r.here || {};
+      if (!first) (r.events || []).forEach(liveEvent);
+      renderDocTabs();
+      liveLoop(run);
+    }).catch(function () { setTimeout(function () { liveLoop(run); }, 5000); });
+  }
+  function refreshLists(kinds) {
+    if (!S.token || !kinds.length) return;
+    Promise.all(kinds.map(function (k) { return api("GET", "/api/list?kind=" + k).then(function (r) { S.data[k] = r.records; }); })).then(function () {
+      S.loadedAt = new Date(); fillPickers(); fillLibList(); renderGridBody(); renderDetail(); renderRibbon(); if (S.active < 0) renderHome();
+    }).catch(function () {});
+  }
+  function liveEvent(ev) {
+    if (ev.type === "reload") {   // the server restarted, or this screen was away too long
+      loadAll(); S.docs.forEach(function (d) { if (d.id && RECKINDS[d.kind] && !d.dirty) reloadDoc(d).catch(function () {}); }); return;
+    }
+    if (ev.type !== "saved" && ev.type !== "deleted") return;
+    (REFRESH[ev.kind] || []).forEach(function (k) { liveKinds[k] = 1; });
+    clearTimeout(liveTimer);
+    liveTimer = setTimeout(function () { var k = Object.keys(liveKinds); liveKinds = {}; refreshLists(k); }, 1200);
+    if (ev.by && ev.by === S.user) return;   // this person's own save; their screen already has it
+    S.docs.forEach(function (d) {
+      if (d.id !== ev.id) return;
+      var who = (ev.by || "someone").toUpperCase();
+      if (ev.type === "deleted") { d.gone = who; if (cur() === d) setMsg(who + " deleted " + docTitle(d) + "."); return; }
+      if (ev.rev <= (((d.data || {})._rev || {}).n || 0)) return;
+      if (d.dirty) { d.newer = { by: who, rev: ev.rev }; if (cur() === d) setMsg(who + " just saved " + docTitle(d) + " - see the yellow bar."); return; }
+      reloadDoc(d).then(function () { setMsg(docTitle(d) + " was just updated by " + who + "."); }).catch(function () {});
+    });
+  }
+  function renderLive() {
+    var d = cur(), bar = $("liveBar"), h = "";
+    if (d && d.id && RECKINDS[d.kind]) {
+      if (d.gone) h += '<div class="lv gone">⚠ ' + esc(d.gone) + ' deleted this record. Close it - saving it here would put it back.</div>';
+      else if (d.newer) h += '<div class="lv newer">⚠ ' + esc(d.newer.by) + ' just saved this record. What you typed here is not saved, and saving it would be refused. ' +
+        '<button type="button" data-live="load">Load Their Version</button></div>';
+      var who = (S.here || {})[d.id] || [];
+      if (who.length) h += '<div class="lv here">👥 Also open by: ' + who.map(function (u) { return esc(u.toUpperCase()); }).join(", ") + '</div>';
+    }
+    bar.innerHTML = h; bar.hidden = !h;
+  }
+  $("liveBar").addEventListener("click", function (e) {
+    if (!e.target.closest("[data-live]")) return;
+    var d = cur(); if (!d || !d.id) return;
+    if (d.dirty && !confirm("Drop what you typed here and load " + (d.newer ? d.newer.by + "’s" : "the latest") + " version?")) return;
+    reloadDoc(d).then(function (r) { setMsg("Loaded the latest version, saved by " + ((r.data._rev || {}).by || "someone").toUpperCase() + "."); });
+  });
 
   selectLeftTab("claim"); activate(-1); showLogin("");
 })();

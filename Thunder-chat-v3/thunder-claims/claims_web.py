@@ -1092,7 +1092,10 @@ class Sessions:
             if tok in self.live:
                 self.live[tok]["company"] = name
 
-    def touch(self, tok: str) -> str | None:
+    def touch(self, tok: str, active: bool = True) -> str | None:
+        """The session's user, or None once it has ended. `active=False` is
+        for the live-update poll, which every open screen makes on its own
+        and so must never count as someone using the program."""
         now = time.time()
         with self.lock:
             s = self.live.get(tok)
@@ -1105,15 +1108,131 @@ class Sessions:
             if not u or u.get("disabled"):
                 del self.live[tok]
                 return None
-            s["last"] = now
+            if active:
+                s["last"] = now
             return s["user"]
 
     def end(self, tok: str) -> None:
         with self.lock:
             self.live.pop(tok, None)
+        LIVE.gone(tok)
 
 
 SESSIONS = Sessions()
+
+
+# --------------------------------------------------------------------------
+# live updates: who changed what, and who has what open
+# --------------------------------------------------------------------------
+# Every screen keeps one request open at /api/live. It comes back the moment
+# a record in its company is saved or deleted (by anyone, heard from the
+# database's NOTIFY), or when someone opens or closes a record, or after
+# LIVE_WAIT seconds with nothing to say. Events carry ids, revision numbers
+# and login names only - a screen that cares fetches the record itself, which
+# goes through the normal permission checks and the audit log.
+
+LIVE_WAIT = 20
+HERE_TTL = 3 * LIVE_WAIT        # a screen that stops polling stops being "here"
+LIVE_KEEP = 1000                # events remembered for screens catching up
+
+
+class Live:
+    def __init__(self):
+        self.cond = threading.Condition()
+        self.seq = 0
+        self.events: list[tuple[int, str, dict]] = []
+        self.here: dict[tuple[str, str], dict[str, tuple[str, float]]] = {}   # (company, id) -> {token: (user, seen)}
+
+    def push(self, company: str, ev: dict) -> None:
+        with self.cond:
+            self.seq += 1
+            self.events.append((self.seq, company, {**ev, "seq": self.seq}))
+            del self.events[:-LIVE_KEEP]
+            self.cond.notify_all()
+
+    def changed(self, scope, rid, rev, who) -> None:
+        """From the store: a record was saved (rev) or deleted (rev -1)."""
+        if not isinstance(rid, str) or not ID_RE.match(rid):
+            return
+        for c in load_companies():
+            if str(vault.scope_for(c["path"])) == str(scope):
+                self.push(c["name"], {"type": "deleted" if rev == -1 else "saved", "id": rid,
+                                      "kind": kind_of(rid), "rev": rev, "by": who or ""})
+                return
+
+    def _expire(self, now: float) -> None:
+        for key in list(self.here):
+            gone = [t for t, (_u, seen) in self.here[key].items() if now - seen > HERE_TTL]
+            for t in gone:
+                del self.here[key][t]
+            if not self.here[key]:
+                del self.here[key]
+            if gone:
+                self.seq += 1
+                self.events.append((self.seq, key[0], {"type": "here", "id": key[1], "seq": self.seq}))
+                self.cond.notify_all()
+
+    def look(self, tok: str, user: str, company: str, ids: list[str]) -> None:
+        """This screen (session) has exactly these records open now."""
+        now, want, moved = time.time(), set(ids), []
+        with self.cond:
+            for key in list(self.here):
+                if tok in self.here[key] and (key[0] != company or key[1] not in want):
+                    del self.here[key][tok]
+                    moved.append(key)
+                    if not self.here[key]:
+                        del self.here[key]
+            for rid in want:
+                h = self.here.setdefault((company, rid), {})
+                if tok not in h:
+                    moved.append((company, rid))
+                h[tok] = (user, now)
+        for co, rid in moved:
+            self.push(co, {"type": "here", "id": rid})
+
+    def gone(self, tok: str) -> None:
+        with self.cond:
+            keys = [k for k, h in self.here.items() if tok in h]
+            for k in keys:
+                del self.here[k][tok]
+                if not self.here[k]:
+                    del self.here[k]
+        for co, rid in keys:
+            self.push(co, {"type": "here", "id": rid})
+
+    def who(self, company: str, user: str, ids: list[str]) -> dict:
+        """Other people with these records open (not this person's own windows)."""
+        with self.cond:
+            return {rid: sorted({u for u, _ in self.here.get((company, rid), {}).values() if u != user})
+                    for rid in ids}
+
+    def wait(self, company: str, since: int | None, timeout: float = LIVE_WAIT) -> tuple[int, list]:
+        end = time.time() + timeout
+        with self.cond:
+            while True:
+                self._expire(time.time())
+                if since is None or since > self.seq:   # first call, or the server restarted
+                    return self.seq, [{"type": "reload"}] if since is not None else []
+                if self.events and self.events[0][0] > since + 1:
+                    return self.seq, [{"type": "reload"}]   # missed too much: reload everything
+                evs = [e for q, co, e in self.events if q > since and co == company]
+                left = end - time.time()
+                if evs or left <= 0:
+                    return self.seq, evs
+                self.cond.wait(min(left, 5))   # woken by any company's event; look again
+
+
+    def start(self) -> None:
+        """Hear the store's changes - started by the first screen that asks,
+        so command-line uses of this file never open a listening connection."""
+        with self.cond:
+            if getattr(self, "_on", False):
+                return
+            self._on = True
+        vault.store.current().subscribe(self.changed)
+
+
+LIVE = Live()
 
 
 # --------------------------------------------------------------------------
@@ -1356,7 +1475,7 @@ class Handler(BaseHTTPRequestHandler):
         self._status, who = 0, "anonymous"
         try:
             if (method, u.path) not in PUBLIC:
-                who = SESSIONS.touch(self._token()) or ""
+                who = SESSIONS.touch(self._token(), active=u.path != "/api/live") or ""
                 if not who:
                     who = "anonymous"
                     return self._send(401, {"error": "login required"})
@@ -1382,7 +1501,7 @@ class Handler(BaseHTTPRequestHandler):
         finally:
             vault.set_actor(None)
             vault.set_root(None)
-            if u.path not in ("/", "/index.html"):
+            if u.path not in ("/", "/index.html") and not (u.path == "/api/live" and self._status == 200):
                 access_log(who, ip, method, u.path + ("?" + u.query if u.query else ""), self._status)
             _ctx.company = None
 
@@ -1496,6 +1615,18 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"company": name})
         if u.path == "/api/prefs":
             return self._send(200, set_prefs(who, json.loads(self._body() or b"{}")))
+        if u.path == "/api/live":
+            # one per open screen; see Live. Not logged when it succeeds - it
+            # is the same request every 20 seconds and would drown the log.
+            LIVE.start()
+            b = json.loads(self._body() or b"{}")
+            co = current_company()["name"]
+            ids = [x for x in (b.get("open") or [])[:60] if isinstance(x, str) and ID_RE.match(x)]
+            LIVE.look(self._token(), who, co, ids)
+            since = b.get("since") if isinstance(b.get("since"), int) else None
+            wait = min(max(float(b.get("wait", LIVE_WAIT)), 0), LIVE_WAIT)
+            seq, evs = LIVE.wait(co, since, wait)
+            return self._send(200, {"seq": seq, "events": evs, "here": LIVE.who(co, who, ids), "wait": LIVE_WAIT})
         if u.path == "/api/settings":
             need(who, "setup")
             return self._send(200, set_settings(json.loads(self._body() or b"{}")))

@@ -212,6 +212,20 @@ def audit_lines() -> list[dict]:
 # records
 # --------------------------------------------------------------------------
 
+def _who() -> str:
+    return getattr(_actor, "name", None) or ""
+
+
+def scope_for(path) -> object:
+    """The store scope of one company's folder (see scope())."""
+    old = getattr(_root, "path", None)
+    set_root(path)
+    try:
+        return scope()
+    finally:
+        _root.path = old
+
+
 def scope():
     """The current company in the store's terms: its folder for files, its
     schema for PostgreSQL (c__main for the original vault, c_<name> for the
@@ -344,7 +358,7 @@ def put(record_id: str, obj: dict, index_fields: list[str], expect_rev: int | No
     try:
         # Atomic either way: a crash mid-write leaves the old record intact,
         # never a half-written one that will not decrypt.
-        store.current().write(scope(), record_id, json.dumps(body, indent=2), rev, expect_rev)
+        store.current().write(scope(), record_id, json.dumps(body, indent=2), rev, expect_rev, _who())
     except RevConflict:
         audit("put", record_id, False, f"stale save refused (expected rev {expect_rev})")
         raise
@@ -396,7 +410,7 @@ def retire(record_id: str) -> str:
     if not exists(record_id):
         audit("delete", record_id, False, "no such record")
         raise SystemExit(f"no such record: {record_id}")
-    where = store.current().retire(scope(), record_id, getattr(_actor, "name", None) or "")
+    where = store.current().retire(scope(), record_id, _who())
     audit("delete", record_id, True, where)
     return where
 

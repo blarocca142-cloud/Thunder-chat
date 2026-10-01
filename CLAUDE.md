@@ -55,7 +55,7 @@ assumed.
   adduser <name>` (also `users`, `passwd`, `disable`, `enable`). Lockout after
   5 wrong tries (15 min), auto-logoff after 15 idle minutes, sessions in memory
   only. `access.log` in the vault dir records who/ip/path/status (ids only),
-  and the vault audit credits the logged-in person. `test_claims_web.py` = 140
+  and the vault audit credits the logged-in person. `test_claims_web.py` = 151
   checks, mostly attacks. **Synthetic patients only**; nothing is ever
   submitted to a payer. The UI mimics EZClaim on purpose - see
   `thunder-claims/EZCLAIM-LOOK.md` (EZClaim's videos studied frame by frame).
@@ -158,8 +158,18 @@ assumed.
   `THUNDER_VAULT_DB=postgresql://blayne@/thunder_claims?host=/var/run/postgresql`
   in `~/.thunder/claims_web.env`. Migrated: c__main 4 records, c_demo_office
   48. The old vault folders are kept untouched as the fallback (remove that
-  env line + restart to go back). (3) live updates + "who has this open" (Postgres LISTEN/
-  NOTIFY); (4) connect Main to the offices' existing VPN. **The offices already
+  env line + restart to go back). (3) ~~live updates + "who has this open"~~ built 2026-10-01: every
+  screen long-polls `POST /api/live` (20s, returns early on any change). Saves
+  and deletes are announced by `pg_notify` (sent on COMMIT only, so a rolled
+  back save is never announced; ids/rev/login only, no record data) and heard
+  on one LISTEN connection (`PgStore.subscribe`; files backend calls back
+  in-process). Presence is in server memory per session token, expires after
+  60s without a poll, and is cleared at logout. The poll does **not** count as
+  activity (`touch(active=False)`) so 15-min idle logoff still works, and
+  successful polls are not access-logged. In the program: an untouched open
+  record reloads itself, one being typed in gets a yellow "X just saved this -
+  Load Their Version" bar, tabs show 👥 / ⚠, and grids refresh the affected
+  kinds. test_claims_web = 151. (4) connect Main to the offices' existing VPN. **The offices already
   run EZClaim this way**: central system, every office VPNs in, split by office.
   **Future additions Dad wants (not started):** X-rays from **VXvue** under the
   patient (DICOM send to an Orthanc receiver on Main - need VXvue version/DICOM

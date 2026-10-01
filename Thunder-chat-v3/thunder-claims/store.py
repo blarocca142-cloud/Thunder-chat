@@ -44,6 +44,21 @@ class FileStore:
     kind = "files"
     _lock = threading.RLock()  # one process serves the office; this makes check-and-write atomic in it
 
+    def __init__(self):
+        self._subs: list = []
+
+    def subscribe(self, fn) -> None:
+        """fn(scope, rid, rev, who) after every save or delete (rev -1) made
+        by this process - the files have no other writer to hear from."""
+        self._subs.append(fn)
+
+    def _tell(self, scope, rid, rev, who):
+        for fn in self._subs:
+            try:
+                fn(scope, rid, rev, who)
+            except Exception:
+                pass
+
     def _dir(self, scope: Path) -> Path:
         d = Path(scope) / "records"
         d.mkdir(parents=True, exist_ok=True)
@@ -65,7 +80,7 @@ class FileStore:
         body = self.read(scope, rid)
         return None if body is None else json.loads(body).get("rev")
 
-    def write(self, scope, rid: str, body: str, rev: int, expect_rev: int | None = None) -> None:
+    def write(self, scope, rid: str, body: str, rev: int, expect_rev: int | None = None, who: str = "") -> None:
         p = self.path(scope, rid)
         with self._lock:
             if expect_rev is not None and p.exists():
@@ -81,6 +96,7 @@ class FileStore:
                 f.flush()
                 os.fsync(f.fileno())
             tmp.replace(p)  # atomic: never a half-written record
+        self._tell(scope, rid, rev, who)
 
     def ids(self, scope) -> list[str]:
         return [p.stem for p in sorted(self._dir(scope).glob("*.rec"), key=lambda p: p.stat().st_mtime, reverse=True)]
@@ -91,6 +107,7 @@ class FileStore:
         dest_dir.mkdir(parents=True, exist_ok=True)
         dest = dest_dir / f"{rid}.{datetime.now().strftime('%Y%m%d-%H%M%S')}.rec"
         os.replace(src, dest)
+        self._tell(scope, rid, -1, who)
         return dest.name
 
     def deleted(self, scope, rid: str) -> list[str]:
@@ -276,7 +293,7 @@ class PgStore:
         rows = self._run(f"SELECT rev FROM {self._schema(scope)}.records WHERE id = :id", id=rid)
         return rows[0][0] if rows else None
 
-    def write(self, scope, rid: str, body: str, rev: int, expect_rev: int | None = None) -> None:
+    def write(self, scope, rid: str, body: str, rev: int, expect_rev: int | None = None, who: str = "") -> None:
         s = self._schema(scope)
         if expect_rev is None:
             self._run(f"INSERT INTO {s}.records (id, body, rev, updated) VALUES (:id, :b, :r, now()) "
@@ -295,7 +312,56 @@ class PgStore:
                 return bool(c.row_count)   # 0 = it exists at another revision
             if not self._with(go):
                 raise RevConflict(rid)
-        self._run("SELECT pg_notify('thunder_claims', :m)", m=f"{s}:{rid}")  # for live updates (step 3)
+        self._notify(s, rid, rev, who)
+
+    def _notify(self, s: str, rid: str, rev: int, who: str) -> None:
+        # Inside a transaction PostgreSQL holds this until COMMIT and drops it
+        # on ROLLBACK, so nobody is told about a save that did not happen.
+        # Ids, revision and login name only - never anything from the record.
+        self._run("SELECT pg_notify('thunder_claims', :m)",
+                  m=json.dumps({"s": s, "id": rid, "rev": rev, "by": who}))
+
+    def subscribe(self, fn) -> None:
+        """fn(schema, rid, rev, who) for every save or delete committed by
+        anyone - this server, a command-line tool, another process - heard
+        through LISTEN on a connection of its own."""
+        self._subs = getattr(self, "_subs", [])
+        self._subs.append(fn)
+        if getattr(self, "_listener", None) is None:
+            self._listener = threading.Thread(target=self._listen, name="thunder-claims-listen", daemon=True)
+            self._listener.start()
+
+    def _listen(self) -> None:
+        import time
+        con = None
+        while True:
+            try:
+                if con is None:
+                    con = self._pg.Connection(**self.params)
+                    con.run("LISTEN thunder_claims")
+                # pg8000 only reads notifications off the socket when it runs
+                # something; a trivial query twice a second costs nothing.
+                con.run("SELECT 1")
+                while con.notifications:
+                    _pid, _chan, payload = con.notifications.popleft()
+                    try:
+                        m = json.loads(payload)
+                    except ValueError:
+                        continue
+                    for fn in self._subs:
+                        try:
+                            fn(m.get("s"), m.get("id"), m.get("rev"), m.get("by") or "")
+                        except Exception:
+                            pass
+                time.sleep(0.5)
+            except Exception:
+                try:
+                    if con is not None:
+                        con.close()
+                except Exception:
+                    pass
+                con = None
+                time.sleep(3)   # database restarting; try again
 
     def ids(self, scope) -> list[str]:
         return [r[0] for r in self._run(f"SELECT id FROM {self._schema(scope)}.records ORDER BY updated DESC, id")]
@@ -305,7 +371,7 @@ class PgStore:
         with self.transaction(scope):
             self._run(f"INSERT INTO {s}.deleted (id, who, body) SELECT id, :w, body FROM {s}.records WHERE id = :id", id=rid, w=who)
             self._run(f"DELETE FROM {s}.records WHERE id = :id", id=rid)
-        self._run("SELECT pg_notify('thunder_claims', :m)", m=f"{s}:{rid}")
+        self._notify(s, rid, -1, who)
         return f"{s}.deleted"
 
     def deleted(self, scope, rid: str) -> list[str]:
