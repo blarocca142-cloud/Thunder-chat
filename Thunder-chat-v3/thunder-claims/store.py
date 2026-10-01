@@ -164,31 +164,91 @@ def parse_dsn(dsn: str) -> dict:
 class PgStore:
     kind = "postgresql"
 
+    POOL_MAX = int(os.environ.get("THUNDER_VAULT_DB_POOL", "20"))
+
     def __init__(self, dsn: str):
         import pg8000.native  # only needed when PostgreSQL is in use
         self._pg = pg8000.native
         self.params = parse_dsn(dsn)
-        self._local = threading.local()
+        # The web server starts a thread per request, so connections cannot
+        # belong to threads (they would pile up until PostgreSQL refuses
+        # more). They are borrowed from a small pool for one statement, or
+        # for the length of a transaction, and handed back.
+        self._idle: list = []
+        self._idle_lock = threading.Lock()
+        self._slots = threading.BoundedSemaphore(self.POOL_MAX)
+        self._local = threading.local()   # only the connection of an open transaction
         self._ready: set[str] = set()
         self._ready_lock = threading.Lock()
 
-    def _con(self):
-        c = getattr(self._local, "con", None)
+    def _borrow(self):
+        if not self._slots.acquire(timeout=30):
+            raise RuntimeError("all database connections are busy - try again")
+        with self._idle_lock:
+            c = self._idle.pop() if self._idle else None
         if c is None:
-            c = self._pg.Connection(**self.params)
-            self._local.con = c
-            self._local.depth = 0
+            try:
+                c = self._pg.Connection(**self.params)
+            except BaseException:
+                self._slots.release()
+                raise
         return c
 
-    def _run(self, sql: str, **kw):
-        try:
-            return self._con().run(sql, **kw)
-        except (self._pg.InterfaceError, OSError):
-            # the connection died (server restart); reconnect once when not mid-transaction
-            if getattr(self._local, "depth", 0):
+    def _give_back(self, c, broken: bool = False) -> None:
+        if broken:
+            try:
+                c.close()
+            except Exception:
+                pass
+        else:
+            with self._idle_lock:
+                self._idle.append(c)
+        self._slots.release()
+
+    def _once(self, fn):
+        """fn(connection) on a pooled connection outside any transaction;
+        a connection that died (server restart) is dropped and tried once more."""
+        for attempt in (0, 1):
+            c = self._borrow()
+            try:
+                out = fn(c)
+            except (self._pg.InterfaceError, OSError):
+                self._give_back(c, broken=True)
+                if attempt:
+                    raise
+                continue
+            except self._pg.DatabaseError:
+                self._give_back(c)   # an error from a statement leaves an autocommit connection usable
                 raise
-            self._local.con = None
-            return self._con().run(sql, **kw)
+            except BaseException:
+                self._give_back(c, broken=True)
+                raise
+            self._give_back(c)
+            return out
+
+    def _with(self, fn):
+        """fn(connection): inside this thread's open transaction if there is
+        one, otherwise on a pooled connection for just this call."""
+        c = getattr(self._local, "tx", None)
+        if c is not None:
+            return fn(c)
+        return self._once(fn)
+
+    def _run(self, sql: str, **kw):
+        return self._with(lambda c: c.run(sql, **kw))
+
+    def _side(self, sql: str, **kw):
+        """Never inside the caller's transaction (audit lines, DDL)."""
+        return self._once(lambda c: c.run(sql, **kw))
+
+    def close(self) -> None:
+        with self._idle_lock:
+            idle, self._idle = self._idle, []
+        for c in idle:
+            try:
+                c.close()
+            except Exception:
+                pass
 
     def _schema(self, scope: str) -> str:
         s = str(scope)
@@ -225,15 +285,16 @@ class PgStore:
         else:
             # The check and the write are one statement, so two offices saving
             # the same claim at the same instant cannot both win.
-            self._run(f"UPDATE {s}.records SET body = :b, rev = :r, updated = now() WHERE id = :id AND rev = :e",
+            def go(c):
+                c.run(f"UPDATE {s}.records SET body = :b, rev = :r, updated = now() WHERE id = :id AND rev = :e",
                       id=rid, b=body, r=rev, e=expect_rev)
-            if self._con().row_count == 0:
-                if self.exists(scope, rid):
-                    raise RevConflict(rid)
-                self._run(f"INSERT INTO {s}.records (id, body, rev) VALUES (:id, :b, :r) ON CONFLICT (id) DO NOTHING",
-                          id=rid, b=body, r=rev)
-                if self._con().row_count == 0:
-                    raise RevConflict(rid)
+                if c.row_count:
+                    return True
+                c.run(f"INSERT INTO {s}.records (id, body, rev) VALUES (:id, :b, :r) ON CONFLICT (id) DO NOTHING",
+                      id=rid, b=body, r=rev)
+                return bool(c.row_count)   # 0 = it exists at another revision
+            if not self._with(go):
+                raise RevConflict(rid)
         self._run("SELECT pg_notify('thunder_claims', :m)", m=f"{s}:{rid}")  # for live updates (step 3)
 
     def ids(self, scope) -> list[str]:
@@ -256,19 +317,6 @@ class PgStore:
         # save refused") down with it.
         self._side(f"INSERT INTO {self._schema(scope)}.audit (line) VALUES (CAST(:l AS jsonb))", l=json.dumps(line))
 
-    def _side(self, sql: str, **kw):
-        """A second connection per thread that is never inside a transaction."""
-        for attempt in (0, 1):
-            c = getattr(self._local, "acon", None)
-            if c is None:
-                c = self._local.acon = self._pg.Connection(**self.params)
-            try:
-                return c.run(sql, **kw)
-            except (self._pg.InterfaceError, OSError):
-                self._local.acon = None
-                if attempt:
-                    raise
-
     def schemas(self) -> list[str]:
         return [r[0] for r in self._run("SELECT nspname FROM pg_namespace WHERE nspname LIKE 'c\\_%' ORDER BY 1")]
 
@@ -290,31 +338,51 @@ class PgStore:
     @contextmanager
     def transaction(self, scope):
         """All-or-nothing: a payment and every claim it changes are saved
-        together, or none of them is. Nested calls join the outer one."""
-        self._con()
-        if self._local.depth == 0:
-            self._run("START TRANSACTION")
-        self._local.depth += 1
+        together, or none of them is. Nested calls join the outer one. The
+        transaction keeps one pooled connection until it ends."""
+        if getattr(self._local, "tx", None) is not None:
+            self._local.depth += 1
+            try:
+                yield
+            finally:
+                self._local.depth -= 1
+            return
+        c = self._borrow()
+        try:
+            c.run("START TRANSACTION")
+        except BaseException:
+            self._give_back(c, broken=True)
+            raise
+        self._local.tx, self._local.depth = c, 1
         try:
             yield
         except BaseException:
-            self._local.depth -= 1
-            if self._local.depth == 0:
-                self._run("ROLLBACK")
+            self._local.tx = None
+            try:
+                c.run("ROLLBACK")
+                self._give_back(c)
+            except Exception:
+                self._give_back(c, broken=True)
             raise
-        self._local.depth -= 1
-        if self._local.depth == 0:
-            self._run("COMMIT")
+        self._local.tx = None
+        try:
+            c.run("COMMIT")
+        except BaseException:
+            self._give_back(c, broken=True)
+            raise
+        self._give_back(c)
+
+
+_store = None
+_store_lock = threading.Lock()
 
 
 def reset():
     """Forget the chosen store (tests switch THUNDER_VAULT_DB on and off)."""
     global _store
+    if _store is not None and hasattr(_store, "close"):
+        _store.close()
     _store = None
-
-
-_store = None
-_store_lock = threading.Lock()
 
 
 def current():

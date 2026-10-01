@@ -103,6 +103,24 @@ def suite(label, dsn):
     check("8 simultaneous saves of one record: exactly one wins", len(wins) == 1 and not errs, (wins, errs))
     check("...and the stored record is the winner's", vault.get("pt-1")["patient_name"] == f"RACER, {wins[0] if wins else '?'}")
 
+    if dsn:
+        # the web server starts a thread per request: connections must not pile up
+        def visit():
+            vault.set_root(None)
+            vault.get("pt-1")
+            with vault.transaction():
+                vault.exists("pt-2")
+        for _ in range(3):
+            batch = [threading.Thread(target=visit) for _ in range(60)]
+            [t.start() for t in batch]
+            [t.join() for t in batch]
+        for _ in range(150):
+            t = threading.Thread(target=visit)
+            t.start()
+            t.join()
+        n = store.current()._run("SELECT count(*) FROM pg_stat_activity WHERE datname = current_database()")[0][0]
+        check(f"330 request threads leave at most the pool's {store.PgStore.POOL_MAX} connections open", n <= store.PgStore.POOL_MAX, n)
+
     # all or nothing
     try:
         with vault.transaction():
