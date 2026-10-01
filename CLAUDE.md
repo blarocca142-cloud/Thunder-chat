@@ -132,6 +132,19 @@ assumed.
   TWAIN, WIA uncertain), so scan.ps1 falls back to the free **NAPS2** console
   (`--driver twain`, one PDF of every page) when WIA sees no scanner. NAPS2
   must be installed once per office PC for that route.
+  **Agreed next (2026-10-01), in order, before real offices:** (1) stop lost
+  edits - refuse a save if someone else saved the record since it was opened;
+  (2) move the vault to **PostgreSQL** (Blayne/Dad agreed over SQLite: 13 offices
+  on a VPN, several people per patient), one database per company, records
+  still encrypted; (3) live updates + "who has this open" (Postgres LISTEN/
+  NOTIFY); (4) connect Main to the offices' existing VPN. **The offices already
+  run EZClaim this way**: central system, every office VPNs in, split by office.
+  **Future additions Dad wants (not started):** X-rays from **VXvue** under the
+  patient (DICOM send to an Orthanc receiver on Main - need VXvue version/DICOM
+  settings); **Broadvoice call log** per patient, auto-matched by phone number,
+  with call reports/charts per patient/office/staff (need to know if Broadvoice
+  exports call history); ideas from **OpenMRS** (data model, FHIR, visit notes -
+  borrow, don't install). Dad shared a second link that never came through.
 - `/status`'s `gpu` block now reads the **real** GPU — nvidia-smi plus Ollama's
   `/api/ps` (`gpu_state()` in `app.py`). It used to ask thunder-genai on :9010,
   so once that was disabled `gpu.up` was stuck false and the phone showed the
