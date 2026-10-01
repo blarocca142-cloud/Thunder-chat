@@ -55,7 +55,7 @@ assumed.
   adduser <name>` (also `users`, `passwd`, `disable`, `enable`). Lockout after
   5 wrong tries (15 min), auto-logoff after 15 idle minutes, sessions in memory
   only. `access.log` in the vault dir records who/ip/path/status (ids only),
-  and the vault audit credits the logged-in person. `test_claims_web.py` = 151
+  and the vault audit credits the logged-in person. `test_claims_web.py` = 152
   checks, mostly attacks. **Synthetic patients only**; nothing is ever
   submitted to a payer. The UI mimics EZClaim on purpose - see
   `thunder-claims/EZCLAIM-LOOK.md` (EZClaim's videos studied frame by frame).
@@ -110,10 +110,17 @@ assumed.
   OPEN button per row, filter row, sort, totals (`reports.find`). **Make
   Recurring is left out on purpose**: a PIP claim must only exist for a visit
   that happened, so nothing generates claims ahead of time.
-  **Demo company**: `python3 demo_data.py Demo_Office` fills a NEW company
-  with made-up patients/carriers/claims in every state (dates relative to
-  today, 555 phones, generated NPIs that belong to nobody). Refuses a company
-  that already has records; never touches Main.
+  **Demo company**: `python3 demo_data.py Sunshine_Office` fills a NEW company
+  with **20 made-up patients, each a different crash and injury** (rear-ends,
+  T-bone, cyclist, pedestrian, motorcycle, rideshare, a minor, one brand new),
+  real ICD-10 codes that fit (checked against the CMS list), matching X-rays
+  and treatment, ~250 visits, ~160 claims and ~80 payments in every PIP state
+  (paid, fee-reduced, overdue, demand out, IME cut-off, exhausted with no EMC,
+  investigation, a bill going late, care started after 14 days), 8 patients
+  still in treatment so Print Claims has a batch. Dates relative to today, 555
+  phones, invented streets, fictional carriers/attorney, generated NPIs.
+  Refuses a company that already has records; never touches Main. A test
+  checks every claim it makes passes `assess` as CLEAN.
   **Column Chooser** (right-click a grid heading, as in EZClaim's
   "Customization"): add hidden columns, Remove This Column, Restore Grid.
   Layouts are saved per person in `~/.thunder/claims_prefs.json` (`grids`).
@@ -169,7 +176,7 @@ assumed.
   successful polls are not access-logged. In the program: an untouched open
   record reloads itself, one being typed in gets a yellow "X just saved this -
   Load Their Version" bar, tabs show 👥 / ⚠, and grids refresh the affected
-  kinds. test_claims_web = 151. (4) connect Main to the offices' existing VPN -
+  kinds. test_claims_web = 152. (4) connect Main to the offices' existing VPN -
   **parked (Blayne 2026-10-01): this is a demo to win Dad and the offices
   over, not close to going live.** Favour what makes the demo convincing. **The offices already
   run EZClaim this way**: central system, every office VPNs in, split by office.

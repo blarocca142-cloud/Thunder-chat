@@ -577,10 +577,14 @@ check("the access log names the company", any(a.get("company") == "Tampa_Office"
 
 print("demo company")
 r = subprocess.run([sys.executable, str(Path(__file__).parent / "demo_data.py"), "Demo_Test"], capture_output=True, text=True, env=os.environ, timeout=120)
-check("the demo filler makes a separate company full of made-up records", r.returncode == 0 and "12 patients" in r.stdout, r.stdout + r.stderr)
+check("the demo filler makes a separate company full of made-up records", r.returncode == 0 and "20 patients" in r.stdout, r.stdout + r.stderr)
 r2 = subprocess.run([sys.executable, str(Path(__file__).parent / "demo_data.py"), "Demo_Test"], capture_output=True, text=True, env=os.environ, timeout=60)
 check("and refuses to write into a company that already has records", r2.returncode == 1 and "not touching" in r2.stdout, r2.stdout)
-check("Main is untouched by it", "SAMPLE" not in json.dumps([x["patient_name"] for x in req("GET", "/api/list?kind=patient", token=TOK)[1]["records"]]))
+check("Main is untouched by it", "WHITAKER" not in json.dumps([x["patient_name"] for x in req("GET", "/api/list?kind=patient", token=TOK)[1]["records"]]))
+vault.set_root(TMP / "companies" / "Demo_Test")
+demo_claims = [cw.assess(c)["status"] for _, c in cw.records("claim")]
+vault.set_root(None)
+check("every demo claim passes the program's own checks (real ICD-10 codes, NPIs, dates)", demo_claims and set(demo_claims) == {"CLEAN"}, set(demo_claims))
 
 print("network guard")
 r = subprocess.run([sys.executable, str(Path(__file__).parent / "claims_web.py"), "--host", "0.0.0.0", "--port", "1"],
