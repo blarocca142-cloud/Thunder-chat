@@ -55,7 +55,7 @@ assumed.
   adduser <name>` (also `users`, `passwd`, `disable`, `enable`). Lockout after
   5 wrong tries (15 min), auto-logoff after 15 idle minutes, sessions in memory
   only. `access.log` in the vault dir records who/ip/path/status (ids only),
-  and the vault audit credits the logged-in person. `test_claims_web.py` = 126
+  and the vault audit credits the logged-in person. `test_claims_web.py` = 134
   checks, mostly attacks. **Synthetic patients only**; nothing is ever
   submitted to a payer. The UI mimics EZClaim on purpose - see
   `thunder-claims/EZCLAIM-LOOK.md` (EZClaim's videos studied frame by frame).
@@ -121,6 +121,13 @@ assumed.
   `claims_web.py perms <user> payments,writeoff,delete,setup,reports|*|none`):
   enforced by the server (403), buttons grey out to match. No list = all; the
   owner always has all. Entering claims needs no permission.
+  **Patient Documents** (replaces emailing scans to Gmail): `doc-` records,
+  JPEG/PNG/PDF checked by magic bytes, encrypted; the patient record carries
+  only the list. **Scan** in the desktop program (v1.1.0+) uses Windows' own
+  WIA scanner service via `desktop/scan.ps1` - feeder = all pages, temp folder
+  deleted at once; the page sees only `window.thunder.scan` (preload.js).
+  Untested on a real scanner until it runs on an office PC; Add File works
+  everywhere.
 - `/status`'s `gpu` block now reads the **real** GPU — nvidia-smi plus Ollama's
   `/api/ps` (`gpu_state()` in `app.py`). It used to ask thunder-genai on :9010,
   so once that was disabled `gpu.up` was stuck false and the phone showed the

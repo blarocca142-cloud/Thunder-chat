@@ -694,6 +694,16 @@ body.locked > :not(.login):not(#print) { display: none !important; }
                 <label for="p_nost">Don't Send Statements:</label><div class="span3"><input type="checkbox" id="p_nost" data-p="no_statements"></div>
                 <label>Last Statement:</label><input data-p="last_statement_date" readonly class="span3" placeholder="none yet">
               </div></div>
+              <div class="gb"><h2>Documents <span class="pick msg" style="font-size:11px">scans and files, kept encrypted on Main - not in email</span></h2>
+                <div class="in">
+                  <div class="form" style="grid-template-columns:max-content 1fr max-content 1fr">
+                    <label for="doc_cat">Category:</label><select id="doc_cat"></select>
+                    <label for="doc_title">Title:</label><input id="doc_title" placeholder="optional - e.g. Intake packet">
+                  </div>
+                  <div style="display:flex;gap:6px;margin:6px 0"><button type="button" id="docScan" class="primary">📠 Scan</button><button type="button" id="docFile">📎 Add File…</button>
+                    <input type="file" id="docInput" accept="image/jpeg,image/png,application/pdf" multiple hidden><span class="msg" id="docMsg"></span></div>
+                  <table class="g" style="table-layout:auto"><thead><tr><th>Date</th><th>Title</th><th>Category</th><th>Pages</th><th>Added By</th></tr></thead><tbody id="docRows"></tbody></table>
+                </div></div>
               <div class="gb"><h2>Reminder Note</h2><div class="in"><textarea data-p="reminder" aria-label="Reminder note" placeholder="Shown under the patient in the detail pane"></textarea></div></div>
             </div>
           </div>
@@ -825,6 +835,13 @@ body.locked > :not(.login):not(#print) { display: none !important; }
       <div class="form"><label for="nc_name">Company Name:</label><input id="nc_name" class="span3" placeholder="e.g. Tampa_Office" maxlength="40"></div>
       <p class="hint">Letters, numbers and underscores only.</p><p class="msg" id="nc_msg"></p></div>
     <div class="mbar"><span class="spacer"></span><button id="ncOk" class="primary">Create &amp; Open</button><button id="ncCancel">Cancel</button></div>
+  </div>
+</div>
+<div class="modal" id="docview" hidden>
+  <div class="mwin wide">
+    <div class="mt" id="dvTitle">Document</div>
+    <div class="mbar"><button id="dvPrint" class="primary">🖨 Print</button><button id="dvDelete">Delete</button><span class="hint" id="dvNote"></span><span class="spacer"></span><button id="dvClose">Close</button></div>
+    <div class="pvpage" id="dvPages" style="text-align:center"></div>
   </div>
 </div>
 <div class="modal" id="dlview" hidden>
@@ -1992,6 +2009,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   function renderPatient() {
     var d = cur(), p = d.data;
     qa("#patView [data-p]").forEach(function (el) { if (el.type === "checkbox") el.checked = !!p[el.dataset.p]; else el.value = p[el.dataset.p] || (el.tagName === "SELECT" ? el.options[0].value : ""); });
+    $("docMsg").textContent = ""; renderDocs(d);
     $("patPip").innerHTML = benefitsHtml(d.benefits) + '<div class="src">Fla. Stat. 627.736 - the limit is shared by every provider. Not legal advice.</div>';
     setMsg(d.id ? "Patient " + (p.account_number ? "Account # " + p.account_number : d.id) : "New patient - the account number is assigned when you save.");
   }
@@ -2509,6 +2527,77 @@ body.locked > :not(.login):not(#print) { display: none !important; }
     return h + '</div>';
   }
   function setPageMargin(red) { $("pagestyle").textContent = "@page { size: letter; margin: " + (red ? "0" : "0.35in") + "; }"; }
+
+  // ============ patient documents (scans) ============
+  var DOC_CATS = ["Patient File", "Intake / Forms", "PIP Forms", "Insurance Card / ID", "EOB / Carrier Mail", "Medical Records", "Attorney", "X-Ray / Imaging", "Other"];
+  $("doc_cat").innerHTML = DOC_CATS.map(function (c) { return "<option>" + c + "</option>"; }).join("");
+  var hasScanner = !!(window.thunder && window.thunder.scan);
+  $("docScan").title = hasScanner ? "Scan from the scanner plugged into this computer (all pages in the feeder)" : "Scanning works in the Thunder Claims program on the office computer";
+  function renderDocs(d) {
+    var docs = (d.data.documents || []).slice().reverse();
+    $("docScan").disabled = !d.id || !hasScanner; $("docFile").disabled = !d.id;
+    if (!d.id) $("docMsg").textContent = "Save the patient first.";
+    $("docRows").innerHTML = docs.length ? docs.map(function (x) {
+      return '<tr class="item" data-doc="' + esc(x.id) + '" style="cursor:pointer"><td>' + esc(x.date) + '</td><td>' + esc(x.title) + '</td><td>' + esc(x.category) +
+        '</td><td>' + esc(x.pages) + '</td><td>' + esc((x.added_by || "").toUpperCase()) + '</td></tr>'; }).join("")
+      : '<tr class="empty"><td colspan="5">No documents yet.</td></tr>';
+  }
+  function saveDocument(pages, scanned, name) {
+    var d = cur(); if (!d || d.kind !== "patient" || !d.id) return Promise.resolve();
+    $("docMsg").textContent = "Saving " + pages.length + " page(s), encrypted…";
+    return api("POST", "/api/document", JSON.stringify({ patient_id: d.id, pages: pages, scanned: !!scanned, title: $("doc_title").value.trim() || name || "", category: $("doc_cat").value }))
+      .then(function (m) { d.data.documents = (d.data.documents || []).concat([m]); $("doc_title").value = ""; renderDocs(d); $("docMsg").textContent = "Saved: " + m.title + " (" + m.pages + " page" + (m.pages === 1 ? "" : "s") + ")."; })
+      .catch(function (e) { $("docMsg").textContent = "Not saved: " + e.message; });
+  }
+  $("docScan").onclick = function () {
+    if (!hasScanner) return;
+    $("docMsg").textContent = "Scanning… (load the pages in the feeder)"; $("docScan").disabled = true;
+    window.thunder.scan({}).then(function (r) {
+      if (!r || r.error) { $("docMsg").textContent = (r && r.error) || "Nothing scanned."; return; }
+      return saveDocument(r.pages, true);
+    }).catch(function (e) { $("docMsg").textContent = "Scan failed: " + e.message; }).finally(function () { renderDocs(cur()); });
+  };
+  $("docFile").onclick = function () { $("docInput").value = ""; $("docInput").click(); };
+  $("docInput").addEventListener("change", function () {
+    var files = [].slice.call(this.files || []); if (!files.length) return;
+    var read = function (f) { return new Promise(function (res, rej) { var fr = new FileReader(); fr.onload = function () { res({ type: f.type, data: String(fr.result).split(",")[1], name: f.name.replace(/\.[^.]+$/, "") }); }; fr.onerror = rej; fr.readAsDataURL(f); }); };
+    Promise.all(files.map(read)).then(function (pages) {
+      var imgs = pages.filter(function (x) { return x.type !== "application/pdf"; }), pdfs = pages.filter(function (x) { return x.type === "application/pdf"; });
+      var jobs = (imgs.length ? [imgs] : []).concat(pdfs.map(function (x) { return [x]; }));   // images become one document; each PDF its own
+      return jobs.reduce(function (pr, pg) { return pr.then(function () { return saveDocument(pg.map(function (x) { return { type: x.type, data: x.data }; }), false, pg.length === 1 ? pg[0].name : ""); }); }, Promise.resolve());
+    });
+  });
+  var dvDoc = null;
+  $("docRows").addEventListener("click", function (e) {
+    var tr = e.target.closest("[data-doc]"); if (!tr) return;
+    api("GET", "/api/rec/" + tr.dataset.doc).then(function (r) {
+      dvDoc = r; var x = r.data;
+      $("dvTitle").textContent = x.title + " - " + x.category + " - " + x.date;
+      $("dvNote").textContent = x.pages.length + " page(s), added by " + (x.added_by || "").toUpperCase();
+      $("dvDelete").disabled = !can("delete"); $("dvDelete").title = can("delete") ? "" : NOPE;
+      $("dvPages").innerHTML = x.pages.map(function (pg, i) {
+        if (pg.type === "application/pdf") { var u = URL.createObjectURL(new Blob([Uint8Array.from(atob(pg.data), function (ch) { return ch.charCodeAt(0); })], { type: "application/pdf" }));
+          return '<iframe src="' + u + '" style="width:100%;height:78vh;border:1px solid #999;background:#fff"></iframe>'; }
+        return '<img src="data:' + pg.type + ';base64,' + pg.data + '" alt="Page ' + (i + 1) + '" style="max-width:100%;border:1px solid #999;margin:0 auto 10px;display:block;background:#fff">'; }).join("");
+      $("docview").hidden = false;
+    }).catch(function (err) { setMsg("Couldn’t open it: " + err.message); });
+  });
+  $("dvClose").onclick = function () { $("docview").hidden = true; $("dvPages").innerHTML = ""; dvDoc = null; };
+  $("dvPrint").onclick = function () {
+    if (!dvDoc) return; setPageMargin(false);
+    var imgs = dvDoc.data.pages.filter(function (pg) { return pg.type !== "application/pdf"; });
+    if (!imgs.length) return setMsg("Print the PDF from its own toolbar above.");
+    $("print").innerHTML = imgs.map(function (pg) { return '<div style="page-break-after:always;text-align:center"><img src="data:' + pg.type + ';base64,' + pg.data + '" style="max-width:100%;max-height:10in"></div>'; }).join("");
+    window.print();
+  };
+  $("dvDelete").onclick = function () {
+    if (!dvDoc || !confirm("Delete " + dvDoc.data.title + "?\n\nIt is kept, encrypted, in the deleted-records folder on Main.")) return;
+    var id = dvDoc.id;
+    api("POST", "/api/delete", JSON.stringify({ id: id })).then(function () {
+      var d = cur(); if (d && d.kind === "patient") { d.data.documents = (d.data.documents || []).filter(function (x) { return x.id !== id; }); renderDocs(d); }
+      $("dvClose").click(); setMsg("Document deleted.");
+    }).catch(function (e) { alert("Not deleted: " + e.message); });
+  };
 
   // ============ Manage Security (owner) ============
   function openSecurity() {

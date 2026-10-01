@@ -76,6 +76,7 @@ KINDS = {
     "procedure": {"prefix": "px-", "index": []},
     "template": {"prefix": "tpl-", "index": []},
     "task":     {"prefix": "tk-", "index": []},
+    "document": {"prefix": "doc-", "index": []},
 }
 BILLING = ("draft", "sent", "hold", "paid", "partial", "denied")
 METHODS = ("CHECK", "EFT", "CASH", "CREDIT CARD", "MONEY ORDER", "OTHER")
@@ -83,7 +84,7 @@ FIRST_ACCOUNT = 1000  # EZClaim numbers patients from 1000 up
 
 
 def kind_of(record_id: str) -> str:
-    for k in ("patient", "payer", "provider", "payment", "procedure", "template", "task"):
+    for k in ("patient", "payer", "provider", "payment", "procedure", "template", "task", "document"):
         if record_id.startswith(KINDS[k]["prefix"]):
             return k
     return "claim"
@@ -676,6 +677,44 @@ def claims_printed(ids: list, when: str, user: str) -> int:
     return n
 
 
+DOC_TYPES = {"image/jpeg", "image/png", "application/pdf"}
+DOC_CATEGORIES = ("Patient File", "Intake / Forms", "PIP Forms", "Insurance Card / ID", "EOB / Carrier Mail",
+                  "Medical Records", "Attorney", "X-Ray / Imaging", "Other")
+
+
+def add_document(pid: str, data: dict, user: str) -> dict:
+    """A scanned or uploaded file, kept encrypted in the vault like every
+    other record - this is what replaces emailing scans to Gmail. The
+    patient record carries the list (title, date, pages) so opening a
+    patient never has to decrypt the files themselves."""
+    if not ID_RE.match(pid) or kind_of(pid) != "patient" or not vault.record_path(pid).exists():
+        raise ValueError("save the patient first")
+    pages = data.get("pages") or []
+    if not pages or len(pages) > 200:
+        raise ValueError("nothing to save")
+    clean, total = [], 0
+    for pg in pages:
+        mime, b64 = str(pg.get("type") or ""), str(pg.get("data") or "")
+        if mime not in DOC_TYPES:
+            raise ValueError("only JPEG, PNG or PDF files can be kept")
+        raw = base64.b64decode(b64, validate=True)
+        sig = {"image/jpeg": b"\xff\xd8", "image/png": b"\x89PNG", "application/pdf": b"%PDF"}[mime]
+        if not raw.startswith(sig):
+            raise ValueError("that file is not really a " + mime.split("/")[1].upper())
+        total += len(raw)
+        clean.append({"type": mime, "data": b64})
+    title = str(data.get("title") or "").strip()[:80] or "Scan " + time.strftime("%m/%d/%Y %I:%M %p")
+    cat = data.get("category") if data.get("category") in DOC_CATEGORIES else "Patient File"
+    did = new_id("document")
+    meta = {"id": did, "title": title, "category": cat, "date": time.strftime("%m/%d/%Y"), "pages": len(clean),
+            "kb": round(total / 1024), "added_by": user, "source": "scanner" if data.get("scanned") else "file"}
+    vault.put(did, {"patient_id": pid, **meta, "pages": clean}, KINDS["document"]["index"])
+    p = vault.get(pid)
+    p.setdefault("documents", []).append({k: v for k, v in meta.items()})
+    vault.put(pid, p, KINDS["patient"]["index"])
+    return meta
+
+
 def delete_record(rid: str, user: str) -> dict:
     """EZClaim's Delete, with the guards a billing office needs: a claim with
     money posted to it, or a patient with claims, cannot be deleted until
@@ -694,6 +733,10 @@ def delete_record(rid: str, user: str) -> dict:
         if linked:
             raise ValueError(f"this patient has {len(linked)} claim(s) - delete or move those first")
     vault.retire(rid)
+    if kind == "document" and vault.record_path(str(r.get("patient_id") or "x")).exists():
+        p = vault.get(r["patient_id"])
+        p["documents"] = [x for x in p.get("documents") or [] if x.get("id") != rid]
+        vault.put(r["patient_id"], p, KINDS["patient"]["index"])
     if kind == "payment":
         touched = {a.get("claim_id") for a in r.get("lines") or [] if a.get("claim_id")}
         after_payment(rid, {**r, "lines": []}, {c for c in touched if vault.record_path(c).exists()}, user)
@@ -822,6 +865,8 @@ def save(kind: str, record_id: str | None, data: dict, user: str = "user") -> di
         data["done"] = data.get("status") == "Completed"
     else:
         if kind == "patient":
+            if record_id and vault.record_path(rid).exists():   # the document list is the server's, never the form's
+                data["documents"] = vault.get(rid).get("documents") or []
             last, first, mi = (str(data.get(k) or "").strip() for k in ("last_name", "first_name", "mi"))
             if last or first:
                 data["patient_name"] = (last + ", " + first + (" " + mi if mi else "")).upper().strip(", ")
@@ -1185,7 +1230,7 @@ def access_log(who: str, ip: str, method: str, path: str, status: int) -> None:
 
 PUBLIC = {("GET", "/"), ("GET", "/index.html"), ("POST", "/api/login")}
 CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
-       "img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
+       "img-src 'self' data: blob:; frame-src 'self' blob:; object-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -1400,6 +1445,9 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/api/claims/printed":
             b = json.loads(self._body() or b"{}")
             return self._send(200, {"updated": claims_printed(b.get("ids") or [], str(b.get("date") or time.strftime("%m/%d/%Y"))[:10], who)})
+        if u.path == "/api/document":
+            b = json.loads(self._body() or b"{}")
+            return self._send(200, add_document(str(b.get("patient_id") or ""), b, who))
         if u.path == "/api/delete":
             need(who, "delete")
             b = json.loads(self._body() or b"{}")

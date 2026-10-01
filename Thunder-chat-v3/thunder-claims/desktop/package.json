@@ -1,7 +1,7 @@
 {
   "name": "thunder-claims",
   "productName": "Thunder Claims",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "description": "Thunder Claims - the office's claims program. Talks only to the claims server on Main, over TLS pinned to the Thunder fleet CA.",
   "author": "Thunder",
@@ -21,6 +21,7 @@
     "copyright": "Thunder",
     "files": [
       "main.js",
+      "preload.js",
       "offline.html",
       "package.json",
       "build/icon.png"
@@ -29,6 +30,10 @@
       {
         "from": "thunder_ca.crt",
         "to": "thunder_ca.crt"
+      },
+      {
+        "from": "scan.ps1",
+        "to": "scan.ps1"
       }
     ],
     "directories": {

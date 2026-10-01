@@ -17,7 +17,9 @@
 // The server address defaults to https://10.168.168.10:8770 and can be changed
 // in %APPDATA%/Thunder Claims/config.json ("server"), or THUNDER_CLAIMS_URL.
 "use strict";
-const { app, BrowserWindow, Menu, dialog, session, shell } = require("electron");
+const { app, BrowserWindow, Menu, dialog, ipcMain, session, shell } = require("electron");
+const { execFile } = require("child_process");
+const os = require("os");
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
@@ -86,6 +88,7 @@ function createWindow() {
     icon: path.join(__dirname, "build", "icon.png"),
     webPreferences: {
       session: ses, contextIsolation: true, sandbox: true, nodeIntegration: false,
+      preload: path.join(__dirname, "preload.js"), plugins: true,  // plugins: the built-in PDF viewer for scanned documents
       devTools: !app.isPackaged, spellcheck: false, webviewTag: false
     }
   });
@@ -109,6 +112,32 @@ function createWindow() {
   win.on("closed", () => { win = null; });
   win.loadURL(ORIGIN + "/");
 }
+
+// Scanning: the page asks, this computer's scanner answers through Windows'
+// own scanner service (WIA, scan.ps1). Pages go back to the page as data and
+// the temporary folder is deleted at once - nothing stays on the laptop.
+function scanResource() {
+  const packaged = path.join(process.resourcesPath || "", "scan.ps1");
+  return fs.existsSync(packaged) ? packaged : path.join(__dirname, "scan.ps1");
+}
+ipcMain.handle("thunder-scan", async (event) => {
+  if (!event.senderFrame || !event.senderFrame.url.startsWith(ORIGIN + "/")) return { error: "not allowed" };
+  if (process.platform !== "win32") return { error: "Scanning works on the office Windows computers." };
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "thunder-scan-"));
+  try {
+    const out = await new Promise((resolve) => {
+      execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", scanResource(), "-OutDir", dir],
+        { timeout: 10 * 60 * 1000, windowsHide: true, maxBuffer: 1024 * 1024 }, (err, stdout) => resolve(String(stdout || "") + (err && !stdout ? "ERROR: " + err.message : "")));
+    });
+    const lines = out.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    const bad = lines.find((l) => l.startsWith("ERROR:"));
+    const files = lines.filter((l) => l.toLowerCase().endsWith(".jpg") && path.dirname(l) === dir && fs.existsSync(l));
+    if (!files.length) return { error: bad ? bad.slice(6).trim() : "Nothing was scanned." };
+    return { pages: files.map((f) => ({ type: "image/jpeg", data: fs.readFileSync(f).toString("base64") })) };
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 function buildMenu() {
   const about = () => dialog.showMessageBox(win, {

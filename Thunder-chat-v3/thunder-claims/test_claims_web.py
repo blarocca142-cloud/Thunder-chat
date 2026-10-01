@@ -422,6 +422,26 @@ st, j, _ = req("POST", "/api/security", {"user": "blayne", "perms": []}, token=T
 check("the owner's own permissions cannot be taken away", st == 400)
 req("POST", "/api/logout", token=LT)
 
+print("patient documents (scans)")
+import base64 as _b64
+jpg = _b64.b64encode(b"\xff\xd8\xff\xe0" + b"fake jpeg body SCANNEDTEXT" * 20).decode()
+st, m, _ = req("POST", "/api/document", {"patient_id": SPID, "title": "Intake packet", "category": "Intake / Forms", "scanned": True,
+                                         "pages": [{"type": "image/jpeg", "data": jpg}, {"type": "image/jpeg", "data": jpg}]}, token=TOK)
+check("a scan saves to the patient, with its page count and who added it", st == 200 and m["pages"] == 2 and m["added_by"] == "blayne" and m["source"] == "scanner", m)
+DOC = m["id"]
+p = req("GET", f"/api/rec/{SPID}", token=TOK)[1]["data"]
+check("the patient lists it without the pages themselves", [x["id"] for x in p["documents"]] == [DOC] and "pages" not in json.dumps(p["documents"]).replace('"pages": 2', ""), p["documents"])
+check("the scan is encrypted on disk", b"SCANNEDTEXT" not in vault.record_path(DOC).read_bytes() and b"SCANNEDTEXT" not in _b64.b64encode(vault.record_path(DOC).read_bytes()))
+st, j, _ = req("POST", "/api/document", {"patient_id": SPID, "pages": [{"type": "image/jpeg", "data": _b64.b64encode(b"MZ not an image").decode()}]}, token=TOK)
+check("a file that only claims to be a JPEG is refused", st == 400, j)
+st, j, _ = req("POST", "/api/document", {"patient_id": SPID, "pages": [{"type": "text/html", "data": _b64.b64encode(b"<script>").decode()}]}, token=TOK)
+check("only JPEG, PNG and PDF are kept", st == 400)
+st, j, _ = req("POST", "/api/save", {"kind": "patient", "id": SPID, "data": {**p, "documents": []}}, token=TOK)
+check("saving the patient form cannot wipe its document list", [x["id"] for x in req("GET", f"/api/rec/{SPID}", token=TOK)[1]["data"]["documents"]] == [DOC])
+check("documents need a login", req("POST", "/api/document", {"patient_id": SPID, "pages": [{"type": "image/jpeg", "data": jpg}]})[0] == 401)
+st, j, _ = req("POST", "/api/delete", {"id": DOC}, token=TOK)
+check("deleting a document takes it off the patient (kept under deleted/)", st == 200 and not req("GET", f"/api/rec/{SPID}", token=TOK)[1]["data"]["documents"])
+
 print("find grids")
 ok = True
 for w in ("patient", "claim", "service", "payment", "task", "adjustment", "payer", "physician", "note"):
