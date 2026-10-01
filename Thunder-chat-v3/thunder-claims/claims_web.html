@@ -932,11 +932,15 @@ body.locked > :not(.login):not(#print) { display: none !important; }
     if (n.getMonth() < d.getMonth() || (n.getMonth() === d.getMonth() && n.getDate() < d.getDate())) a--; return a; }
   function api(method, url, body, headers) {
     var h = headers ? Object.assign({}, headers) : (body ? { "Content-Type": "application/json" } : {});
-    if (S.token) h.Authorization = "Bearer " + S.token;
+    var tok = S.token;
+    if (tok) h.Authorization = "Bearer " + tok;
     return fetch(url, { method: method, body: body, headers: h, cache: "no-store" })
       .then(function (r) {
         return r.json().catch(function () { return {}; }).then(function (j) {
-          if (r.status === 401 && url !== "/api/login") lock("Your session ended. Log in again to carry on.");
+          // Only the login this request was sent with can be ended by its 401. A
+          // late answer to an old login (the live poll waits up to 20 seconds)
+          // must never log out the person who has just logged in again.
+          if (r.status === 401 && url !== "/api/login" && tok && tok === S.token) lock("Your session ended. Log in again to carry on.");
           if (!r.ok) { var err = new Error(j.error || r.statusText); err.status = r.status; err.conflict = !!j.conflict; throw err; } return j;
         });
       });
