@@ -76,7 +76,27 @@ SOURCES = [
     (DATA / "audit.log", "audit.log"),
     (DATA / "app_release.json", "app_release.json"),
     (HERE.parent / "thunder-claims" / "vault", "claims_vault"),
+    (HERE.parent / "thunder-claims" / "vault-companies", "claims_companies_vaults"),
+    # Thunder Claims logins (scrypt hashes only), company list, per-person grid
+    # layouts and Program Setup. These were missing until 2026-10-01, when a
+    # script overwrote blayne's login and there was no copy to restore from.
+    (Path(os.path.expanduser("~")) / ".thunder" / "claims_users.json", "claims_users.json"),
+    (Path(os.path.expanduser("~")) / ".thunder" / "claims_companies.json", "claims_companies.json"),
+    (Path(os.path.expanduser("~")) / ".thunder" / "claims_prefs.json", "claims_prefs.json"),
+    (Path(os.path.expanduser("~")) / ".thunder" / "claims_settings.json", "claims_settings.json"),
 ]
+# The claims records live in PostgreSQL now (still sealed per record, so the
+# dump is ciphertext). Dumped over the local socket as blayne - no password.
+CLAIMS_DB = "thunder_claims"
+
+
+def claims_db_dump() -> bytes | None:
+    try:
+        r = subprocess.run(["pg_dump", "--no-owner", "--no-privileges", CLAIMS_DB],
+                           capture_output=True, timeout=600)
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return None
+    return r.stdout if r.returncode == 0 and r.stdout else None
 
 
 def utc() -> str:
@@ -114,6 +134,12 @@ def build_archive() -> tuple[bytes, list[str]]:
             if path.exists():
                 tar.add(path, arcname=name)
                 included.append(name)
+        dump = claims_db_dump()
+        if dump:
+            info = tarfile.TarInfo("claims_db.sql")
+            info.size, info.mode, info.mtime = len(dump), 0o600, int(datetime.now().timestamp())
+            tar.addfile(info, io.BytesIO(dump))
+            included.append("claims_db.sql")
     return buf.getvalue(), included
 
 
@@ -249,13 +275,24 @@ def verify() -> int:
         if records.is_dir() and any(records.glob("*.rec")):
             sys.path.insert(0, str(HERE.parent / "thunder-claims"))
             import vault as v
-            v.VAULT, v.KEYFILE = work / "claims_vault", key
+            # vault reads these from the environment on every use (never
+            # assign v.VAULT / v.KEYFILE - that no longer redirects anything)
+            os.environ.pop("THUNDER_VAULT_DB", None)
+            os.environ["THUNDER_VAULT"], os.environ["THUNDER_VAULT_KEY"] = str(work / "claims_vault"), str(key)
+            if v.vault_dir() != work / "claims_vault" or v.keyfile() != key:
+                print("  VERIFY WOULD OPEN THE LIVE VAULT, NOT THE BACKUP - refusing")
+                return 1
             one = next(records.glob("*.rec")).stem
             claim = v.get(one)
             print(f"  the key in this archive opened {one}: "
                   f"{len(claim)} fields recovered")
         else:
             print("  (no claims in the vault yet - key present and readable)")
+        for must in ("claims_users.json", "claims_db.sql"):
+            if (work / must).is_file():
+                print(f"  {must}: present ({(work / must).stat().st_size} bytes)")
+            else:
+                print(f"  {must}: MISSING from the archive")
         print("\nRestore verified. This archive is a real recovery, not a file "
               "that happens to exist.")
         return 0

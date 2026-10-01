@@ -247,7 +247,10 @@ assumed.
   code: every path (users, settings, prefs, companies, vault, key) is read from
   the environment **on each use**, never at import, and `set_password` refuses
   to replace an existing login's password unless `replace=True` (only `passwd`
-  and Change Password pass it). Tests replay the accident. **Sessions sent to
+  and Change Password pass it). Tests replay the accident. There was **no copy
+  to restore from**: `backup.py` never included the claims logins, company
+  list, prefs, settings, company vaults or the PostgreSQL database. It does
+  now (`claims_db.sql` via `pg_dump` as blayne), and `--verify` reports both. **Sessions sent to
   Main must never write ad-hoc scripts that touch `~/.thunder/`.**
 - **The Main bridge (`env_01CnekYPScAaZgsrdrkv2bps`) runs ONE session at a
   time.** A finished session left open blocks the next one, which then sits
