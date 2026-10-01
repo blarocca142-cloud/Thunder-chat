@@ -65,7 +65,7 @@ def main(company: str) -> int:
     vault.set_root(c["path"])
     cw._ctx.company = c
     vault.set_actor(USER)
-    if any(vault.records_dir().glob("*.rec")):
+    if vault.ids():
         print(f"{company} already has records - not touching it. Pick a new company name.")
         return 1
     rnd = random.Random(20260930)

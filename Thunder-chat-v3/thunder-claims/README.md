@@ -196,6 +196,44 @@ A backup you have never restored is a guess. `restore` prints the exact
 `verify` command to run against the restored copy; the test suite does that on
 every run, opening a restored vault using only what the archive contained.
 
+### Where the sealed records live: files or PostgreSQL
+
+`store.py` holds the envelopes `vault.py` makes. Two backends, one interface:
+
+- **files** (no `THUNDER_VAULT_DB`): `records/<id>.rec`, `deleted/`, `audit.log`
+  in the company's folder - the original layout.
+- **PostgreSQL** (`THUNDER_VAULT_DB=postgresql://blayne@/thunder_claims?host=/var/run/postgresql`):
+  one schema per company file (`c__main` for the original vault, `c_<name>` for
+  the others), each with `records`, `deleted` and `audit` tables.
+
+The database never sees plaintext: `body` is the same sealed JSON a `.rec` file
+holds, so a dump of the database is worth exactly as much as a copy of the
+folder was. What PostgreSQL adds is for several people at once:
+
+- **A save from a stale copy is refused by the database itself** - the
+  revision check and the write are one `UPDATE ... WHERE rev = n`, so two
+  offices pressing Save on the same claim at the same instant cannot both win
+  (`test_store.py` races eight threads; exactly one gets through).
+- **All or nothing**: a payment and every claim it changes, a merge, a batch
+  print, a delete, a document plus its patient - each is one transaction.
+- Every save sends `pg_notify('thunder_claims', 'schema:id')`, ready for live
+  updates (step 3).
+- Audit lines are written on a separate connection, so a save that is rolled
+  back cannot take its "stale save refused" or "AUTHENTICATION FAILED" line
+  with it.
+
+Moving a company over copies the envelopes byte for byte (nothing is
+re-encrypted) and then checks: same ids, identical bytes, every record opens.
+The folders are left exactly where they were.
+
+    THUNDER_VAULT_DB=... python3 claims_web.py migrate-db          # every company
+    THUNDER_VAULT_DB=... python3 claims_web.py migrate-db Tampa    # one
+
+The server refuses to start on PostgreSQL if a company has records in its
+folder but none in the database, so a missed migration cannot look like an
+empty company. Backups (`vault.py backup`) work on either backend and always
+produce the same file archive.
+
 ### What it protects against, and what it does not
 
 Protected: a powered-off or discarded disk, a drive handed to a repair shop, a
@@ -214,7 +252,7 @@ Two narrower limits worth knowing:
   guesses against a name list. Index only what you need to search by - which is
   why `dob` is not indexed above.
 - Record **size and count are visible**, as are timestamps. That is inherent to
-  files on a disk.
+  files on a disk, and equally true of rows in a database.
 
 ### Losing the key
 

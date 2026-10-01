@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import functools
 import getpass
 import hashlib
 import hmac
@@ -125,10 +126,10 @@ def assess(claim: dict) -> dict:
 
 def records(kind: str):
     """(id, record) for every readable record of one kind, newest first."""
-    for p in sorted(vault.records_dir().glob("*.rec"), key=lambda p: p.stat().st_mtime, reverse=True):
-        if kind_of(p.stem) == kind:
+    for rid in vault.ids():
+        if kind_of(rid) == kind:
             try:
-                yield p.stem, vault.get(p.stem)
+                yield rid, vault.get(rid)
             except BaseException:
                 continue
 
@@ -270,16 +271,15 @@ def list_records(kind: str) -> list[dict]:
     out = []
     led = ledger() if kind in ("claim", "patient") else None
     claims = list(records("claim")) if kind == "patient" else None
-    for p in sorted(vault.records_dir().glob("*.rec"),
-                    key=lambda p: p.stat().st_mtime, reverse=True):
-        if kind_of(p.stem) != kind:
+    for rid in vault.ids():
+        if kind_of(rid) != kind:
             continue
         try:
-            r = vault.get(p.stem)
+            r = vault.get(rid)
         except BaseException as e:  # vault raises SystemExit on a bad record
-            out.append({"id": p.stem, "error": str(e).splitlines()[0]})
+            out.append({"id": rid, "error": str(e).splitlines()[0]})
             continue
-        out.append(summary(kind, p.stem, r, led, claims))
+        out.append(summary(kind, rid, r, led, claims))
     return out
 
 
@@ -522,7 +522,7 @@ def clean_payment(data: dict) -> dict:
     lines = []
     for a in data.get("lines") or []:
         cid = str(a.get("claim_id") or "")
-        if not ID_RE.match(cid) or kind_of(cid) != "claim" or not vault.record_path(cid).exists():
+        if not ID_RE.match(cid) or kind_of(cid) != "claim" or not vault.exists(cid):
             raise ValueError(f"unknown claim {cid!r}")
         li = int(a.get("line") or 0)
         if li < 0 or li >= len(vault.get(cid).get("procedures") or []):
@@ -657,12 +657,22 @@ def print_check(cid: str, c: dict) -> list[dict]:
     return out
 
 
+def atomic(fn):
+    """Everything the function writes is saved together, or nothing is."""
+    @functools.wraps(fn)
+    def run(*a, **kw):
+        with vault.transaction():
+            return fn(*a, **kw)
+    return run
+
+
+@atomic
 def claims_printed(ids: list, when: str, user: str) -> int:
     """After "Did all the claims print properly?" - Yes. As in EZClaim, a
     printed Ready to Submit claim becomes Submitted with today's bill date."""
     n = 0
     for cid in ids:
-        if not ID_RE.match(str(cid)) or kind_of(cid) != "claim" or not vault.record_path(cid).exists():
+        if not ID_RE.match(str(cid)) or kind_of(cid) != "claim" or not vault.exists(cid):
             continue
         c = vault.get(cid)
         tr = c.setdefault("tracking", {})
@@ -682,12 +692,13 @@ DOC_CATEGORIES = ("Patient File", "Intake / Forms", "PIP Forms", "Insurance Card
                   "Medical Records", "Attorney", "X-Ray / Imaging", "Other")
 
 
+@atomic
 def add_document(pid: str, data: dict, user: str) -> dict:
     """A scanned or uploaded file, kept encrypted in the vault like every
     other record - this is what replaces emailing scans to Gmail. The
     patient record carries the list (title, date, pages) so opening a
     patient never has to decrypt the files themselves."""
-    if not ID_RE.match(pid) or kind_of(pid) != "patient" or not vault.record_path(pid).exists():
+    if not ID_RE.match(pid) or kind_of(pid) != "patient" or not vault.exists(pid):
         raise ValueError("save the patient first")
     pages = data.get("pages") or []
     if not pages or len(pages) > 200:
@@ -715,12 +726,13 @@ def add_document(pid: str, data: dict, user: str) -> dict:
     return {**meta, "patient_rev": p["_rev"]}
 
 
+@atomic
 def delete_record(rid: str, user: str) -> dict:
     """EZClaim's Delete, with the guards a billing office needs: a claim with
     money posted to it, or a patient with claims, cannot be deleted until
     those are dealt with. Deleting a payment re-works its claims' balances
     and statuses. Deleted records are kept, encrypted, under deleted/."""
-    if not ID_RE.match(rid) or not vault.record_path(rid).exists():
+    if not ID_RE.match(rid) or not vault.exists(rid):
         raise ValueError("no such record")
     kind = kind_of(rid)
     r = vault.get(rid)
@@ -733,7 +745,7 @@ def delete_record(rid: str, user: str) -> dict:
         if linked:
             raise ValueError(f"this patient has {len(linked)} claim(s) - delete or move those first")
     vault.retire(rid)
-    if kind == "document" and vault.record_path(str(r.get("patient_id") or "x")).exists():
+    if kind == "document" and vault.exists(str(r.get("patient_id") or "x")):
         p = vault.get(r["patient_id"])
         p["documents"] = [x for x in p.get("documents") or [] if x.get("id") != rid]
         put_rec(r["patient_id"], p, KINDS["patient"]["index"])
@@ -742,15 +754,16 @@ def delete_record(rid: str, user: str) -> dict:
         out_rev = None
     if kind == "payment":
         touched = {a.get("claim_id") for a in r.get("lines") or [] if a.get("claim_id")}
-        after_payment(rid, {**r, "lines": []}, {c for c in touched if vault.record_path(c).exists()}, user)
+        after_payment(rid, {**r, "lines": []}, {c for c in touched if vault.exists(c)}, user)
     return {"deleted": rid, "kind": kind, "patient_rev": out_rev}
 
 
+@atomic
 def merge_patients(keep: str, drop: str, user: str) -> dict:
     """EZClaim's Merge Patient: every claim of the duplicate moves to the
     patient being kept, then the duplicate is deleted (recoverably)."""
     for x in (keep, drop):
-        if not ID_RE.match(x) or kind_of(x) != "patient" or not vault.record_path(x).exists():
+        if not ID_RE.match(x) or kind_of(x) != "patient" or not vault.exists(x):
             raise ValueError("choose two saved patients")
     if keep == drop:
         raise ValueError("choose two different patients")
@@ -770,7 +783,7 @@ def write_off(cid: str, group: str, reason: str, user: str) -> dict:
     """EZClaim's Write Off Claim: an adjustment for whatever is still open on
     every line, posted as a $0.00 payment so it shows up - and can be undone -
     like any other."""
-    if not ID_RE.match(cid) or kind_of(cid) != "claim" or not vault.record_path(cid).exists():
+    if not ID_RE.match(cid) or kind_of(cid) != "claim" or not vault.exists(cid):
         raise ValueError("no such claim")
     c = vault.get(cid)
     lines = [{"claim_id": cid, "line": x["line"], "paid": "0",
@@ -815,19 +828,22 @@ class Conflict(Exception):
     pass
 
 
-def put_rec(rid: str, data: dict, index_fields: list) -> None:
+def put_rec(rid: str, data: dict, index_fields: list, expect: int | None = None) -> None:
     """Every write goes through here so every record carries a revision:
     who saved it, when, and a counter. That is what lets a save notice that
-    someone else changed the record after it was opened."""
-    prev = 0
-    if vault.record_path(rid).exists():
-        try:
-            prev = int((vault.get(rid).get("_rev") or {}).get("n") or 0)
-        except BaseException:
-            prev = 0
+    someone else changed the record after it was opened.
+
+    The store only accepts the write if the record is still at the revision
+    this one was built on (`expect`, the form's, when there is one), and
+    checks that in the same step as the write - so two people pressing Save
+    at the same moment cannot both get through."""
+    prev = vault.rev_of(rid) if expect is None else int(expect)
     data["_rev"] = {"n": prev + 1, "by": getattr(vault._actor, "name", None) or "system",
                     "at": time.strftime("%m/%d/%Y %I:%M %p")}
-    vault.put(rid, data, index_fields)
+    try:
+        vault.put(rid, data, index_fields, expect_rev=prev)
+    except vault.RevConflict:
+        raise Conflict(stale_message(rid))
 
 
 def check_rev(rid: str, data: dict) -> None:
@@ -835,25 +851,43 @@ def check_rev(rid: str, data: dict) -> None:
     changed this record"). A form that was opened at revision n may only save
     over revision n; anything newer means another person's work would be
     silently overwritten."""
-    if not vault.record_path(rid).exists():
+    if not vault.exists(rid):
         return
     cur = vault.get(rid).get("_rev") or {}
     have = (data.get("_rev") or {}).get("n", 0)
     if int(have or 0) != int(cur.get("n") or 0):
-        who = str(cur.get("by") or "someone").upper()
-        raise Conflict(f"{who} saved this record at {cur.get('at', 'a moment ago')}, after you opened it. "
-                       "Your changes were NOT saved, so nothing of theirs was lost.")
+        raise Conflict(stale_message(rid, cur))
+
+
+def stale_message(rid: str, cur: dict | None = None) -> str:
+    if cur is None:
+        try:
+            cur = vault.get(rid).get("_rev") or {}
+        except BaseException:
+            cur = {}
+    who = str(cur.get("by") or "someone").upper()
+    return (f"{who} saved this record at {cur.get('at', 'a moment ago')}, after you opened it. "
+            "Your changes were NOT saved, so nothing of theirs was lost.")
 
 
 def save(kind: str, record_id: str | None, data: dict, user: str = "user") -> dict:
+    """A save and everything it changes (a payment and its claims) go to the
+    database together, or none of it does."""
+    with vault.transaction():
+        return _save(kind, record_id, data, user)
+
+
+def _save(kind: str, record_id: str | None, data: dict, user: str = "user") -> dict:
     if kind not in KINDS:
         raise ValueError("unknown record type")
     rid = record_id or new_id(kind)
     if not ID_RE.match(rid) or kind_of(rid) != kind:
         raise ValueError("bad record id")
     data = {k: v for k, v in data.items() if k != "_meta"}
+    expect = None
     if record_id:
         check_rev(rid, data)
+        expect = int((data.get("_rev") or {}).get("n") or 0) if vault.exists(rid) else None
     extra = {}
     if kind == "payment":
         data = clean_payment(data)
@@ -864,7 +898,7 @@ def save(kind: str, record_id: str | None, data: dict, user: str = "user") -> di
             except BaseException:
                 pass
         data["saved_by"] = user
-        put_rec(rid, data, KINDS[kind]["index"])
+        put_rec(rid, data, KINDS[kind]["index"], expect)
         after_payment(rid, data, touched, user)
         return {"id": rid, "data": data, **summary("payment", rid, data)}
     if kind == "claim":
@@ -904,7 +938,7 @@ def save(kind: str, record_id: str | None, data: dict, user: str = "user") -> di
         data["done"] = data.get("status") == "Completed"
     else:
         if kind == "patient":
-            if record_id and vault.record_path(rid).exists():   # the document list is the server's, never the form's
+            if record_id and vault.exists(rid):   # the document list is the server's, never the form's
                 data["documents"] = vault.get(rid).get("documents") or []
             last, first, mi = (str(data.get(k) or "").strip() for k in ("last_name", "first_name", "mi"))
             if last or first:
@@ -920,7 +954,7 @@ def save(kind: str, record_id: str | None, data: dict, user: str = "user") -> di
         name = data.get("patient_name") if kind == "patient" else data.get("name")
         if not str(name or "").strip():
             raise ValueError("a name is required")
-    put_rec(rid, data, KINDS[kind]["index"])
+    put_rec(rid, data, KINDS[kind]["index"], expect)
     return {"id": rid, "data": data, **extra}
 
 
@@ -1257,6 +1291,7 @@ def access_log(who: str, ip: str, method: str, path: str, status: int) -> None:
     c = current_company()
     line = json.dumps({"at": time.strftime("%Y-%m-%dT%H:%M:%S"), "who": who, "ip": ip,
                        "company": c["name"] if c else "", "method": method, "path": path[:200], "status": status})
+    vault.VAULT.mkdir(parents=True, exist_ok=True, mode=0o700)
     path_ = vault.VAULT / "access.log"
     fd = os.open(path_, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
     with os.fdopen(fd, "a") as f:
@@ -1409,7 +1444,7 @@ class Handler(BaseHTTPRequestHandler):
             body = {"id": rid, "kind": kind, "data": r}
             if kind == "patient":
                 body["benefits"] = patient_benefits(rid, r)
-            if kind == "claim" and ID_RE.match(str(r.get("patient_id") or "")) and vault.record_path(r["patient_id"]).exists():
+            if kind == "claim" and ID_RE.match(str(r.get("patient_id") or "")) and vault.exists(r["patient_id"]):
                 body["benefits"] = patient_benefits(r["patient_id"], vault.get(r["patient_id"]))
             if kind == "claim":
                 body.update(assess(r))
@@ -1477,7 +1512,7 @@ class Handler(BaseHTTPRequestHandler):
             b = json.loads(self._body() or b"{}")
             out = []
             for cid in (b.get("ids") or [])[:500]:
-                if ID_RE.match(str(cid)) and kind_of(cid) == "claim" and vault.record_path(cid).exists():
+                if ID_RE.match(str(cid)) and kind_of(cid) == "claim" and vault.exists(cid):
                     c = vault.get(cid)
                     for r in print_check(cid, c):
                         out.append({"id": cid, "name": c.get("patient_name", ""), "dob": c.get("dob", ""), "account": c.get("account_number", ""),
@@ -1568,11 +1603,22 @@ def ask_password() -> str:
 def accounts(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="claims_web.py", description="Manage Thunder Claims logins.")
     ap.add_argument("cmd", choices=["users", "adduser", "passwd", "disable", "enable",
-                                    "companies", "newcompany", "grant", "revoke", "perms"])
+                                    "companies", "newcompany", "grant", "revoke", "perms", "migrate-db"])
     ap.add_argument("name", nargs="?")
     ap.add_argument("company", nargs="?", help="grant/revoke: a company name, or * for all")
     a = ap.parse_args(argv)
     users = load_users()
+    if a.cmd == "migrate-db":
+        # every company file's folder -> its own schema in THUNDER_VAULT_DB;
+        # the folders are left untouched
+        vault.set_actor("migrate")
+        for c in load_companies():
+            if a.name and c["name"].lower() != a.name.lower():
+                continue
+            vault.set_root(c["path"])
+            print(c["name"], json.dumps(vault.migrate_to_db()))
+        vault.set_root(None)
+        return 0
     if a.cmd == "companies":
         for c in load_companies():
             who = [n for n in sorted(users) if c["name"] in allowed_companies(n)]
@@ -1641,7 +1687,7 @@ def accounts(argv: list[str]) -> int:
 
 
 def main() -> int:
-    if len(sys.argv) > 1 and sys.argv[1] in ("users", "adduser", "passwd", "disable", "enable", "companies", "newcompany", "grant", "revoke", "perms"):
+    if len(sys.argv) > 1 and sys.argv[1] in ("users", "adduser", "passwd", "disable", "enable", "companies", "newcompany", "grant", "revoke", "perms", "migrate-db"):
         return accounts(sys.argv[1:])
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--host", default="127.0.0.1")
@@ -1659,6 +1705,21 @@ def main() -> int:
     except SystemExit as e:
         print(f"Vault not ready: {e}")
         return 2
+    st = vault.store.current()
+    if st.kind == "postgresql":
+        try:
+            for c in load_companies():
+                vault.set_root(c["path"])
+                if not vault.ids() and any((Path(c["path"]) / "records").glob("*.rec")):
+                    print(f"Company {c['name']} has records in {c['path']} but none in the database.\n"
+                          f"Move them first:  {sys.argv[0]} migrate-db {c['name']}")
+                    return 2
+        except Exception as e:
+            print(f"Cannot reach the PostgreSQL database in THUNDER_VAULT_DB: {type(e).__name__}: {e}")
+            return 2
+        finally:
+            vault.set_root(None)
+    print(f"Records are kept in {'PostgreSQL' if st.kind == 'postgresql' else 'files'}.")
     bootstrap_owner()
     if not loopback and not load_users():
         print(f"No logins exist yet. Create one first:  {sys.argv[0]} adduser <name>")

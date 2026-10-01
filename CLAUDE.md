@@ -139,9 +139,19 @@ assumed.
   and batch prints all bump the revision too.
   **Agreed next (2026-10-01), in order, before real offices:** (1) ~~stop lost
   edits~~ done;
-  (2) move the vault to **PostgreSQL** (Blayne/Dad agreed over SQLite: 13 offices
-  on a VPN, several people per patient), one database per company, records
-  still encrypted; (3) live updates + "who has this open" (Postgres LISTEN/
+  (2) ~~move the vault to **PostgreSQL**~~ built 2026-10-01 (Blayne/Dad agreed
+  over SQLite: 13 offices on a VPN, several people per patient). `store.py`:
+  files or PostgreSQL behind one interface, chosen by `THUNDER_VAULT_DB`. One
+  **schema** per company in one database `thunder_claims` (`c__main`,
+  `c_<name>`), not one database each - same separation, one connection, one
+  NOTIFY channel. Still sealed: `body` is the same envelope a `.rec` held.
+  Saves are `UPDATE ... WHERE rev = n` (the lost-edit check done by the
+  database) and multi-record actions are transactions. `claims_web.py
+  migrate-db` copies byte for byte and verifies; the folders are kept. The
+  server refuses to start if a company's folder has records and its schema
+  has none. `test_store.py` = 27 checks on files, 63 with a `*_test`
+  database; test_claims_web passes 140/140 on both. Driver is pure-Python
+  `pg8000`. (3) live updates + "who has this open" (Postgres LISTEN/
   NOTIFY); (4) connect Main to the offices' existing VPN. **The offices already
   run EZClaim this way**: central system, every office VPNs in, split by office.
   **Future additions Dad wants (not started):** X-rays from **VXvue** under the

@@ -35,6 +35,10 @@ sys.path.insert(0, str(Path(__file__).parent))
 import vault  # noqa: E402
 import claims_web as cw  # noqa: E402
 
+if vault.store.current().kind == "postgresql":   # THUNDER_VAULT_DB=...thunder_claims_test runs it all against PostgreSQL
+    vault.store.current().drop_all_for_tests()
+print(f"records kept in: {vault.store.current().kind}")
+
 PASSED = FAILED = 0
 
 
@@ -198,7 +202,7 @@ acc = [json.loads(x) for x in (Path(os.environ["THUNDER_VAULT"]) / "access.log")
 check("access log records who", any(a["who"] == "blayne" and a["path"].startswith("/api/rec/") for a in acc))
 check("access log records refused requests", any(a["who"] == "anonymous" and a["status"] == 401 for a in acc))
 check("access log carries no patient name", "TEST" not in json.dumps(acc).upper().replace("/API/", ""))
-aud = [json.loads(x) for x in (Path(os.environ["THUNDER_VAULT"]) / "audit.log").read_text().splitlines()]
+aud = vault.audit_lines()
 check("vault audit credits the logged-in person, not the Unix account",
       any(a["who"] == "blayne" and a["record"] == PID for a in aud), aud[-3:])
 
@@ -341,11 +345,11 @@ st, j, _ = req("POST", "/api/delete", {"id": WPAY}, token=TOK)
 rec = req("GET", f"/api/rec/{WID}", token=TOK)[1]
 check("deleting the write-off payment puts the balance back", st == 200 and rec["ledger"]["adj"] == 0 and rec["data"]["tracking"]["billing"] == "sent", rec.get("ledger"))
 st, j, _ = req("POST", "/api/delete", {"id": WID}, token=TOK)
-deleted = list((Path(os.environ["THUNDER_VAULT"]) / "deleted").glob(WID + ".*.rec"))
+deleted = vault.deleted_bodies(WID)
 check("a deleted claim is gone from the list but kept, still encrypted, under deleted/",
       st == 200 and WID not in [r["id"] for r in req("GET", "/api/list?kind=claim", token=TOK)[1]["records"]]
-      and deleted and b"WRITE" not in deleted[0].read_bytes(), j)
-aud = [json.loads(x) for x in (Path(os.environ["THUNDER_VAULT"]) / "audit.log").read_text().splitlines()]
+      and deleted and "WRITE" not in deleted[0], j)
+aud = vault.audit_lines()
 check("the audit log records who deleted it", any(a["action"] == "delete" and a["record"] == WID and a["who"] == "blayne" for a in aud))
 st, j, _ = req("POST", "/api/delete", {"id": "../../etc/passwd"}, token=TOK)
 check("delete refuses a bad id", st == 400)
@@ -373,7 +377,7 @@ cid = req("POST", "/api/save", {"kind": "claim", "data": {"patient_id": bdup, "p
 st, j, _ = req("POST", "/api/merge", {"keep": a, "drop": bdup}, token=TOK)
 moved = req("GET", f"/api/rec/{cid}", token=TOK)[1]["data"]
 check("Merge Patient moves the duplicate's claims and deletes it", st == 200 and j["moved"] == 1 and moved["patient_id"] == a
-      and moved["patient_name"] == "MERGE, KEEP" and not vault.record_path(bdup).exists(), (j, moved.get("patient_id")))
+      and moved["patient_name"] == "MERGE, KEEP" and not vault.exists(bdup), (j, moved.get("patient_id")))
 req("POST", "/api/settings", {"setup": {"account_prefix": "FL-", "next_account": "5000"}}, token=TOK)
 j = req("POST", "/api/save", {"kind": "patient", "data": {"last_name": "PREFIX", "first_name": "TEST"}}, token=TOK)[1]
 check("Program Setup's prefix and Next Account Number are used", j["data"]["account_number"] == "FL-5000", j["data"].get("account_number"))
@@ -436,7 +440,7 @@ check("a scan saves to the patient, with its page count and who added it", st ==
 DOC = m["id"]
 p = req("GET", f"/api/rec/{SPID}", token=TOK)[1]["data"]
 check("the patient lists it without the pages themselves", [x["id"] for x in p["documents"]] == [DOC] and "pages" not in json.dumps(p["documents"]).replace('"pages": 2', ""), p["documents"])
-check("the scan is encrypted on disk", b"SCANNEDTEXT" not in vault.record_path(DOC).read_bytes() and b"SCANNEDTEXT" not in _b64.b64encode(vault.record_path(DOC).read_bytes()))
+check("the scan is encrypted where it is stored", "SCANNEDTEXT" not in vault.raw(DOC) and b"SCANNEDTEXT" not in _b64.b64encode(vault.raw(DOC).encode()))
 st, j, _ = req("POST", "/api/document", {"patient_id": SPID, "pages": [{"type": "image/jpeg", "data": _b64.b64encode(b"MZ not an image").decode()}]}, token=TOK)
 check("a file that only claims to be a JPEG is refused", st == 400, j)
 st, j, _ = req("POST", "/api/document", {"patient_id": SPID, "pages": [{"type": "text/html", "data": _b64.b64encode(b"<script>").decode()}]}, token=TOK)
@@ -498,9 +502,11 @@ req("POST", "/api/company/open", {"name": "Main"}, token=TOK)
 names = [r["patient_name"] for r in req("GET", "/api/list?kind=patient", token=TOK)[1]["records"]]
 check("Main does not see Tampa's patient", "TAMPA, ONLY" not in names and names, names)
 check("settings are per company", req("GET", "/api/settings", token=TOK)[1]["statement"]["return_name"] != "Tampa Practice LLC")
-vault_tampa = TMP / "companies" / "Tampa_Office" / "records"
-check("Tampa's records are encrypted in Tampa's own vault", any(vault_tampa.glob("pt-*.rec"))
-      and b"TAMPA" not in b"".join(f.read_bytes() for f in vault_tampa.glob("*.rec")))
+vault.set_root(TMP / "companies" / "Tampa_Office")
+tampa_ids = vault.ids()
+check("Tampa's records are encrypted in Tampa's own vault", any(x.startswith("pt-") for x in tampa_ids)
+      and "TAMPA" not in "".join(vault.raw(x) for x in tampa_ids))
+vault.set_root(None)
 os.environ["CLAIMS_NEW_PASSWORD"] = "another fake passphrase 2"
 subprocess.run([sys.executable, str(Path(__file__).parent / "claims_web.py"), "adduser", "clerk"], env=os.environ, capture_output=True, check=True)
 subprocess.run([sys.executable, str(Path(__file__).parent / "claims_web.py"), "revoke", "clerk", "*"], env=os.environ, capture_output=True, check=True)

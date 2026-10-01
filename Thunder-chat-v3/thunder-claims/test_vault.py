@@ -22,6 +22,7 @@ from pathlib import Path
 WORK = Path(tempfile.mkdtemp(prefix="vaulttest_"))
 os.environ["THUNDER_VAULT"] = str(WORK / "vault")
 os.environ["THUNDER_VAULT_KEY"] = str(WORK / "keys" / "vault.key")
+os.environ.pop("THUNDER_VAULT_DB", None)  # these attack the files; test_store.py covers PostgreSQL
 
 sys.path.insert(0, str(Path(__file__).parent))
 import vault  # noqa: E402  - env must be set before import
@@ -66,7 +67,7 @@ def main() -> int:
     rec.write_text(json.dumps(PATIENT))
 
     print("\n-- storage --")
-    path = vault.put("claim001", PATIENT, ["last_name", "claim_number"])
+    path = vault.record_path(vault.put("claim001", PATIENT, ["last_name", "claim_number"]))
     check("record written", path.exists())
     check("record is 0600", oct(path.stat().st_mode & 0o777) == "0o600",
           oct(path.stat().st_mode & 0o777))

@@ -63,12 +63,17 @@ import sys
 import tarfile
 import threading
 import unicodedata
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+
+sys.path.insert(0, str(Path(__file__).parent))
+import store  # noqa: E402  where the sealed records live: files or PostgreSQL
+from store import RevConflict  # noqa: E402,F401
 
 VAULT = Path(os.environ.get("THUNDER_VAULT", Path(__file__).parent / "vault"))
 # The key does NOT live in the vault. If it did, a stolen copy of the data
@@ -187,8 +192,7 @@ def set_actor(name: str | None) -> None:
 def audit(action: str, record: str, ok: bool, note: str = "") -> None:
     """Record ids and actions only. Putting the patient's name in the audit log
     would mean the log itself is PHI sitting in plaintext."""
-    root().mkdir(parents=True, exist_ok=True)
-    line = json.dumps({
+    line = {
         "at": now(),
         "who": getattr(_actor, "name", None) or os.environ.get("THUNDER_USER") or getpass.getuser(),
         "pid": os.getpid(),
@@ -196,36 +200,106 @@ def audit(action: str, record: str, ok: bool, note: str = "") -> None:
         "record": record,
         "ok": ok,
         "note": note,
-    })
-    path = root() / "audit.log"
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
-    with os.fdopen(fd, "a") as f:
-        f.write(line + "\n")
+    }
+    store.current().audit(scope(), line)
+
+
+def audit_lines() -> list[dict]:
+    return store.current().audit_lines(scope())
 
 
 # --------------------------------------------------------------------------
 # records
 # --------------------------------------------------------------------------
 
+def scope():
+    """The current company in the store's terms: its folder for files, its
+    schema for PostgreSQL (c__main for the original vault, c_<name> for the
+    others - company names are letters, digits and underscores, unique
+    ignoring case, so the schema names cannot collide)."""
+    st = store.current()
+    if st.kind == "files":
+        return root()
+    r = root()
+    if r.resolve() == VAULT.resolve():
+        return "c__main"
+    return "c_" + r.name.lower()
+
+
 def records_dir() -> Path:
+    """Files backend only - the folder the .rec files are in."""
     d = root() / "records"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
 
 def record_path(record_id: str) -> Path:
+    """Files backend only."""
     if not record_id or "/" in record_id or record_id.startswith("."):
         raise SystemExit(f"bad record id: {record_id!r}")
     return records_dir() / f"{record_id}.rec"
 
 
-def put(record_id: str, obj: dict, index_fields: list[str]) -> Path:
+def _check_id(record_id: str) -> None:
+    if not record_id or "/" in record_id or record_id.startswith(".") or len(record_id) > 120:
+        raise SystemExit(f"bad record id: {record_id!r}")
+
+
+def exists(record_id: str) -> bool:
+    _check_id(record_id)
+    return store.current().exists(scope(), record_id)
+
+
+def ids() -> list[str]:
+    """Every record id, most recently saved first. Nothing decrypted."""
+    return store.current().ids(scope())
+
+
+def raw(record_id: str) -> str | None:
+    """The sealed envelope exactly as stored - ciphertext only."""
+    _check_id(record_id)
+    return store.current().read(scope(), record_id)
+
+
+def deleted_bodies(record_id: str) -> list[str]:
+    _check_id(record_id)
+    return store.current().deleted(scope(), record_id)
+
+
+def rev_of(record_id: str) -> int:
+    """The record's revision counter without decrypting it (records written
+    before the counter was kept outside the ciphertext are opened once)."""
+    _check_id(record_id)
+    r = store.current().rev(scope(), record_id)
+    if r is not None:
+        return int(r)
+    if not exists(record_id):
+        return 0
+    try:
+        return int((get(record_id).get("_rev") or {}).get("n") or 0)
+    except BaseException:
+        return 0
+
+
+@contextmanager
+def transaction():
+    """All the writes inside happen together or not at all (PostgreSQL), or
+    with no other save in between (files)."""
+    with store.current().transaction(scope()):
+        yield
+
+
+def put(record_id: str, obj: dict, index_fields: list[str], expect_rev: int | None = None) -> str:
+    """Seal and store one record. With expect_rev, the save only happens if
+    the stored record is still at that revision (RevConflict otherwise) - the
+    check and the write are one step, so two people cannot both win."""
+    _check_id(record_id)
     keys, gen = keys_load()
     kek = keys[gen]
-    path = record_path(record_id)
     created = now()
-    if path.exists():
-        created = json.loads(path.read_text()).get("created", created)
+    old = store.current().read(scope(), record_id)
+    if old is not None:
+        created = json.loads(old).get("created", created)
 
     dek = secrets.token_bytes(32)
     plaintext = json.dumps(obj, separators=(",", ":")).encode()
@@ -243,6 +317,7 @@ def put(record_id: str, obj: dict, index_fields: list[str]) -> Path:
     wrapped = AESGCM(derive(kek, "vault/wrap")).encrypt(
         wrap_nonce, dek, f"{record_id}|{gen}".encode())
 
+    rev = int((obj.get("_rev") or {}).get("n") or 0) if isinstance(obj.get("_rev"), dict) else 0
     index_key = derive(kek, "vault/index")
     index = {}
     for field in index_fields:
@@ -261,27 +336,33 @@ def put(record_id: str, obj: dict, index_fields: list[str]) -> Path:
         "nonce": b64(rec_nonce),
         "ct": b64(ct),
         "index": index,
+        # The revision counter also sits outside the ciphertext so the store
+        # can check it without a key. It is not trusted for anything else:
+        # the authoritative _rev is inside, under the record's GCM tag.
+        "rev": rev,
     }
-    tmp = path.with_suffix(".tmp")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w") as f:
-        json.dump(body, f, indent=2)
-        f.flush()
-        os.fsync(f.fileno())
-    # Atomic: a crash mid-write leaves the old record intact, never a
-    # half-written one that will not decrypt.
-    tmp.replace(path)
+    try:
+        # Atomic either way: a crash mid-write leaves the old record intact,
+        # never a half-written one that will not decrypt.
+        store.current().write(scope(), record_id, json.dumps(body, indent=2), rev, expect_rev)
+    except RevConflict:
+        audit("put", record_id, False, f"stale save refused (expected rev {expect_rev})")
+        raise
     audit("put", record_id, True, f"indexed:{','.join(index) or 'none'}")
-    return path
+    return record_id
 
 
 def get(record_id: str) -> dict:
     keys, _ = keys_load()
-    path = record_path(record_id)
-    if not path.exists():
+    _check_id(record_id)
+    text = store.current().read(scope(), record_id)
+    if text is None:
         audit("get", record_id, False, "not found")
         raise SystemExit(f"no such record: {record_id}")
-    body = json.loads(path.read_text())
+    body = json.loads(text)
+    if body.get("id") != record_id:
+        audit("get", record_id, False, "AUTHENTICATION FAILED")
+        raise SystemExit(f"record {record_id} failed authentication (it holds another record's envelope).")
     gen = str(body["gen"])
     if gen not in keys:
         audit("get", record_id, False, f"no key for generation {gen}")
@@ -307,28 +388,33 @@ def get(record_id: str) -> dict:
     return json.loads(plaintext)
 
 
-def retire(record_id: str) -> Path:
+def retire(record_id: str) -> str:
     """Delete, the recoverable way: the still-encrypted record moves to
-    deleted/ with a timestamp, and the audit log says who did it. Nothing is
-    decrypted and nothing is shredded - a mistaken delete can be put back."""
-    src = record_path(record_id)
-    if not src.exists():
+    deleted/ (or the deleted table) with a timestamp, and the audit log says
+    who did it. Nothing is decrypted and nothing is shredded - a mistaken
+    delete can be put back."""
+    if not exists(record_id):
         audit("delete", record_id, False, "no such record")
         raise SystemExit(f"no such record: {record_id}")
-    dest_dir = root() / "deleted"
-    dest_dir.mkdir(parents=True, exist_ok=True)
-    dest = dest_dir / f"{record_id}.{datetime.now().strftime('%Y%m%d-%H%M%S')}.rec"
-    os.replace(src, dest)
-    audit("delete", record_id, True, dest.name)
-    return dest
+    where = store.current().retire(scope(), record_id, getattr(_actor, "name", None) or "")
+    audit("delete", record_id, True, where)
+    return where
+
+
+def bodies():
+    """(id, envelope dict) for every record - ciphertext only."""
+    st, sc = store.current(), scope()
+    for rid in sorted(st.ids(sc)):
+        text = st.read(sc, rid)
+        if text is not None:
+            yield rid, json.loads(text)
 
 
 def find(field: str, value: str) -> list[str]:
     """Exact-match lookup with nothing decrypted."""
     keys, gen = keys_load()
     want = blind(derive(keys[gen], "vault/index"), field, value)
-    hits = [p.stem for p in sorted(records_dir().glob("*.rec"))
-            if json.loads(p.read_text()).get("index", {}).get(field) == want]
+    hits = [rid for rid, b in bodies() if b.get("index", {}).get(field) == want]
     audit("find", f"{field}={len(hits)} hits", True)
     return hits
 
@@ -338,9 +424,10 @@ def verify() -> int:
     the keys still work - and the thing to run before trusting a backup."""
     keys, _ = keys_load()
     ok = bad = 0
-    for path in sorted(records_dir().glob("*.rec")):
+    for rid, body in bodies():
         try:
-            body = json.loads(path.read_text())
+            if body.get("id") != rid:
+                raise ValueError("envelope belongs to another record")
             gen = str(body["gen"])
             dek = AESGCM(derive(keys[gen], "vault/wrap")).decrypt(
                 unb64(body["wrap_nonce"]), unb64(body["dek"]),
@@ -350,7 +437,7 @@ def verify() -> int:
             ok += 1
         except Exception as e:
             bad += 1
-            print(f"  FAIL {path.name}: {type(e).__name__}")
+            print(f"  FAIL {rid}: {type(e).__name__}")
     audit("verify", f"{ok} ok / {bad} failed", bad == 0)
     print(f"{ok} records verified, {bad} failed")
     return 1 if bad else 0
@@ -373,8 +460,8 @@ def rotate(drop_old: bool = False) -> None:
     new_wrap = derive(new_kek, "vault/wrap")
     new_index = derive(new_kek, "vault/index")
     moved = 0
-    for path in sorted(records_dir().glob("*.rec")):
-        body = json.loads(path.read_text())
+    st, sc = store.current(), scope()
+    for rid, body in bodies():
         gen = str(body["gen"])
         dek = AESGCM(derive(keys[gen], "vault/wrap")).decrypt(
             unb64(body["wrap_nonce"]), unb64(body["dek"]),
@@ -392,13 +479,7 @@ def rotate(drop_old: bool = False) -> None:
                 f"{body['id']}|{body['v']}".encode()))
             body["index"] = {f: blind(new_index, f, obj[f])
                              for f in body["index"] if isinstance(obj.get(f), str)}
-        tmp = path.with_suffix(".tmp")
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w") as f:
-            json.dump(body, f, indent=2)
-            f.flush()
-            os.fsync(f.fileno())
-        tmp.replace(path)
+        st.write(sc, rid, json.dumps(body, indent=2), int(body.get("rev") or 0))
         moved += 1
 
     if drop_old:
@@ -415,11 +496,79 @@ def rotate(drop_old: bool = False) -> None:
 
 
 # --------------------------------------------------------------------------
+# move a company from files to PostgreSQL
+# --------------------------------------------------------------------------
+
+def _open(body: dict, keys: dict) -> dict:
+    gen = str(body["gen"])
+    dek = AESGCM(derive(keys[gen], "vault/wrap")).decrypt(
+        unb64(body["wrap_nonce"]), unb64(body["dek"]), f"{body['id']}|{gen}".encode())
+    return json.loads(AESGCM(dek).decrypt(
+        unb64(body["nonce"]), unb64(body["ct"]), f"{body['id']}|{body['v']}".encode()))
+
+
+def migrate_to_db() -> dict:
+    """Copy this company's records, deleted records and audit log from its
+    folder into PostgreSQL, byte for byte - still sealed, nothing re-encrypted.
+    Then check: same ids, identical envelopes, every record opens. The files
+    are left exactly where they were; deleting them is a separate decision."""
+    pg = store.current()
+    if pg.kind != "postgresql":
+        raise SystemExit("set THUNDER_VAULT_DB to the PostgreSQL database first")
+    fs, src, sc = store.FileStore(), root(), scope()
+    if not (src / "records").is_dir():
+        raise SystemExit(f"{src} has no records/ folder - nothing to move")
+    if pg.ids(sc):
+        raise SystemExit(f"{sc} in the database already has records - not mixing two copies")
+    keys, _ = keys_load()
+    rids = sorted(fs.ids(src), key=lambda r: (src / "records" / f"{r}.rec").stat().st_mtime)
+    with pg.transaction(sc):
+        for rid in rids:   # oldest first, so the newest-first order carries over
+            text = fs.read(src, rid)
+            body = json.loads(text)
+            rev = body.get("rev")
+            if rev is None:  # saved before the counter lived outside the ciphertext
+                rev = int((_open(body, keys).get("_rev") or {}).get("n") or 0)
+            pg.write(sc, rid, text, int(rev))
+            pg._run(f"UPDATE {sc}.records SET updated = to_timestamp(:t) WHERE id = :id",
+                    t=(src / "records" / f"{rid}.rec").stat().st_mtime, id=rid)
+        dd = src / "deleted"
+        ndel = 0
+        for f in sorted(dd.glob("*.rec")) if dd.exists() else []:
+            rid, ts = f.name[:-4].rsplit(".", 1)
+            at = datetime.strptime(ts, "%Y%m%d-%H%M%S").astimezone(timezone.utc)
+            pg._run(f"INSERT INTO {sc}.deleted (id, at, who, body) VALUES (:id, :at, '', :b)",
+                    id=rid, at=at, b=f.read_text())
+            ndel += 1
+        lines = fs.audit_lines(src)
+        for line in lines:
+            pg._run(f"INSERT INTO {sc}.audit (line) VALUES (CAST(:l AS jsonb))", l=json.dumps(line))
+    # check, from the database's side
+    if sorted(pg.ids(sc)) != sorted(rids):
+        raise SystemExit("MIGRATION CHECK FAILED: the database does not hold the same records")
+    for rid in rids:
+        if pg.read(sc, rid) != fs.read(src, rid):
+            raise SystemExit(f"MIGRATION CHECK FAILED: {rid} differs")
+        _open(json.loads(pg.read(sc, rid)), keys)
+    out = {"schema": sc, "records": len(rids), "deleted": ndel, "audit": len(lines)}
+    audit("migrate", f"{len(rids)} records to {sc}", True, f"{ndel} deleted, {len(lines)} audit lines")
+    return out
+
+
+# --------------------------------------------------------------------------
 # backup
 # --------------------------------------------------------------------------
 
 def _backup_key(passphrase: str, salt: bytes) -> bytes:
     return hashlib.scrypt(passphrase.encode(), salt=salt, maxmem=MAXMEM, **SCRYPT)
+
+
+def _tar_bytes(tar, name: str, data: bytes) -> None:
+    info = tarfile.TarInfo(name)
+    info.size = len(data)
+    info.mode = 0o600
+    info.mtime = int(datetime.now().timestamp())
+    tar.addfile(info, io.BytesIO(data))
 
 
 def backup(out: Path, passphrase: str | None = None) -> None:
@@ -441,11 +590,16 @@ def backup(out: Path, passphrase: str | None = None) -> None:
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w:gz") as tar:
         tar.add(KEYFILE, arcname="vault.key")
-        for path in sorted(records_dir().glob("*.rec")):
-            tar.add(path, arcname=f"records/{path.name}")
-        log = root() / "audit.log"
-        if log.exists():
-            tar.add(log, arcname="audit.log")
+        n = 0
+        st, sc = store.current(), scope()
+        for rid in sorted(st.ids(sc)):
+            text = st.read(sc, rid)
+            if text is not None:
+                _tar_bytes(tar, f"records/{rid}.rec", text.encode())
+                n += 1
+        lines = st.audit_lines(sc)
+        if lines:
+            _tar_bytes(tar, "audit.log", "".join(json.dumps(x) + "\n" for x in lines).encode())
     raw = buf.getvalue()
 
     salt = secrets.token_bytes(16)
@@ -464,7 +618,6 @@ def backup(out: Path, passphrase: str | None = None) -> None:
         f.write(len(header).to_bytes(4, "big"))
         f.write(header)
         f.write(ct)
-    n = len(list(records_dir().glob("*.rec")))
     audit("backup", str(out), True, f"{n} records")
     print(f"{out}  {out.stat().st_size / 1024:.0f} KB  {n} records")
     print("\nA backup you have never restored is a guess. Test it:")
@@ -536,6 +689,7 @@ def main() -> int:
 
     sub.add_parser("list", help="record ids and dates, nothing decrypted")
     sub.add_parser("verify", help="open every record")
+    sub.add_parser("migrate-to-db", help="copy this company's files into THUNDER_VAULT_DB (files are kept)")
 
     p = sub.add_parser("rotate", help="new key generation, rewrap all records")
     p.add_argument("--drop-old", action="store_true",
@@ -563,12 +717,13 @@ def main() -> int:
         hits = find(a.field, a.value)
         print("\n".join(hits) if hits else "no match")
     elif a.cmd == "list":
-        for path in sorted(records_dir().glob("*.rec")):
-            b = json.loads(path.read_text())
+        for _rid, b in bodies():
             print(f"{b['id']:24} gen {b['gen']}  updated {b['updated'][:19]}  "
                   f"indexed: {','.join(b.get('index', {})) or '-'}")
     elif a.cmd == "verify":
         return verify()
+    elif a.cmd == "migrate-to-db":
+        print(json.dumps(migrate_to_db()))
     elif a.cmd == "rotate":
         rotate(a.drop_old)
     elif a.cmd == "backup":

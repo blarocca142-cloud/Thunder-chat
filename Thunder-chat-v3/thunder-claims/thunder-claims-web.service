@@ -14,6 +14,12 @@
 #     python3 claims_web.py adduser dad      # also: users, passwd, disable
 # ~/.thunder/claims_web.env still holds THUNDER_CLAIMS_PASSWORD: on the first
 # start with no users it becomes blayne's password, so the upgrade is seamless.
+#
+# Records live in PostgreSQL when claims_web.env sets THUNDER_VAULT_DB
+# (postgresql://blayne@/thunder_claims?host=/var/run/postgresql - a unix
+# socket with peer auth, so there is no database password anywhere). A user
+# unit cannot wait for the system postgresql.service; if the database is not
+# up yet at boot, claims_web.py exits and Restart=on-failure tries again.
 Description=Thunder Claims server (LAN, TLS, synthetic patients only)
 After=network-online.target
 
