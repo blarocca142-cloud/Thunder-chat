@@ -125,6 +125,11 @@ def req(method, path, body=None, token=None, ctx_=None):
     return r.status, j, dict(r.getheaders())
 
 
+def rev(rid):
+    """The record's current revision, as the program sends it back on save."""
+    return req("GET", f"/api/rec/{rid}", token=TOK)[1]["data"].get("_rev")
+
+
 print("transport")
 try:
     req("GET", "/", ctx_=ssl.create_default_context(cafile=str(other / "ca.crt")))
@@ -215,7 +220,7 @@ st, j, _ = req("GET", f"/api/rec/{CID}", token=TOK)
 check("claim ledger shows paid and adjusted", j.get("ledger", {}).get("paid") == 90 and j["ledger"]["adj"] == 20, j.get("ledger"))
 check("claim moves to Partly Paid on its own", j["data"]["tracking"]["billing"] == "partial", j["data"]["tracking"])
 check("the payment is noted on the claim", any("Test Mutual" in n["note"] for n in j["data"]["notes_log"]))
-st, j, _ = req("POST", "/api/save", {"kind": "payment", "id": PAYID, "data": {"source": "payer", "payer": "Test Mutual", "amount": "130",
+st, j, _ = req("POST", "/api/save", {"kind": "payment", "id": PAYID, "data": {"_rev": rev(PAYID), "source": "payer", "payer": "Test Mutual", "amount": "130",
     "date": "02/01/2026", "method": "CHECK", "lines": [{"claim_id": CID, "line": 0, "paid": "80", "adjustments": [{"amt": "20", "group": "CO", "reason": "45"}]},
                                                        {"claim_id": CID, "line": 1, "paid": "50"}]}}, token=TOK)
 st, j, _ = req("GET", f"/api/rec/{CID}", token=TOK)
@@ -287,7 +292,7 @@ check("a library code saves, cleaned (upper-case, money, units 1)", st == 200 an
 PXID = j.get("id")
 st, j, _ = req("POST", "/api/save", {"kind": "procedure", "data": {"code": "98941", "charge": "90"}}, token=TOK)
 check("the same code + modifier cannot be added twice", st == 400 and "already" in j.get("error", ""), j)
-st, j, _ = req("POST", "/api/save", {"kind": "procedure", "id": PXID, "data": {"code": "98941", "description": "Chiro manipulation 3-4 regions", "charge": "90"}}, token=TOK)
+st, j, _ = req("POST", "/api/save", {"kind": "procedure", "id": PXID, "data": {"_rev": rev(PXID), "code": "98941", "description": "Chiro manipulation 3-4 regions", "charge": "90"}}, token=TOK)
 check("editing an entry is not a duplicate of itself", st == 200 and j["data"]["charge"] == "90.00", j)
 st, j, _ = req("POST", "/api/save", {"kind": "procedure", "data": {"code": "<script>"}}, token=TOK)
 check("a junk code is refused", st == 400)
@@ -441,6 +446,30 @@ check("saving the patient form cannot wipe its document list", [x["id"] for x in
 check("documents need a login", req("POST", "/api/document", {"patient_id": SPID, "pages": [{"type": "image/jpeg", "data": jpg}]})[0] == 401)
 st, j, _ = req("POST", "/api/delete", {"id": DOC}, token=TOK)
 check("deleting a document takes it off the patient (kept under deleted/)", st == 200 and not req("GET", f"/api/rec/{SPID}", token=TOK)[1]["data"]["documents"])
+
+print("lost edits (two people, one record)")
+os.environ["CLAIMS_NEW_PASSWORD"] = "second desk passphrase 5"
+subprocess.run([sys.executable, str(Path(__file__).parent / "claims_web.py"), "adduser", "desk2"], env=os.environ, capture_output=True, check=True)
+D2 = req("POST", "/api/login", {"user": "desk2", "password": "second desk passphrase 5"})[1]["token"]
+cid = req("POST", "/api/save", {"kind": "claim", "data": {"patient_name": "SHARED, CLAIM", "procedures": [{"code": "98941", "charge": "50"}]}}, token=TOK)[1]["id"]
+mine = req("GET", f"/api/rec/{cid}", token=TOK)[1]["data"]      # blayne opens it
+theirs = req("GET", f"/api/rec/{cid}", token=D2)[1]["data"]     # desk2 opens it too
+st, j, _ = req("POST", "/api/save", {"kind": "claim", "id": cid, "data": {**theirs, "claim_number": "THEIRS-1"}}, token=D2)
+check("the first person to save wins normally", st == 200 and j["data"]["_rev"]["by"] == "desk2", j.get("data", {}).get("_rev"))
+st, j, _ = req("POST", "/api/save", {"kind": "claim", "id": cid, "data": {**mine, "claim_number": "MINE-2"}}, token=TOK)
+check("the second save from a stale copy is refused and names who changed it", st == 409 and j.get("conflict") and "DESK2" in j["error"], j)
+check("so the first person's work is still there", req("GET", f"/api/rec/{cid}", token=TOK)[1]["data"]["claim_number"] == "THEIRS-1")
+fresh = req("GET", f"/api/rec/{cid}", token=TOK)[1]["data"]
+st, j, _ = req("POST", "/api/save", {"kind": "claim", "id": cid, "data": {**fresh, "claim_number": "MINE-3"}}, token=TOK)
+check("after reopening, the save goes through and the revision counts up", st == 200 and j["data"]["_rev"]["n"] == fresh["_rev"]["n"] + 1)
+opened = req("GET", f"/api/rec/{cid}", token=TOK)[1]["data"]
+req("POST", "/api/save", {"kind": "payment", "data": {"source": "payer", "payer": "X", "amount": "10", "date": "01/02/2026",
+    "lines": [{"claim_id": cid, "line": 0, "paid": "10"}]}}, token=D2)
+st, j, _ = req("POST", "/api/save", {"kind": "claim", "id": cid, "data": {**opened, "claim_number": "STALE"}}, token=TOK)
+check("a payment posted while the claim was open also counts as a change", st == 409, j)
+st, j, _ = req("POST", "/api/save", {"kind": "claim", "id": cid, "data": {**opened, "_rev": {"n": 999}}}, token=TOK)
+check("a made-up revision number doesn't get past it either", st == 409)
+req("POST", "/api/logout", token=D2)
 
 print("find grids")
 ok = True

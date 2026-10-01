@@ -501,7 +501,7 @@ def statements_printed(items: list, when: str, user: str) -> int:
         if "pat_msg" in it:
             p["statement_msg"] = str(it.get("pat_msg") or "")[:200]
         p.setdefault("statements", []).append({"date": when, "amount": round(money(it.get("amount")), 2), "user": user})
-        vault.put(pid, p, KINDS["patient"]["index"])
+        put_rec(pid, p, KINDS["patient"]["index"])
         n += 1
     return n
 
@@ -569,7 +569,7 @@ def after_payment(pid: str, pay: dict, touched: set, user: str) -> None:
         text = (f"Payment {pay.get('date', '')} from {who}: paid ${p_amt:,.2f}, adjusted ${a_amt:,.2f}"
                 if mine else f"Payment {pid} from {who} no longer applied to this claim")
         c.setdefault("notes_log", []).append(note(text, user, bal))
-        vault.put(cid, c, KINDS["claim"]["index"])
+        put_rec(cid, c, KINDS["claim"]["index"])
 
 
 def clean_procedure(data: dict, rid: str) -> dict:
@@ -672,7 +672,7 @@ def claims_printed(ids: list, when: str, user: str) -> int:
             if not tr.get("sent_date"):
                 tr["sent_date"] = when
         c.setdefault("notes_log", []).append(note(f"Printed on a CMS-1500 for mailing ({when})", user, total_charges(c)))
-        vault.put(cid, c, KINDS["claim"]["index"])
+        put_rec(cid, c, KINDS["claim"]["index"])
         n += 1
     return n
 
@@ -708,11 +708,11 @@ def add_document(pid: str, data: dict, user: str) -> dict:
     did = new_id("document")
     meta = {"id": did, "title": title, "category": cat, "date": time.strftime("%m/%d/%Y"), "pages": len(clean),
             "kb": round(total / 1024), "added_by": user, "source": "scanner" if data.get("scanned") else "file"}
-    vault.put(did, {"patient_id": pid, **meta, "pages": clean}, KINDS["document"]["index"])
+    put_rec(did, {"patient_id": pid, **meta, "pages": clean}, KINDS["document"]["index"])
     p = vault.get(pid)
     p.setdefault("documents", []).append({k: v for k, v in meta.items()})
-    vault.put(pid, p, KINDS["patient"]["index"])
-    return meta
+    put_rec(pid, p, KINDS["patient"]["index"])
+    return {**meta, "patient_rev": p["_rev"]}
 
 
 def delete_record(rid: str, user: str) -> dict:
@@ -736,11 +736,14 @@ def delete_record(rid: str, user: str) -> dict:
     if kind == "document" and vault.record_path(str(r.get("patient_id") or "x")).exists():
         p = vault.get(r["patient_id"])
         p["documents"] = [x for x in p.get("documents") or [] if x.get("id") != rid]
-        vault.put(r["patient_id"], p, KINDS["patient"]["index"])
+        put_rec(r["patient_id"], p, KINDS["patient"]["index"])
+        out_rev = p["_rev"]
+    else:
+        out_rev = None
     if kind == "payment":
         touched = {a.get("claim_id") for a in r.get("lines") or [] if a.get("claim_id")}
         after_payment(rid, {**r, "lines": []}, {c for c in touched if vault.record_path(c).exists()}, user)
-    return {"deleted": rid, "kind": kind}
+    return {"deleted": rid, "kind": kind, "patient_rev": out_rev}
 
 
 def merge_patients(keep: str, drop: str, user: str) -> dict:
@@ -757,7 +760,7 @@ def merge_patients(keep: str, drop: str, user: str) -> dict:
         c.update(patient_id=keep, patient_name=k.get("patient_name", ""), account_number=k.get("account_number", ""))
         c.setdefault("notes_log", []).append(note(f"Moved here when patient {dp.get('account_number') or drop} was merged into {k.get('account_number') or keep}",
                                                   user, total_charges(c)))
-        vault.put(cid, c, KINDS["claim"]["index"])
+        put_rec(cid, c, KINDS["claim"]["index"])
         moved += 1
     vault.retire(drop)
     return {"kept": keep, "moved": moved}
@@ -808,6 +811,40 @@ def note(text: str, user: str, balance: float) -> dict:
             "note": text, "balance": round(balance, 2)}
 
 
+class Conflict(Exception):
+    pass
+
+
+def put_rec(rid: str, data: dict, index_fields: list) -> None:
+    """Every write goes through here so every record carries a revision:
+    who saved it, when, and a counter. That is what lets a save notice that
+    someone else changed the record after it was opened."""
+    prev = 0
+    if vault.record_path(rid).exists():
+        try:
+            prev = int((vault.get(rid).get("_rev") or {}).get("n") or 0)
+        except BaseException:
+            prev = 0
+    data["_rev"] = {"n": prev + 1, "by": getattr(vault._actor, "name", None) or "system",
+                    "at": time.strftime("%m/%d/%Y %I:%M %p")}
+    vault.put(rid, data, index_fields)
+
+
+def check_rev(rid: str, data: dict) -> None:
+    """Refuse a save made from a stale copy (EZClaim-style "someone else
+    changed this record"). A form that was opened at revision n may only save
+    over revision n; anything newer means another person's work would be
+    silently overwritten."""
+    if not vault.record_path(rid).exists():
+        return
+    cur = vault.get(rid).get("_rev") or {}
+    have = (data.get("_rev") or {}).get("n", 0)
+    if int(have or 0) != int(cur.get("n") or 0):
+        who = str(cur.get("by") or "someone").upper()
+        raise Conflict(f"{who} saved this record at {cur.get('at', 'a moment ago')}, after you opened it. "
+                       "Your changes were NOT saved, so nothing of theirs was lost.")
+
+
 def save(kind: str, record_id: str | None, data: dict, user: str = "user") -> dict:
     if kind not in KINDS:
         raise ValueError("unknown record type")
@@ -815,6 +852,8 @@ def save(kind: str, record_id: str | None, data: dict, user: str = "user") -> di
     if not ID_RE.match(rid) or kind_of(rid) != kind:
         raise ValueError("bad record id")
     data = {k: v for k, v in data.items() if k != "_meta"}
+    if record_id:
+        check_rev(rid, data)
     extra = {}
     if kind == "payment":
         data = clean_payment(data)
@@ -825,7 +864,7 @@ def save(kind: str, record_id: str | None, data: dict, user: str = "user") -> di
             except BaseException:
                 pass
         data["saved_by"] = user
-        vault.put(rid, data, KINDS[kind]["index"])
+        put_rec(rid, data, KINDS[kind]["index"])
         after_payment(rid, data, touched, user)
         return {"id": rid, "data": data, **summary("payment", rid, data)}
     if kind == "claim":
@@ -881,7 +920,7 @@ def save(kind: str, record_id: str | None, data: dict, user: str = "user") -> di
         name = data.get("patient_name") if kind == "patient" else data.get("name")
         if not str(name or "").strip():
             raise ValueError("a name is required")
-    vault.put(rid, data, KINDS[kind]["index"])
+    put_rec(rid, data, KINDS[kind]["index"])
     return {"id": rid, "data": data, **extra}
 
 
@@ -1301,6 +1340,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send(400, {"error": str(e)})
         except Forbidden as e:
             self._send(403, {"error": str(e)})
+        except Conflict as e:
+            self._send(409, {"error": str(e), "conflict": True})
         except BaseException as e:
             self._send(500, {"error": str(e).splitlines()[0] if str(e) else type(e).__name__})
         finally:

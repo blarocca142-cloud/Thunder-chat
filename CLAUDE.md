@@ -55,7 +55,7 @@ assumed.
   adduser <name>` (also `users`, `passwd`, `disable`, `enable`). Lockout after
   5 wrong tries (15 min), auto-logoff after 15 idle minutes, sessions in memory
   only. `access.log` in the vault dir records who/ip/path/status (ids only),
-  and the vault audit credits the logged-in person. `test_claims_web.py` = 134
+  and the vault audit credits the logged-in person. `test_claims_web.py` = 140
   checks, mostly attacks. **Synthetic patients only**; nothing is ever
   submitted to a payer. The UI mimics EZClaim on purpose - see
   `thunder-claims/EZCLAIM-LOOK.md` (EZClaim's videos studied frame by frame).
@@ -132,8 +132,13 @@ assumed.
   TWAIN, WIA uncertain), so scan.ps1 falls back to the free **NAPS2** console
   (`--driver twain`, one PDF of every page) when WIA sees no scanner. NAPS2
   must be installed once per office PC for that route.
-  **Agreed next (2026-10-01), in order, before real offices:** (1) stop lost
-  edits - refuse a save if someone else saved the record since it was opened;
+  **Lost edits are stopped (done 2026-10-01):** every write goes through
+  `put_rec`, which stamps `_rev` {n, by, at}; `save()` refuses (409, "DESK2
+  saved this record at ...") a save whose `_rev.n` isn't the current one, and
+  the screen offers to load the newer version. Payments, write-offs, documents
+  and batch prints all bump the revision too.
+  **Agreed next (2026-10-01), in order, before real offices:** (1) ~~stop lost
+  edits~~ done;
   (2) move the vault to **PostgreSQL** (Blayne/Dad agreed over SQLite: 13 offices
   on a VPN, several people per patient), one database per company, records
   still encrypted; (3) live updates + "who has this open" (Postgres LISTEN/
