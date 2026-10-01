@@ -152,7 +152,13 @@ assumed.
   has none. `test_store.py` = 27 checks on files, 64 with a `*_test`
   database; test_claims_web passes 140/140 on both. Driver is pure-Python
   `pg8000`, connections pooled (max 20, `THUNDER_VAULT_DB_POOL`) because the
-  server starts a thread per request. (3) live updates + "who has this open" (Postgres LISTEN/
+  server starts a thread per request. **Live on Main since 2026-10-01**:
+  PostgreSQL 16 (localhost only), role/db `blayne`/`thunder_claims` (+
+  `thunder_claims_test`), peer auth over the socket - no DB password exists.
+  `THUNDER_VAULT_DB=postgresql://blayne@/thunder_claims?host=/var/run/postgresql`
+  in `~/.thunder/claims_web.env`. Migrated: c__main 4 records, c_demo_office
+  48. The old vault folders are kept untouched as the fallback (remove that
+  env line + restart to go back). (3) live updates + "who has this open" (Postgres LISTEN/
   NOTIFY); (4) connect Main to the offices' existing VPN. **The offices already
   run EZClaim this way**: central system, every office VPNs in, split by office.
   **Future additions Dad wants (not started):** X-rays from **VXvue** under the
