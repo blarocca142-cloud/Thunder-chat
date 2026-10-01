@@ -169,7 +169,9 @@ assumed.
   successful polls are not access-logged. In the program: an untouched open
   record reloads itself, one being typed in gets a yellow "X just saved this -
   Load Their Version" bar, tabs show 👥 / ⚠, and grids refresh the affected
-  kinds. test_claims_web = 151. (4) connect Main to the offices' existing VPN. **The offices already
+  kinds. test_claims_web = 151. (4) connect Main to the offices' existing VPN -
+  **parked (Blayne 2026-10-01): this is a demo to win Dad and the offices
+  over, not close to going live.** Favour what makes the demo convincing. **The offices already
   run EZClaim this way**: central system, every office VPNs in, split by office.
   **Future additions Dad wants (not started):** X-rays from **VXvue** under the
   patient (DICOM send to an Orthanc receiver on Main - need VXvue version/DICOM
