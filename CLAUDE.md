@@ -144,7 +144,12 @@ assumed.
   settings); **Broadvoice call log** per patient, auto-matched by phone number,
   with call reports/charts per patient/office/staff (need to know if Broadvoice
   exports call history); ideas from **OpenMRS** (data model, FHIR, visit notes -
-  borrow, don't install). Dad shared a second link that never came through.
+  borrow, don't install). Dad's second link was really **OpenEMR**
+  (open-emr.org; he typed emr.org): GPL, PHP/MySQL, ONC-certified US EMR with
+  scheduling, document management, paper + X12 billing, EOB entry, DICOM
+  viewer, multi-facility, ACLs, FHIR - but no PIP/no-fault and no call
+  logging. Same stance: borrow ideas (scheduling, recall board, EOB entry,
+  DICOM viewer), don't switch.
 - `/status`'s `gpu` block now reads the **real** GPU — nvidia-smi plus Ollama's
   `/api/ps` (`gpu_state()` in `app.py`). It used to ask thunder-genai on :9010,
   so once that was disabled `gpu.up` was stuck false and the phone showed the
