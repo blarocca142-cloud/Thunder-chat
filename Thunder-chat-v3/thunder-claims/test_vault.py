@@ -111,13 +111,12 @@ def main() -> int:
     p2.write_text(json.dumps(b2))
 
     print("\n-- wrong key --")
-    saved = vault.KEYFILE
-    alt = WORK / "keys" / "other.key"
-    vault.KEYFILE = alt
+    saved = os.environ["THUNDER_VAULT_KEY"]
+    os.environ["THUNDER_VAULT_KEY"] = str(WORK / "keys" / "other.key")
     vault.key_init()
     ok, how = raises(lambda: vault.get("claim001"))
     check("a different master key cannot open records", ok, how)
-    vault.KEYFILE = saved
+    os.environ["THUNDER_VAULT_KEY"] = saved
 
     print("\n-- key file permissions --")
     os.chmod(vault.KEYFILE, 0o644)
@@ -175,10 +174,11 @@ def main() -> int:
     check("key restored", (dest / "vault.key").exists())
 
     # The real test of a backup: open it with only what the archive contained.
-    vault.VAULT, vault.KEYFILE = dest, dest / "vault.key"
+    os.environ["THUNDER_VAULT"], os.environ["THUNDER_VAULT_KEY"] = str(dest), str(dest / "vault.key")
+    check("the restored copy is what is being opened", vault.vault_dir() == dest and vault.keyfile() == dest / "vault.key")
     check("restored vault verifies", vault.verify() == 0)
     check("restored record is byte-identical", vault.get("claim001") == PATIENT)
-    vault.VAULT, vault.KEYFILE = WORK / "vault", saved
+    os.environ["THUNDER_VAULT"], os.environ["THUNDER_VAULT_KEY"] = str(WORK / "vault"), saved
 
     print("\n-- audit trail --")
     lines = [json.loads(l) for l in (vault.VAULT / "audit.log").read_text().splitlines()]

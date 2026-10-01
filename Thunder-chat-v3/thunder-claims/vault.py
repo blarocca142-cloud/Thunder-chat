@@ -75,11 +75,26 @@ sys.path.insert(0, str(Path(__file__).parent))
 import store  # noqa: E402  where the sealed records live: files or PostgreSQL
 from store import RevConflict  # noqa: E402,F401
 
-VAULT = Path(os.environ.get("THUNDER_VAULT", Path(__file__).parent / "vault"))
+# Where things live is read from the environment every time it is needed, never
+# fixed when this module is imported. A script that imports this and only then
+# points THUNDER_VAULT somewhere else must not silently write into the real
+# vault (that import-order trap overwrote a real password on 2026-10-01).
+def vault_dir() -> Path:
+    return Path(os.environ.get("THUNDER_VAULT", Path(__file__).parent / "vault"))
+
+
 # The key does NOT live in the vault. If it did, a stolen copy of the data
 # directory would carry its own key and this would all be decoration.
-KEYFILE = Path(os.environ.get(
-    "THUNDER_VAULT_KEY", Path.home() / ".thunder" / "keys" / "vault.key"))
+def keyfile() -> Path:
+    return Path(os.environ.get("THUNDER_VAULT_KEY", Path.home() / ".thunder" / "keys" / "vault.key"))
+
+
+def __getattr__(name):   # vault.VAULT / vault.KEYFILE keep working, resolved on each use
+    if name == "VAULT":
+        return vault_dir()
+    if name == "KEYFILE":
+        return keyfile()
+    raise AttributeError(name)
 
 RECORD_VERSION = 1
 # ~64MB and a second or so per attempt. Chosen to make a stolen backup
@@ -109,32 +124,32 @@ def now() -> str:
 # --------------------------------------------------------------------------
 
 def key_init(force: bool = False) -> None:
-    if KEYFILE.exists() and not force:
+    if keyfile().exists() and not force:
         raise SystemExit(
-            f"{KEYFILE} already exists. Overwriting it makes every existing\n"
+            f"{keyfile()} already exists. Overwriting it makes every existing\n"
             f"record permanently unreadable. Pass --force only if you mean it.")
-    KEYFILE.parent.mkdir(parents=True, exist_ok=True)
-    os.chmod(KEYFILE.parent, 0o700)
+    keyfile().parent.mkdir(parents=True, exist_ok=True)
+    os.chmod(keyfile().parent, 0o700)
     payload = {"version": 1, "generation": 1, "keys": {"1": b64(secrets.token_bytes(32))}}
     # Create with 0600 from the start rather than chmod after: between write
     # and chmod the key would be world-readable, which is a real if brief hole.
-    fd = os.open(KEYFILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    fd = os.open(keyfile(), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w") as f:
         json.dump(payload, f, indent=2)
-    print(f"created {KEYFILE}  (generation 1)")
+    print(f"created {keyfile()}  (generation 1)")
     print("\nBack this file up somewhere off this machine, encrypted.")
     print("Lose it and the records are gone - there is no recovery path, by design.")
 
 
 def keys_load() -> tuple[dict[str, bytes], str]:
-    if not KEYFILE.exists():
-        raise SystemExit(f"no key at {KEYFILE} - run: vault.py init")
-    mode = KEYFILE.stat().st_mode & 0o777
+    if not keyfile().exists():
+        raise SystemExit(f"no key at {keyfile()} - run: vault.py init")
+    mode = keyfile().stat().st_mode & 0o777
     if mode & 0o077:
         raise SystemExit(
-            f"{KEYFILE} is mode {mode:o} - readable by other accounts.\n"
-            f"Fix with: chmod 600 {KEYFILE}")
-    data = json.loads(KEYFILE.read_text())
+            f"{keyfile()} is mode {mode:o} - readable by other accounts.\n"
+            f"Fix with: chmod 600 {keyfile()}")
+    data = json.loads(keyfile().read_text())
     return ({g: unb64(k) for g, k in data["keys"].items()},
             str(data["generation"]))
 
@@ -179,7 +194,7 @@ def set_root(path) -> None:
 
 
 def root() -> Path:
-    return getattr(_root, "path", None) or VAULT
+    return getattr(_root, "path", None) or vault_dir()
 
 
 def set_actor(name: str | None) -> None:
@@ -235,7 +250,7 @@ def scope():
     if st.kind == "files":
         return root()
     r = root()
-    if r.resolve() == VAULT.resolve():
+    if r.resolve() == vault_dir().resolve():
         return "c__main"
     return "c_" + r.name.lower()
 
@@ -382,7 +397,7 @@ def get(record_id: str) -> dict:
         audit("get", record_id, False, f"no key for generation {gen}")
         raise SystemExit(
             f"record {record_id} is wrapped with key generation {gen}, which is\n"
-            f"not in {KEYFILE}. A retired key was removed too early.")
+            f"not in {keyfile()}. A retired key was removed too early.")
     try:
         dek = AESGCM(derive(keys[gen], "vault/wrap")).decrypt(
             unb64(body["wrap_nonce"]), unb64(body["dek"]),
@@ -464,7 +479,7 @@ def rotate(drop_old: bool = False) -> None:
     actually do. The old generation is kept by default so that a backup taken
     before the rotation still restores.
     """
-    data = json.loads(KEYFILE.read_text())
+    data = json.loads(keyfile().read_text())
     keys = {g: unb64(k) for g, k in data["keys"].items()}
     old_gen = str(data["generation"])
     new_gen = str(int(old_gen) + 1)
@@ -500,7 +515,7 @@ def rotate(drop_old: bool = False) -> None:
         keys = {new_gen: new_kek}
     data = {"version": 1, "generation": int(new_gen),
             "keys": {g: b64(k) for g, k in keys.items()}}
-    fd = os.open(KEYFILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    fd = os.open(keyfile(), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w") as f:
         json.dump(data, f, indent=2)
     audit("rotate", f"generation {old_gen} -> {new_gen}", True, f"{moved} records")
@@ -603,7 +618,7 @@ def backup(out: Path, passphrase: str | None = None) -> None:
 
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w:gz") as tar:
-        tar.add(KEYFILE, arcname="vault.key")
+        tar.add(keyfile(), arcname="vault.key")
         n = 0
         st, sc = store.current(), scope()
         for rid in sorted(st.ids(sc)):

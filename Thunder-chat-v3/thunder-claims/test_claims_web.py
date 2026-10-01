@@ -100,6 +100,30 @@ check("users file is mode 600", oct((TMP / "users.json").stat().st_mode & 0o777)
 check("verify: right password", cw.verify_password("blayne", PW))
 check("verify: wrong password", not cw.verify_password("blayne", PW + "x"))
 check("verify: unknown user", not cw.verify_password("nobody", PW))
+before = json.loads((TMP / "users.json").read_text())["blayne"]["hash"]
+try:
+    cw.set_password("blayne", "a different long passphrase 7")
+    check("an existing login's password is never silently replaced", False)
+except ValueError:
+    check("an existing login's password is never silently replaced", json.loads((TMP / "users.json").read_text())["blayne"]["hash"] == before)
+cw.set_password("blayne", "a different long passphrase 7", replace=True)
+check("...only passwd / Change Password (replace=True) can change it", cw.verify_password("blayne", "a different long passphrase 7"))
+cw.set_password("blayne", PW, replace=True)
+# The 2026-10-01 accident, replayed: a script imports claims_web while the real
+# settings are loaded, then points THUNDER_CLAIMS_USERS at a scratch file and
+# makes a test login. It must land in the scratch file, never the real one.
+real, scratch = TMP / "real_users.json", TMP / "scratch_users.json"
+real.write_text(json.dumps({"blayne": json.loads((TMP / "users.json").read_text())["blayne"]}))
+before_real = real.read_text()
+r = subprocess.run([sys.executable, "-c", (
+    "import os,sys; sys.path.insert(0, %r); os.environ['THUNDER_CLAIMS_USERS'] = %r\n"
+    "import claims_web as cw\n"
+    "os.environ['THUNDER_CLAIMS_USERS'] = %r\n"
+    "cw.set_password('blayne', 'diag script passphrase 1')\n"
+    "print(cw.users_file())") % (str(Path(__file__).parent), str(real), str(scratch))],
+    capture_output=True, text=True, env=os.environ, timeout=60)
+check("a script that imports first and points elsewhere after cannot touch the real logins file",
+      r.returncode == 0 and real.read_text() == before_real and scratch.exists() and str(scratch) in r.stdout, r.stdout + r.stderr)
 
 # --- run the server over TLS on a free loopback port
 sock = socket.socket(); sock.bind(("127.0.0.1", 0)); PORT = sock.getsockname()[1]; sock.close()

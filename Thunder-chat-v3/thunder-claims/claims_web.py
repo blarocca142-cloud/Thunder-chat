@@ -329,8 +329,8 @@ def open_lines(source: str, payer: str, patient_id: str, patient_name: str,
 # patient statements (EZClaim's Statements screen)
 # --------------------------------------------------------------------------
 
-SETTINGS_FILE = Path(os.environ.get("THUNDER_CLAIMS_SETTINGS",
-                                    str(Path.home() / ".thunder" / "claims_settings.json")))
+def _settings_file() -> Path:
+    return Path(os.environ.get("THUNDER_CLAIMS_SETTINGS", str(Path.home() / ".thunder" / "claims_settings.json")))
 STATEMENT_DEFAULTS = {"return_name": "", "return_addr1": "", "return_addr2": "", "return_city": "", "return_state": "",
                       "return_zip": "", "return_phone": "", "days_history": 30, "hide_aging": False,
                       "hide_proc": False, "global_message": "", "messages": []}
@@ -351,7 +351,7 @@ def settings_file() -> Path:
     """Each company file has its own options, as in EZClaim. The first
     company keeps the original settings file so nothing moves on upgrade."""
     c = current_company()
-    return SETTINGS_FILE if not c or c.get("default") else Path(c["path"]) / "settings.json"
+    return _settings_file() if not c or c.get("default") else Path(c["path"]) / "settings.json"
 
 
 def get_settings() -> dict:
@@ -986,8 +986,12 @@ def scan(data: bytes, filename: str) -> dict:
 # anything if it can say *who*. Passwords are scrypt-hashed; sessions live in
 # memory only, so a restart logs everyone out rather than leaving tokens on disk.
 
-USERS_FILE = Path(os.environ.get("THUNDER_CLAIMS_USERS",
-                                 str(Path.home() / ".thunder" / "claims_users.json")))
+def users_file() -> Path:
+    """Read from the environment on every use, never at import: a script that
+    imports this module and only then sets THUNDER_CLAIMS_USERS must not write
+    to the real logins file. That exact trap overwrote blayne's real password
+    on 2026-10-01 (a diagnostic script on Main)."""
+    return Path(os.environ.get("THUNDER_CLAIMS_USERS", str(Path.home() / ".thunder" / "claims_users.json")))
 MIN_PASSWORD = 12
 IDLE_SECONDS = 15 * 60          # automatic logoff after 15 idle minutes
 MAX_SESSION_SECONDS = 12 * 3600  # and after 12 hours regardless
@@ -1003,18 +1007,18 @@ def _hash(password: str, salt: bytes) -> bytes:
 
 def load_users() -> dict:
     try:
-        return json.loads(USERS_FILE.read_text())
+        return json.loads(users_file().read_text())
     except FileNotFoundError:
         return {}
 
 
 def save_users(users: dict) -> None:
-    USERS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    tmp = USERS_FILE.with_suffix(".tmp")
+    users_file().parent.mkdir(parents=True, exist_ok=True)
+    tmp = users_file().with_suffix(".tmp")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w") as f:
         json.dump(users, f, indent=2)
-    os.replace(tmp, USERS_FILE)
+    os.replace(tmp, users_file())
 
 
 def password_problem(password: str) -> str | None:
@@ -1025,7 +1029,12 @@ def password_problem(password: str) -> str | None:
     return None
 
 
-def set_password(name: str, password: str, role: str = "user") -> None:
+def set_password(name: str, password: str, role: str = "user", replace: bool = False) -> None:
+    """Create a login, or - only with replace=True, which just `passwd` and
+    Change Password pass - change an existing one's password. Anything else
+    that tries to set a password for a login that already exists is refused,
+    so a script or a test that has the wrong users file in hand cannot quietly
+    lock a real person out."""
     name = name.strip().lower()
     if not NAME_RE.match(name):
         raise ValueError("user names are lower-case letters, digits, . _ - (2-32 long)")
@@ -1033,6 +1042,8 @@ def set_password(name: str, password: str, role: str = "user") -> None:
     if problem:
         raise ValueError("password rejected: " + problem)
     users = load_users()
+    if name in users and not replace:
+        raise ValueError(f"{name} already has a password - change it with passwd or Change Password")
     salt = secrets.token_bytes(16)
     u = users.get(name, {"role": role, "created": time.strftime("%Y-%m-%d %H:%M")})
     u.update({"salt": base64.b64encode(salt).decode(), "hash": base64.b64encode(_hash(password, salt)).decode(),
@@ -1247,30 +1258,33 @@ LIVE = Live()
 # nothing moves when this is switched on. Encryption key: the same vault key
 # for all of them (records are still encrypted one key per record).
 
-COMPANIES_FILE = Path(os.environ.get("THUNDER_CLAIMS_COMPANIES",
-                                     str(Path.home() / ".thunder" / "claims_companies.json")))
-COMPANY_DIR = Path(os.environ.get("THUNDER_CLAIMS_COMPANY_DIR", str(vault.VAULT.parent / "vault-companies")))
+def _companies_file() -> Path:
+    return Path(os.environ.get("THUNDER_CLAIMS_COMPANIES", str(Path.home() / ".thunder" / "claims_companies.json")))
+
+
+def _company_dir() -> Path:
+    return Path(os.environ.get("THUNDER_CLAIMS_COMPANY_DIR", str(vault.vault_dir().parent / "vault-companies")))
 COMPANY_RE = re.compile(r"^[A-Za-z0-9_]{2,40}$")  # EZClaim: letters, numbers and underscore only
 _ctx = threading.local()
 
 
 def load_companies() -> list[dict]:
     try:
-        cs = json.loads(COMPANIES_FILE.read_text()).get("companies") or []
+        cs = json.loads(_companies_file().read_text()).get("companies") or []
     except (FileNotFoundError, ValueError):
         cs = []
     if not cs:
-        cs = [{"name": os.environ.get("THUNDER_CLAIMS_COMPANY", "Main"), "path": str(vault.VAULT), "default": True}]
+        cs = [{"name": os.environ.get("THUNDER_CLAIMS_COMPANY", "Main"), "path": str(vault.vault_dir()), "default": True}]
     return cs
 
 
 def save_companies(cs: list[dict]) -> None:
-    COMPANIES_FILE.parent.mkdir(parents=True, exist_ok=True)
-    tmp = COMPANIES_FILE.with_suffix(".tmp")
+    _companies_file().parent.mkdir(parents=True, exist_ok=True)
+    tmp = _companies_file().with_suffix(".tmp")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w") as f:
         json.dump({"companies": cs}, f, indent=2)
-    os.replace(tmp, COMPANIES_FILE)
+    os.replace(tmp, _companies_file())
 
 
 def company(name: str) -> dict | None:
@@ -1284,7 +1298,7 @@ def new_company(name: str) -> dict:
     if company(name):
         raise ValueError(f"there is already a company named {name}")
     cs = load_companies()
-    path = COMPANY_DIR / name
+    path = _company_dir() / name
     path.mkdir(parents=True, exist_ok=True, mode=0o700)
     c = {"name": name, "path": str(path), "created": time.strftime("%Y-%m-%d %H:%M")}
     save_companies(cs + [c])
@@ -1345,8 +1359,8 @@ def current_company() -> dict | None:
     return getattr(_ctx, "company", None)
 
 
-PREFS_FILE = Path(os.environ.get("THUNDER_CLAIMS_PREFS",
-                                 str(Path.home() / ".thunder" / "claims_prefs.json")))
+def _prefs_file() -> Path:
+    return Path(os.environ.get("THUNDER_CLAIMS_PREFS", str(Path.home() / ".thunder" / "claims_prefs.json")))
 PRINT_DEFAULTS = {"form": "preview", "dx": 0.0, "dy": 0.0, "vshift": 0.0, "hshift": 0.0,
                   "carrier_dx": 0.0, "carrier_dy": 0.0, "xdx": 0.02, "font": 12, "bottom_margin": False, "year4": False}
 
@@ -1354,7 +1368,7 @@ PRINT_DEFAULTS = {"form": "preview", "dx": 0.0, "dy": 0.0, "vshift": 0.0, "hshif
 def get_prefs(user: str) -> dict:
     """Per-person printer settings for the red CMS-1500 forms (no patient data)."""
     try:
-        allp = json.loads(PREFS_FILE.read_text())
+        allp = json.loads(_prefs_file().read_text())
     except (FileNotFoundError, ValueError):
         allp = {}
     return {"print": {**PRINT_DEFAULTS, **(allp.get(user, {}).get("print") or {})},
@@ -1366,7 +1380,7 @@ def set_prefs(user: str, body: dict) -> dict:
     desk has its own printer; each person arranges their own columns). Either
     part can be sent alone."""
     try:
-        allp = json.loads(PREFS_FILE.read_text())
+        allp = json.loads(_prefs_file().read_text())
     except (FileNotFoundError, ValueError):
         allp = {}
     mine = allp.setdefault(user, {})
@@ -1380,12 +1394,12 @@ def set_prefs(user: str, body: dict) -> dict:
         mine["grids"] = grids
     if "print" in (body or {}):
         mine["print"] = _clean_print((body or {}).get("print") or {})
-    PREFS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    tmp = PREFS_FILE.with_suffix(".tmp")
+    _prefs_file().parent.mkdir(parents=True, exist_ok=True)
+    tmp = _prefs_file().with_suffix(".tmp")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w") as f:
         json.dump(allp, f, indent=2)
-    os.replace(tmp, PREFS_FILE)
+    os.replace(tmp, _prefs_file())
     return get_prefs(user)
 
 
@@ -1410,8 +1424,8 @@ def access_log(who: str, ip: str, method: str, path: str, status: int) -> None:
     c = current_company()
     line = json.dumps({"at": time.strftime("%Y-%m-%dT%H:%M:%S"), "who": who, "ip": ip,
                        "company": c["name"] if c else "", "method": method, "path": path[:200], "status": status})
-    vault.VAULT.mkdir(parents=True, exist_ok=True, mode=0o700)
-    path_ = vault.VAULT / "access.log"
+    vault.vault_dir().mkdir(parents=True, exist_ok=True, mode=0o700)
+    path_ = vault.vault_dir() / "access.log"
     fd = os.open(path_, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
     with os.fdopen(fd, "a") as f:
         f.write(line + "\n")
@@ -1676,7 +1690,7 @@ class Handler(BaseHTTPRequestHandler):
             if not verify_password(who, str(b.get("old") or "")):
                 SESSIONS.failed("u:" + who)
                 return self._send(403, {"error": "the current password is wrong"})
-            set_password(who, str(b.get("new") or ""))
+            set_password(who, str(b.get("new") or ""), replace=True)
             return self._send(200, {"ok": True})
         if u.path == "/api/report":
             need(who, "reports")
@@ -1804,7 +1818,7 @@ def accounts(argv: list[str]) -> int:
         if a.cmd == "passwd" and name not in users:
             raise SystemExit(f"no user {name}")
         try:
-            set_password(name, ask_password(), role="owner" if not users else "user")
+            set_password(name, ask_password(), role="owner" if not users else "user", replace=a.cmd == "passwd")
         except ValueError as e:
             raise SystemExit(str(e))
         print(("added " if a.cmd == "adduser" else "changed password for ") + name)
@@ -1872,5 +1886,14 @@ def main() -> int:
     return 0
 
 
+def __getattr__(name):   # the old constant names, resolved on each use
+    paths = {"USERS_FILE": users_file, "SETTINGS_FILE": _settings_file, "COMPANIES_FILE": _companies_file,
+             "COMPANY_DIR": _company_dir, "PREFS_FILE": _prefs_file}
+    if name in paths:
+        return paths[name]()
+    raise AttributeError(name)
+
+
 if __name__ == "__main__":
     sys.exit(main())
+

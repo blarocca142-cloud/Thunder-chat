@@ -55,7 +55,7 @@ assumed.
   adduser <name>` (also `users`, `passwd`, `disable`, `enable`). Lockout after
   5 wrong tries (15 min), auto-logoff after 15 idle minutes, sessions in memory
   only. `access.log` in the vault dir records who/ip/path/status (ids only),
-  and the vault audit credits the logged-in person. `test_claims_web.py` = 152
+  and the vault audit credits the logged-in person. `test_claims_web.py` = 155
   checks, mostly attacks. **Synthetic patients only**; nothing is ever
   submitted to a payer. The UI mimics EZClaim on purpose - see
   `thunder-claims/EZCLAIM-LOOK.md` (EZClaim's videos studied frame by frame).
@@ -176,7 +176,7 @@ assumed.
   successful polls are not access-logged. In the program: an untouched open
   record reloads itself, one being typed in gets a yellow "X just saved this -
   Load Their Version" bar, tabs show 👥 / ⚠, and grids refresh the affected
-  kinds. test_claims_web = 152. (4) connect Main to the offices' existing VPN -
+  kinds. test_claims_web = 155. (4) connect Main to the offices' existing VPN -
   **parked (Blayne 2026-10-01): this is a demo to win Dad and the offices
   over, not close to going live.** Favour what makes the demo convincing. **The offices already
   run EZClaim this way**: central system, every office VPNs in, split by office.
@@ -238,6 +238,22 @@ assumed.
   Narrating 23 deck slides took 47s end to end.
 
 ## Hard-won facts — do not relearn these
+
+- **2026-10-01: an automated deploy session overwrote blayne's real Thunder
+  Claims password.** Its throwaway `diag.py` imported `claims_web` with the
+  service env loaded and only then pointed `THUNDER_CLAIMS_USERS` at a scratch
+  file; the path had been fixed at import, so `set_password("blayne", ...)`
+  hit `~/.thunder/claims_users.json`. Blayne was then locked out. Fixed in
+  code: every path (users, settings, prefs, companies, vault, key) is read from
+  the environment **on each use**, never at import, and `set_password` refuses
+  to replace an existing login's password unless `replace=True` (only `passwd`
+  and Change Password pass it). Tests replay the accident. **Sessions sent to
+  Main must never write ad-hoc scripts that touch `~/.thunder/`.**
+- **The Main bridge (`env_01CnekYPScAaZgsrdrkv2bps`) runs ONE session at a
+  time.** A finished session left open blocks the next one, which then sits
+  "pending/disconnected" and looks like Main is down. Archive every session on
+  Main as soon as it reports; a session created while it was blocked may never
+  be picked up - archive it and create it again.
 
 - **No Chinese-origin or anonymously-modified weights in any live role
   (2026-09-29 audit + cleanup). Origin is judged by architecture/base blob, not
@@ -460,7 +476,7 @@ assumed (see the commit messages for what was actually tested):
 - **Encryption at rest + encrypted backups**: `thunder-claims/vault.py`.
   AES-256-GCM envelope encryption, per-record keys, blind indexes for search
   without decrypting, audit on every access, key rotation, passphrase-encrypted
-  backups. `test_vault.py` is 34 checks, mostly attacks (tamper, ciphertext
+  backups. `test_vault.py` is 35 checks, mostly attacks (tamper, ciphertext
   relocation, wrong key, weak passphrase, modified archive). All passing.
 - **Honeyfiles**: `thunder-main-api/canary/`. Flips `/status` to
   `security_alert`, which the app already shows.
