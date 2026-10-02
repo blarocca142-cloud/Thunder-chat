@@ -344,12 +344,117 @@ def main(company: str) -> int:
     return 0
 
 
+# ---------------------------------------------------------------------------
+# paperwork: the files a real patient folder holds, so automatic filing and
+# Send Records have something to show. All invented, like everything above.
+# ---------------------------------------------------------------------------
+
+def _pdf(lines: list[str]) -> bytes:
+    import packet
+    return packet.text_pdf([[(l, 11, i == 0) for i, l in enumerate(lines)]])
+
+
+def _scan(lines: list[str]) -> bytes:
+    """The same page as a scanner would hand it over: a grey PNG, no text layer."""
+    import subprocess
+    import tempfile
+    work = Path(tempfile.mkdtemp(prefix="demo_scan_"))
+    try:
+        (work / "p.pdf").write_bytes(_pdf(lines))
+        subprocess.run(["pdftoppm", "-r", "150", "-gray", "-png", "-singlefile", str(work / "p.pdf"), str(work / "s")], check=True, capture_output=True)
+        return (work / "s.png").read_bytes()
+    finally:
+        import shutil
+        shutil.rmtree(work, ignore_errors=True)
+
+
+def paperwork(company: str) -> int:
+    """Add made-up paperwork to every patient in a demo company who has none,
+    through the same upload path the office uses - so it is filed by the same
+    automatic sorting, not placed by hand."""
+    import base64
+    c = cw.company(company)
+    if not c:
+        raise SystemExit(f"no company {company}")
+    vault.set_root(c["path"])
+    cw._ctx.company = c
+    vault.set_actor(USER)
+    practice = "SUNSHINE SPINE & REHAB (DEMO)"
+    all_claims = list(cw.records("claim"))
+    claims = [cl for _, cl in all_claims]
+    pays = [pm for _, pm in cw.records("payment")]
+    added = scans = 0
+    for n, (pid, p) in enumerate(sorted(cw.records("patient"), key=lambda kv: kv[1].get("account_number", ""))):
+        if p.get("documents"):
+            continue
+        name = f"{p.get('last_name', '')}, {p.get('first_name', '')}"
+        mine = sorted((cl for cl in claims if cl.get("patient_id") == pid), key=lambda cl: datetime_of(cl["date_of_service"]))
+        visits = sorted({ln["date"] for cl in mine for ln in cl.get("procedures") or []}, key=datetime_of)
+        docs = []
+        first = p.get("first_treatment") or (visits[0] if visits else d(0))
+        docs.append(_pdf(["ASSIGNMENT OF BENEFITS", f"Patient: {name}   DOB {p.get('dob', '')}",
+                          f"I hereby assign to {practice} all personal injury protection benefits payable for services rendered.",
+                          f"Patient's signature: (signed)      Date signed {first}"]))
+        docs.append(_pdf(["STANDARD DISCLOSURE AND ACKNOWLEDGMENT FORM", f"Patient: {name}",
+                          "I confirm the services billed were actually rendered and explained to me (Fla. Stat. 627.736(5)(e)).",
+                          f"Patient's signature: (signed)      Date {first}"]))
+        dx = ", ".join(x.get("code", "") for x in (mine[0].get("diagnoses") if mine else []) or [])
+        for k, v in enumerate(visits[:4]):
+            page = [f"{practice} - DAILY NOTE", f"Patient: {name}    Date of service: {v}",
+                    f"S: {['Neck and back pain 7/10 since the accident', 'Pain 6/10, sleeping better', 'Pain 5/10, stiffness in the morning', 'Pain 4/10, back to light duty'][k]}",
+                    "O: Palpation tenderness and muscle spasm, range of motion reduced.",
+                    f"A: {dx} - improving as expected.", "P: Segments adjusted. Continue care plan, re-exam in 4 weeks."]
+            if k == 1 and n % 4 == 0:      # some arrive from the scanner, not as PDFs
+                docs.append(("image/png", _scan(page)))
+                scans += 1
+            else:
+                docs.append(page)
+        for cl in mine[:2]:
+            dos = [ln["date"] for ln in cl.get("procedures") or []]
+            docs.append(_pdf(["HEALTH INSURANCE CLAIM FORM", "APPROVED BY NATIONAL UNIFORM CLAIM COMMITTEE (NUCC) 02/12",
+                              cl.get("insurer", ""), f"2. PATIENT'S NAME  {name}   3. PATIENT'S BIRTH DATE {p.get('dob', '')}"] +
+                             [f"24A. From {x} To {x}   {ln['code']}   {ln['charge']}" for x, ln in zip(dos, cl.get("procedures") or [])] +
+                             ["25. FEDERAL TAX I.D. NUMBER 59-0000001"]))
+        by_id = {cid: cl for cid, cl in all_claims if cl.get("patient_id") == pid}
+        for pm in pays:                      # the EOB for this patient's first payment
+            hit = [ln for ln in pm.get("lines") or [] if ln.get("claim_id") in by_id]
+            if not hit:
+                continue
+            dos = sorted({x["date"] for x in by_id[hit[0]["claim_id"]].get("procedures") or []}, key=datetime_of)
+            docs.append(_pdf([pm.get("payer", ""), "EXPLANATION OF REVIEW", f"Patient: {name}   Claim #: {p.get('claim_number', '')}",
+                              f"Dates of service {dos[0]} - {dos[-1]}", f"Amount paid {pm.get('amount', '')}   Check number {pm.get('ref', '')}",
+                              "Reason code 45 - charge exceeds fee schedule", f"Printed {pm.get('date', '')}"]))
+            break
+        if p.get("attorney"):
+            docs.append(_pdf([p["attorney"], "ATTORNEYS AT LAW", f"RE: Our client {name}, date of loss {p.get('date_of_injury', '')}",
+                              "Please be advised that this firm represents the above patient. LETTER OF REPRESENTATION.",
+                              "Kindly forward all records and bills to our office.", f"Dated {first}"]))
+        if "ER" in (p.get("accident_type") or "") or n % 5 == 2:
+            docs.append(_pdf(["TAMPA BAY REGIONAL MEDICAL CENTER (DEMO) - EMERGENCY DEPARTMENT", f"Patient: {name}",
+                              f"Arrival {p.get('date_of_injury', '')} Discharge {p.get('date_of_injury', '')}",
+                              "Triage: motor vehicle collision. DISCHARGE INSTRUCTIONS: follow up with a chiropractor."]))
+        if n % 6 == 0:
+            docs.append(_pdf(["Page 2 of 2", "continued", "(the rest of a fax that came in without its first page)"]))
+        for doc in docs:
+            if isinstance(doc, tuple):
+                mime, raw = doc
+            else:
+                mime, raw = "application/pdf", doc if isinstance(doc, bytes) else _pdf(doc)
+            cw.add_document(pid, {"pages": [{"type": mime, "data": base64.b64encode(raw).decode()}], "scanned": mime != "application/pdf"}, USER)
+            added += 1
+    print(f"{company}: {added} documents added ({scans} as scanner images), each filed by the automatic sorting.")
+    return 0
+
+
 def datetime_of(s: str) -> date:
     m, dd, y = s.split("/")
     return date(int(y), int(m), int(dd))
 
 
 if __name__ == "__main__":
+    if len(sys.argv) == 3 and sys.argv[2] == "--paperwork":
+        raise SystemExit(paperwork(sys.argv[1]))
     if len(sys.argv) != 2:
-        raise SystemExit("usage: demo_data.py <CompanyName>   (e.g. Demo_Office)")
+        raise SystemExit("usage: demo_data.py <CompanyName>              new demo company (e.g. Sunshine_Office)\n"
+                         "       demo_data.py <CompanyName> --paperwork  add made-up files to its patients")
     raise SystemExit(main(sys.argv[1]))

@@ -139,6 +139,8 @@ table.g tfoot td { position: sticky; bottom: 0; background: #f1ecdf; border-top:
   white-space: nowrap; display: flex; gap: 6px; align-items: center; flex: none; }
 .doctabs .dt.on { background: var(--win); font-weight: 700; border-bottom: 1px solid var(--win); }
 .doctabs .dt .x { color: #fff; background: #cf5a50; border-radius: 2px; padding: 0 4px; font-size: 10px; font-weight: 700; border: 0; line-height: 14px; }
+a.btn { display: inline-block; padding: 3px 10px; border: 1px solid var(--edge); border-radius: 3px; background: linear-gradient(#fff, #e8e3d3); color: #222; text-decoration: none; }
+table.g tr.dochead td { background: #efe9d6; color: #4a3f1f; font-size: 11px; padding-top: 5px; }
 .livebar { flex: none; }
 .livebar .lv { padding: 4px 10px; border-bottom: 1px solid var(--edge-soft); display: flex; gap: 10px; align-items: center; }
 .livebar .lv.newer { background: #fff3c4; color: #5c4400; font-weight: 700; }
@@ -703,12 +705,13 @@ body.locked > :not(.login):not(#print) { display: none !important; }
               <div class="gb"><h2>Documents <span class="pick msg" style="font-size:11px">scans and files, kept encrypted on Main - not in email</span></h2>
                 <div class="in">
                   <div class="form" style="grid-template-columns:max-content 1fr max-content 1fr">
-                    <label for="doc_cat">Category:</label><select id="doc_cat"></select>
+                    <label for="doc_cat">Folder:</label><select id="doc_cat"></select>
                     <label for="doc_title">Title:</label><input id="doc_title" placeholder="optional - e.g. Intake packet">
                   </div>
-                  <div style="display:flex;gap:6px;margin:6px 0"><button type="button" id="docScan" class="primary">📠 Scan</button><button type="button" id="docFile">📎 Add File…</button>
+                  <div style="display:flex;gap:6px;margin:6px 0"><button type="button" id="docScan" class="primary">📠 Scan</button><button type="button" id="docFile">📎 Add File…</button><button type="button" id="docSend" title="One PDF of the records an office or attorney asked for">📤 Send Records…</button>
                     <input type="file" id="docInput" accept="image/jpeg,image/png,application/pdf" multiple hidden><span class="msg" id="docMsg"></span></div>
-                  <table class="g" style="table-layout:auto"><thead><tr><th>Date</th><th>Title</th><th>Category</th><th>Pages</th><th>Added By</th></tr></thead><tbody id="docRows"></tbody></table>
+                  <table class="g" style="table-layout:auto"><thead><tr><th>Date on Page</th><th>Title</th><th>Pages</th><th>Added</th><th>By</th></tr></thead><tbody id="docRows"></tbody></table>
+                  <div id="docSent" class="msg" style="margin-top:6px"></div>
                 </div></div>
               <div class="gb"><h2>Reminder Note</h2><div class="in"><textarea data-p="reminder" aria-label="Reminder note" placeholder="Shown under the patient in the detail pane"></textarea></div></div>
             </div>
@@ -846,8 +849,21 @@ body.locked > :not(.login):not(#print) { display: none !important; }
 <div class="modal" id="docview" hidden>
   <div class="mwin wide">
     <div class="mt" id="dvTitle">Document</div>
-    <div class="mbar"><button id="dvPrint" class="primary">🖨 Print</button><button id="dvDelete">Delete</button><span class="hint" id="dvNote"></span><span class="spacer"></span><button id="dvClose">Close</button></div>
+    <div class="mbar"><button id="dvPrint" class="primary">🖨 Print</button><button id="dvDelete">Delete</button><label style="margin-left:8px">Move to <select id="dvMove"></select></label><span class="hint" id="dvNote"></span><span class="spacer"></span><button id="dvClose">Close</button></div>
     <div class="pvpage" id="dvPages" style="text-align:center"></div>
+  </div>
+</div>
+<div class="modal" id="recview" hidden>
+  <div class="mwin wide">
+    <div class="mt">Send Records</div>
+    <div class="mbar"><button id="rvMake" class="primary">Make Packet</button><span class="hint" id="rvNote">One PDF: cover page, contents, then each folder in date order. Print it, fax it or save it to email.</span><span class="spacer"></span><button id="rvClose">Close</button></div>
+    <div class="form" style="grid-template-columns:max-content 1fr max-content max-content max-content max-content;padding:8px">
+      <label for="rv_to">For (who asked):</label><input id="rv_to" placeholder="e.g. Bay Area Injury Law, or Dr. Example's office">
+      <label for="rv_from">Dates from:</label><input id="rv_from" placeholder="MM/DD/YYYY - blank = all" style="width:130px">
+      <label for="rv_until">to:</label><input id="rv_until" placeholder="MM/DD/YYYY" style="width:110px">
+    </div>
+    <div id="rvFolders" style="padding:0 8px 8px;display:flex;flex-wrap:wrap;gap:4px 14px"></div>
+    <div class="pvpage" id="rvOut" style="text-align:center"></div>
   </div>
 </div>
 <div class="modal" id="dlview" hidden>
@@ -2559,24 +2575,41 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   function setPageMargin(red) { $("pagestyle").textContent = "@page { size: letter; margin: " + (red ? "0" : "0.35in") + "; }"; }
 
   // ============ patient documents (scans) ============
-  var DOC_CATS = ["Patient File", "Intake / Forms", "PIP Forms", "Insurance Card / ID", "EOB / Carrier Mail", "Medical Records", "Attorney", "X-Ray / Imaging", "Other"];
-  $("doc_cat").innerHTML = DOC_CATS.map(function (c) { return "<option>" + c + "</option>"; }).join("");
+  // Folders, in the order the patient's file is kept. Files are sorted into
+  // them on Main as they come in (docsort.py); "Auto" is the default.
+  var DOC_CATS = ["SOAP / Treatment Notes", "Bills (CMS-1500)", "EOB / Carrier Payments", "Signed Forms", "Legal / Attorney",
+                  "Insurance Card / ID", "X-Ray / Imaging", "Outside Medical Records", "Correspondence", "Needs Sorting"];
+  var DOC_OLD = { "Patient File": "Needs Sorting", "Intake / Forms": "Signed Forms", "PIP Forms": "Signed Forms", "EOB / Carrier Mail": "EOB / Carrier Payments",
+                  "Medical Records": "Outside Medical Records", "Attorney": "Legal / Attorney", "Other": "Needs Sorting" };
+  function docCat(x) { return DOC_CATS.indexOf(x.category) >= 0 ? x.category : (DOC_OLD[x.category] || "Needs Sorting"); }
+  function docWhen(x) { return x.from ? x.from + (x.to && x.to !== x.from ? " – " + x.to : "") : (x.doc_date || ""); }
+  function docKey(x) { var d = parseDate(x.sort_date || x.doc_date || x.to || x.date); return d ? d.getTime() : 0; }
+  $("doc_cat").innerHTML = '<option value="">Auto - Thunder sorts it</option>' + DOC_CATS.map(function (c) { return "<option>" + c + "</option>"; }).join("");
+  $("dvMove").innerHTML = DOC_CATS.map(function (c) { return "<option>" + c + "</option>"; }).join("");
   var hasScanner = !!(window.thunder && window.thunder.scan);
   $("docScan").title = hasScanner ? "Scan from the scanner plugged into this computer (all pages in the feeder)" : "Scanning works in the Thunder Claims program on the office computer";
   function renderDocs(d) {
-    var docs = (d.data.documents || []).slice().reverse();
+    var docs = d.data.documents || [];
     $("docScan").disabled = !d.id || !hasScanner; $("docFile").disabled = !d.id;
     if (!d.id) $("docMsg").textContent = "Save the patient first.";
-    $("docRows").innerHTML = docs.length ? docs.map(function (x) {
-      return '<tr class="item" data-doc="' + esc(x.id) + '" style="cursor:pointer"><td>' + esc(x.date) + '</td><td>' + esc(x.title) + '</td><td>' + esc(x.category) +
-        '</td><td>' + esc(x.pages) + '</td><td>' + esc((x.added_by || "").toUpperCase()) + '</td></tr>'; }).join("")
-      : '<tr class="empty"><td colspan="5">No documents yet.</td></tr>';
+    $("docSend").disabled = !d.id || !docs.length; renderSent(d);
+    if (!docs.length) { $("docRows").innerHTML = '<tr class="empty"><td colspan="5">No documents yet.</td></tr>'; return; }
+    // one heading per folder, newest page date first inside it - the patient's file, kept in order
+    $("docRows").innerHTML = DOC_CATS.map(function (cat) {
+      var rows = docs.filter(function (x) { return docCat(x) === cat; }).sort(function (a, b) { return docKey(b) - docKey(a); });
+      if (!rows.length) return "";
+      return '<tr class="dochead"><td colspan="5"><b>' + esc(cat) + '</b> (' + rows.length + ')' + (cat === "Needs Sorting" ? ' - open each and use Move to' : '') + '</td></tr>' +
+        rows.map(function (x) {
+          return '<tr class="item" data-doc="' + esc(x.id) + '" style="cursor:pointer"' + (x.warning ? ' title="' + esc(x.warning) + '"' : '') + '><td>' + esc(docWhen(x)) + '</td><td>' +
+            (x.warning ? '<span style="color:#b00020">⚠ </span>' : '') + esc(x.title) + '</td><td>' + esc(x.pages) + '</td><td>' + esc(x.date) + '</td><td>' + esc((x.added_by || "").toUpperCase()) + '</td></tr>'; }).join("");
+    }).join("");
   }
   function saveDocument(pages, scanned, name) {
     var d = cur(); if (!d || d.kind !== "patient" || !d.id) return Promise.resolve();
-    $("docMsg").textContent = "Saving " + pages.length + " page(s), encrypted…";
+    $("docMsg").textContent = "Saving " + pages.length + " page(s), encrypted" + ($("doc_cat").value ? "…" : " - Thunder is reading it to file it…");
     return api("POST", "/api/document", JSON.stringify({ patient_id: d.id, pages: pages, scanned: !!scanned, title: $("doc_title").value.trim() || name || "", category: $("doc_cat").value }))
-      .then(function (m) { if (m.patient_rev) d.data._rev = m.patient_rev; delete m.patient_rev; d.data.documents = (d.data.documents || []).concat([m]); $("doc_title").value = ""; renderDocs(d); $("docMsg").textContent = "Saved: " + m.title + " (" + m.pages + " page" + (m.pages === 1 ? "" : "s") + ")."; })
+      .then(function (m) { if (m.patient_rev) d.data._rev = m.patient_rev; delete m.patient_rev; d.data.documents = (d.data.documents || []).concat([m]); $("doc_title").value = ""; renderDocs(d);
+        $("docMsg").textContent = "Filed under " + m.category + ": " + m.title + " (" + m.pages + " page" + (m.pages === 1 ? "" : "s") + ")." + (m.warning ? "  ⚠ " + m.warning : ""); })
       .catch(function (e) { $("docMsg").textContent = "Not saved: " + e.message; });
   }
   $("docScan").onclick = function () {
@@ -2602,8 +2635,10 @@ body.locked > :not(.login):not(#print) { display: none !important; }
     var tr = e.target.closest("[data-doc]"); if (!tr) return;
     api("GET", "/api/rec/" + tr.dataset.doc).then(function (r) {
       dvDoc = r; var x = r.data;
-      $("dvTitle").textContent = x.title + " - " + x.category + " - " + x.date;
-      $("dvNote").textContent = x.pages.length + " page(s), added by " + (x.added_by || "").toUpperCase();
+      $("dvTitle").textContent = x.title + " - " + docCat(x) + (docWhen(x) ? " - " + docWhen(x) : "");
+      $("dvNote").textContent = x.pages.length + " page(s), added " + x.date + " by " + (x.added_by || "").toUpperCase() +
+        (x.sorted_by === "auto" ? " · filed automatically (" + (x.how || "") + ")" : "") + (x.warning ? " · ⚠ " + x.warning : "");
+      $("dvMove").value = docCat(x);
       $("dvDelete").disabled = !can("delete"); $("dvDelete").title = can("delete") ? "" : NOPE;
       $("dvPages").innerHTML = x.pages.map(function (pg, i) {
         if (pg.type === "application/pdf") { var u = URL.createObjectURL(new Blob([Uint8Array.from(atob(pg.data), function (ch) { return ch.charCodeAt(0); })], { type: "application/pdf" }));
@@ -2612,6 +2647,51 @@ body.locked > :not(.login):not(#print) { display: none !important; }
       $("docview").hidden = false;
     }).catch(function (err) { setMsg("Couldn’t open it: " + err.message); });
   });
+  // ---- Send Records: the folders an office asked for, as one PDF ----
+  var rvUrl = null;
+  function renderSent(d) {
+    var s = (d.data.disclosures || []).slice(-5).reverse();
+    $("docSent").innerHTML = s.length ? "<b>Records sent:</b> " + s.map(function (x) { return esc(x.date.split(" ")[0]) + " to " + esc(x.to) + " (" + x.documents.length + " docs, " + x.pages + " pages, " + esc(String(x.by).toUpperCase()) + ")"; }).join(" · ") : "";
+  }
+  $("docSend").onclick = function () {
+    var d = cur(); if (!d || d.kind !== "patient" || !d.id) return;
+    if (!can("records")) return setMsg("Sending records is " + NOPE.toLowerCase());
+    var have = {}; (d.data.documents || []).forEach(function (x) { var c = docCat(x); have[c] = (have[c] || 0) + 1; });
+    $("rvFolders").innerHTML = DOC_CATS.map(function (c) {
+      return '<label><input type="checkbox" data-rvcat="' + esc(c) + '"' + (have[c] && c !== "Needs Sorting" ? " checked" : "") + (have[c] ? "" : " disabled") + '> ' + esc(c) + ' (' + (have[c] || 0) + ')</label>'; }).join("");
+    $("rvOut").innerHTML = ""; $("rvNote").textContent = "One PDF: cover page, contents, then each folder in date order. Print it, fax it or save it to email.";
+    $("recview").hidden = false; $("rv_to").focus();
+  };
+  $("rvClose").onclick = function () { $("recview").hidden = true; $("rvOut").innerHTML = ""; if (rvUrl) { URL.revokeObjectURL(rvUrl); rvUrl = null; } };
+  $("rvMake").onclick = function () {
+    var d = cur(); if (!d || !d.id) return;
+    var folders = [].slice.call(document.querySelectorAll("[data-rvcat]:checked")).map(function (b) { return b.dataset.rvcat; });
+    if (!$("rv_to").value.trim()) { $("rvNote").textContent = "Say who the records are for - it goes on the cover page and in the patient's record of what was sent."; return; }
+    $("rvNote").textContent = "Putting the packet together on Main…"; $("rvMake").disabled = true;
+    fetch("/api/records/packet", { method: "POST", cache: "no-store", headers: { "Content-Type": "application/json", Authorization: "Bearer " + S.token },
+      body: JSON.stringify({ patient_id: d.id, folders: folders, from: $("rv_from").value.trim(), to: $("rv_until").value.trim(), recipient: $("rv_to").value.trim() }) })
+      .then(function (r) {
+        if (!r.ok) return r.json().catch(function () { return {}; }).then(function (j) { throw new Error(j.error || r.statusText); });
+        var pages = r.headers.get("X-Packet-Pages"), n = r.headers.get("X-Packet-Documents");
+        return r.blob().then(function (b) {
+          if (rvUrl) URL.revokeObjectURL(rvUrl);
+          rvUrl = URL.createObjectURL(b);
+          var name = "Records - " + (d.data.patient_name || "patient").replace(/[^A-Za-z0-9 ,.-]/g, "") + " - " + $("rv_to").value.trim().replace(/[^A-Za-z0-9 ,.-]/g, "") + ".pdf";
+          $("rvOut").innerHTML = '<div style="margin:4px 0 8px"><a class="btn" href="' + rvUrl + '" download="' + esc(name) + '">💾 Save PDF</a> <span class="hint">or use the printer button in the PDF\'s own toolbar</span></div>' +
+            '<iframe src="' + rvUrl + '" style="width:100%;height:70vh;border:1px solid #999;background:#fff"></iframe>';
+          $("rvNote").textContent = n + " documents, " + pages + " pages. Noted on the patient: sent to " + $("rv_to").value.trim() + ".";
+          return api("GET", "/api/rec/" + d.id).then(function (rr) { if (!d.dirty) { d.data = prep("patient", rr.data); } else { d.data.disclosures = rr.data.disclosures; d.data._rev = rr.data._rev; } renderSent(d); });
+        });
+      }).catch(function (e) { $("rvNote").textContent = "Not made: " + e.message; }).finally(function () { $("rvMake").disabled = false; });
+  };
+  $("dvMove").onchange = function () {
+    if (!dvDoc) return; var id = dvDoc.id, cat = this.value;
+    api("POST", "/api/document/move", JSON.stringify({ id: id, category: cat })).then(function (r) {
+      var d = cur(); if (d && d.kind === "patient") { if (r.patient_rev) d.data._rev = r.patient_rev;
+        (d.data.documents || []).forEach(function (x) { if (x.id === id) { x.category = cat; x.sorted_by = S.user; } }); renderDocs(d); }
+      dvDoc.data.category = cat; setMsg("Moved to " + cat + ".");
+    }).catch(function (e) { alert("Not moved: " + e.message); });
+  };
   $("dvClose").onclick = function () { $("docview").hidden = true; $("dvPages").innerHTML = ""; dvDoc = null; };
   $("dvPrint").onclick = function () {
     if (!dvDoc) return; setPageMargin(false);

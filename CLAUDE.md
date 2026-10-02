@@ -55,7 +55,7 @@ assumed.
   adduser <name>` (also `users`, `passwd`, `disable`, `enable`). Lockout after
   5 wrong tries (15 min), auto-logoff after 15 idle minutes, sessions in memory
   only. `access.log` in the vault dir records who/ip/path/status (ids only),
-  and the vault audit credits the logged-in person. `test_claims_web.py` = 155
+  and the vault audit credits the logged-in person. `test_claims_web.py` = 174
   checks, mostly attacks. **Synthetic patients only**; nothing is ever
   submitted to a payer. The UI mimics EZClaim on purpose - see
   `thunder-claims/EZCLAIM-LOOK.md` (EZClaim's videos studied frame by frame).
@@ -135,6 +135,28 @@ assumed.
   deleted at once; the page sees only `window.thunder.scan` (preload.js).
   Untested on a real scanner until it runs on an office PC; Add File works
   everywhere.
+  **Automatic filing (2026-10-02, Blayne: no one chats with Thunder, files
+  just end up organized):** every upload/scan with folder "Auto" is sorted on
+  Main by `docsort.py` - text from the PDF or tesseract (first 3 pages), then
+  keyword rules (CMS-1500, EOB/EOR, SOAP S/O/A/P, AOB, standard disclosure,
+  LOR, radiology, ER...), and only if the rules are unsure, Thunder's local
+  model (same origin gate and num_ctx as extract.py) picking from the fixed
+  list; neither sure -> **Needs Sorting**, never a guess. Folders: SOAP /
+  Treatment Notes, Bills (CMS-1500), EOB / Carrier Payments, Signed Forms,
+  Legal / Attorney, Insurance Card / ID, X-Ray / Imaging, Outside Medical
+  Records, Correspondence, Needs Sorting (old category names map onto them).
+  Dated by the page: the from-to a bill/EOB covers, a SOAP note's date of
+  service, the signing date - never the DOB or the date of loss. A page with a
+  different DOB or another patient's name gets a warning. "Move to" in the
+  viewer refiles. `THUNDER_DOCSORT_MODEL=off` = rules only (tests).
+  **Send Records** (patient > Documents): pick folders + date range + who
+  asked -> one PDF built on Main (`packet.py`: cover page, contents with page
+  numbers, documents by folder then date; JPEG/PNG embedded without
+  libraries, poppler `pdfunite`). Every packet is recorded on the patient
+  (`disclosures`: to, by, when, which documents) and in the vault audit -
+  the accounting of disclosures. Permission `records`. Demo paperwork:
+  `demo_data.py <Company> --paperwork` (through the real upload path).
+  `test_docsort.py` = 31; test_claims_web = 174.
   The offices mostly use **Epson ES-400 / ES-500 / FF-680W** (Epson Scan 2 =
   TWAIN, WIA uncertain), so scan.ps1 falls back to the free **NAPS2** console
   (`--driver twain`, one PDF of every page) when WIA sees no scanner. NAPS2
@@ -176,7 +198,7 @@ assumed.
   successful polls are not access-logged. In the program: an untouched open
   record reloads itself, one being typed in gets a yellow "X just saved this -
   Load Their Version" bar, tabs show 👥 / ⚠, and grids refresh the affected
-  kinds. test_claims_web = 155. (4) connect Main to the offices' existing VPN -
+  kinds. test_claims_web = 174. (4) connect Main to the offices' existing VPN -
   **parked (Blayne 2026-10-01): this is a demo to win Dad and the offices
   over, not close to going live.** Favour what makes the demo convincing. **The offices already
   run EZClaim this way**: central system, every office VPNs in, split by office.

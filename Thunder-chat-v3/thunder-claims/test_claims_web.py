@@ -30,6 +30,7 @@ os.environ["THUNDER_CLAIMS_PREFS"] = str(TMP / "prefs.json")
 os.environ["THUNDER_CLAIMS_COMPANIES"] = str(TMP / "companies.json")
 os.environ["THUNDER_CLAIMS_COMPANY_DIR"] = str(TMP / "companies")
 os.environ.pop("THUNDER_CLAIMS_PASSWORD", None)
+os.environ["THUNDER_DOCSORT_MODEL"] = "off"   # never wake the real model from a test
 sys.path.insert(0, str(Path(__file__).parent))
 
 import vault  # noqa: E402
@@ -474,6 +475,75 @@ check("saving the patient form cannot wipe its document list", [x["id"] for x in
 check("documents need a login", req("POST", "/api/document", {"patient_id": SPID, "pages": [{"type": "image/jpeg", "data": jpg}]})[0] == 401)
 st, j, _ = req("POST", "/api/delete", {"id": DOC}, token=TOK)
 check("deleting a document takes it off the patient (kept under deleted/)", st == 200 and not req("GET", f"/api/rec/{SPID}", token=TOK)[1]["data"]["documents"])
+
+
+def text_pdf(lines):
+    """A one-page PDF with real text, built by hand (no libraries)."""
+    stream = "BT /F1 12 Tf 50 740 Td 16 TL " + " ".join("(" + l.replace("(", "").replace(")", "") + ") Tj T*" for l in lines) + " ET"
+    objs = ["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>", f"<< /Length {len(stream)} >>\nstream\n{stream}\nendstream"]
+    pdf, offs = b"%PDF-1.4\n", []
+    for i, o in enumerate(objs, 1):
+        offs.append(len(pdf))
+        pdf += f"{i} 0 obj\n{o}\nendobj\n".encode()
+    x = len(pdf)
+    pdf += f"xref\n0 {len(objs) + 1}\n0000000000 65535 f \n".encode() + b"".join(f"{o:010d} 00000 n \n".encode() for o in offs)
+    return pdf + f"trailer << /Size {len(objs) + 1} /Root 1 0 R >>\nstartxref\n{x}\n%%EOF\n".encode()
+
+
+print("automatic filing of uploads")
+eob = text_pdf(["EXPLANATION OF BENEFITS", "Dates of service 08/01/2026 - 08/15/2026", "Amount paid 345.60  Check number 55017"])
+st, m, _ = req("POST", "/api/document", {"patient_id": SPID, "pages": [{"type": "application/pdf", "data": _b64.b64encode(eob).decode()}]}, token=TOK)
+check("an EOB uploaded with no folder picked files itself under EOBs, dated by the page",
+      st == 200 and m["category"] == "EOB / Carrier Payments" and m.get("from") == "08/01/2026" and m.get("to") == "08/15/2026"
+      and m["sorted_by"] == "auto" and m["title"].startswith("EOB 08/01/2026"), m)
+EOBID = m["id"]
+soap = text_pdf(["DAILY NOTE", "Date of service: 08/06/2026", "S: neck pain 5/10", "O: palpation tenderness C5", "A: improving", "P: adjusted C5"])
+st, m, _ = req("POST", "/api/document", {"patient_id": SPID, "pages": [{"type": "application/pdf", "data": _b64.b64encode(soap).decode()}]}, token=TOK)
+check("a SOAP note files itself under SOAP notes with its visit date", st == 200 and m["category"] == "SOAP / Treatment Notes" and m.get("doc_date") == "08/06/2026", m)
+st, m, _ = req("POST", "/api/document", {"patient_id": SPID, "category": "Legal / Attorney", "title": "LOR",
+                                         "pages": [{"type": "application/pdf", "data": _b64.b64encode(soap).decode()}]}, token=TOK)
+check("a folder picked by a person is kept as picked", st == 200 and m["category"] == "Legal / Attorney" and m["sorted_by"] == "blayne" and m["title"] == "LOR", m)
+junk = _b64.b64encode(b"\xff\xd8\xff\xe0" + b"no text at all" * 10).decode()
+st, m, _ = req("POST", "/api/document", {"patient_id": SPID, "pages": [{"type": "image/jpeg", "data": junk}]}, token=TOK)
+check("a page nothing can read goes to Needs Sorting, not a guess", st == 200 and m["category"] == "Needs Sorting", m)
+st, j, _ = req("POST", "/api/document/move", {"id": m["id"], "category": "Signed Forms"}, token=TOK)
+p = req("GET", f"/api/rec/{SPID}", token=TOK)[1]["data"]
+check("Move to files it, on the document and on the patient's list", st == 200 and next(x for x in p["documents"] if x["id"] == m["id"])["category"] == "Signed Forms"
+      and req("GET", f"/api/rec/{m['id']}", token=TOK)[1]["data"]["category"] == "Signed Forms", j)
+check("Move to refuses a folder that does not exist", req("POST", "/api/document/move", {"id": m["id"], "category": "Shoebox"}, token=TOK)[0] == 400)
+check("Move to refuses something that is not a document", req("POST", "/api/document/move", {"id": SPID, "category": "Signed Forms"}, token=TOK)[0] == 400)
+wrong = text_pdf(["HEALTH INSURANCE CLAIM FORM", "NUCC", "PATIENT'S BIRTH DATE  DOB 02/11/1990", "From 08/04/2026 To 08/04/2026  98941"])
+pt_dob = req("GET", f"/api/rec/{SPID}", token=TOK)[1]["data"].get("dob")
+st, m, _ = req("POST", "/api/document", {"patient_id": SPID, "pages": [{"type": "application/pdf", "data": _b64.b64encode(wrong).decode()}]}, token=TOK)
+check("a bill showing another patient's birth date is filed but flagged", st == 200 and m["category"] == "Bills (CMS-1500)" and (not pt_dob or "different date of birth" in m.get("warning", "")), m)
+print("send records")
+st, j, _ = req("POST", "/api/records/packet", {"patient_id": SPID, "folders": ["EOB / Carrier Payments", "SOAP / Treatment Notes"], "recipient": ""}, token=TOK)
+check("a packet must say who it is for", st == 400 and "who" in j.get("error", ""), j)
+c = http.client.HTTPSConnection("localhost", PORT, context=client_ctx, timeout=60)
+c.request("POST", "/api/records/packet", body=json.dumps({"patient_id": SPID, "folders": ["EOB / Carrier Payments", "SOAP / Treatment Notes"],
+          "from": "08/01/2026", "to": "08/31/2026", "recipient": "Bay Area Injury Law (demo)"}), headers={"Content-Type": "application/json", "Authorization": "Bearer " + TOK})
+r = c.getresponse()
+pdf_out, hdr = r.read(), dict(r.getheaders())
+check("Send Records returns one PDF", r.status == 200 and hdr.get("Content-Type") == "application/pdf" and pdf_out.startswith(b"%PDF"), (r.status, pdf_out[:200]))
+check("...with exactly the documents asked for (the EOB and the SOAP note in August, not the bill or the legal letter)",
+      hdr.get("X-Packet-Documents") == "2", hdr)
+txt = subprocess.run(["pdftotext", "-", "-"], input=pdf_out, capture_output=True).stdout.decode(errors="replace")
+check("the cover says who it is for and the contents list each folder", "Bay Area Injury Law" in txt and "CONTENTS" in txt and "SOAP / Treatment Notes" in txt
+      and "EOB / Carrier Payments" in txt and txt.index("SOAP / Treatment Notes") < txt.index("EOB / Carrier Payments", txt.index("CONTENTS")), txt[:600])
+check("the documents themselves follow the contents", "EXPLANATION OF BENEFITS" in txt and "DAILY NOTE" in txt)
+pt = req("GET", f"/api/rec/{SPID}", token=TOK)[1]["data"]
+dis = (pt.get("disclosures") or [{}])[-1]
+check("the patient keeps a record of what was sent, to whom and by whom", dis.get("to") == "Bay Area Injury Law (demo)" and dis.get("by") == "blayne" and len(dis.get("documents", [])) == 2, dis)
+check("the vault's audit log has the disclosure", any(a["action"] == "disclose" and a["record"] == SPID for a in vault.audit_lines()))
+st, j, _ = req("POST", "/api/save", {"kind": "patient", "id": SPID, "data": {**pt, "disclosures": []}}, token=TOK)
+check("saving the patient form cannot erase what was sent", len(req("GET", f"/api/rec/{SPID}", token=TOK)[1]["data"].get("disclosures") or []) == 1)
+st, j, _ = req("POST", "/api/records/packet", {"patient_id": SPID, "folders": ["X-Ray / Imaging"], "recipient": "x"}, token=TOK)
+check("asking for an empty folder says so instead of sending an empty packet", st == 400 and "nothing" in j.get("error", ""), j)
+check("Send Records needs a login", req("POST", "/api/records/packet", {"patient_id": SPID, "folders": ["SOAP / Treatment Notes"], "recipient": "x"})[0] == 401)
+check("the sorting reads nothing into the patient list but ids, folders, dates and titles",
+      "Amount paid" not in json.dumps(req("GET", f"/api/rec/{SPID}", token=TOK)[1]["data"]["documents"]))
 
 print("lost edits (two people, one record)")
 os.environ["CLAIMS_NEW_PASSWORD"] = "second desk passphrase 5"

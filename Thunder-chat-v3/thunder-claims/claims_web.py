@@ -50,6 +50,7 @@ import sys
 import tempfile
 import threading
 import time
+from datetime import date, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -58,6 +59,8 @@ HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE))
 import intake  # noqa: E402  (brings vault, extract, repair, validate, codelist)
 from intake import codelist, vault  # noqa: E402
+import docsort  # noqa: E402
+import packet  # noqa: E402
 import fl_pip  # noqa: E402
 import reports  # noqa: E402
 import validate  # noqa: E402
@@ -688,22 +691,26 @@ def claims_printed(ids: list, when: str, user: str) -> int:
 
 
 DOC_TYPES = {"image/jpeg", "image/png", "application/pdf"}
-DOC_CATEGORIES = ("Patient File", "Intake / Forms", "PIP Forms", "Insurance Card / ID", "EOB / Carrier Mail",
-                  "Medical Records", "Attorney", "X-Ray / Imaging", "Other")
+DOC_CATEGORIES = docsort.CATEGORIES
+DOC_KEEP = ("category", "title", "doc_date", "from", "to", "sort_date", "how", "warning", "sorted_by")
 
 
-@atomic
 def add_document(pid: str, data: dict, user: str) -> dict:
     """A scanned or uploaded file, kept encrypted in the vault like every
     other record - this is what replaces emailing scans to Gmail. The
-    patient record carries the list (title, date, pages) so opening a
-    patient never has to decrypt the files themselves."""
+    patient record carries the list (title, dates, pages) so opening a
+    patient never has to decrypt the files themselves.
+
+    Unless someone picked a folder, the file is sorted on Main as it comes in
+    (docsort: rules first, Thunder's local model only when the rules cannot
+    tell, Needs Sorting when neither is sure) - SOAP notes, bills, EOBs,
+    signed forms and so on, dated by what the page says."""
     if not ID_RE.match(pid) or kind_of(pid) != "patient" or not vault.exists(pid):
         raise ValueError("save the patient first")
     pages = data.get("pages") or []
     if not pages or len(pages) > 200:
         raise ValueError("nothing to save")
-    clean, total = [], 0
+    clean, raws, total = [], [], 0
     for pg in pages:
         mime, b64 = str(pg.get("type") or ""), str(pg.get("data") or "")
         if mime not in DOC_TYPES:
@@ -714,16 +721,132 @@ def add_document(pid: str, data: dict, user: str) -> dict:
             raise ValueError("that file is not really a " + mime.split("/")[1].upper())
         total += len(raw)
         clean.append({"type": mime, "data": b64})
-    title = str(data.get("title") or "").strip()[:80] or "Scan " + time.strftime("%m/%d/%Y %I:%M %p")
-    cat = data.get("category") if data.get("category") in DOC_CATEGORIES else "Patient File"
+        raws.append((mime, raw))
+    picked = data.get("category") if data.get("category") in DOC_CATEGORIES else ""
+    # Reading the pages takes seconds, so it happens before anything is locked.
+    if picked:
+        found = {"category": picked, "how": "chosen by " + user, "sorted_by": user}
+    else:
+        p0 = vault.get(pid)
+        payers = [str(r.get("name") or "") for _, r in records("payer")]
+        found = sort_document(raws, p0, payers)
+        found["sorted_by"] = "auto"
+    return _store_document(pid, user, data, clean, total, found)
+
+
+def sort_document(raws, patient: dict, payers: list[str]) -> dict:
+    """docsort's answer, renamed for the document list (the list's own
+    "date" stays the day it was added; the page's date is doc_date)."""
+    r = docsort.sort_upload(raws, patient, payers)
+    if "date" in r:
+        r["doc_date"] = r.pop("date")
+    return r
+
+
+@atomic
+def _store_document(pid: str, user: str, data: dict, clean: list, total: int, found: dict) -> dict:
+    if not vault.exists(pid):
+        raise ValueError("save the patient first")
+    title = str(data.get("title") or "").strip()[:80] or found.get("title") or "Scan " + time.strftime("%m/%d/%Y %I:%M %p")
     did = new_id("document")
-    meta = {"id": did, "title": title, "category": cat, "date": time.strftime("%m/%d/%Y"), "pages": len(clean),
-            "kb": round(total / 1024), "added_by": user, "source": "scanner" if data.get("scanned") else "file"}
+    meta = {"id": did, "date": time.strftime("%m/%d/%Y"), "pages": len(clean),
+            "kb": round(total / 1024), "added_by": user, "source": "scanner" if data.get("scanned") else "file",
+            **{k: found[k] for k in DOC_KEEP if found.get(k)}, "title": title}
+    meta.setdefault("category", docsort.NEEDS)
     put_rec(did, {"patient_id": pid, **meta, "pages": clean}, KINDS["document"]["index"])
     p = vault.get(pid)
     p.setdefault("documents", []).append({k: v for k, v in meta.items()})
     put_rec(pid, p, KINDS["patient"]["index"])
     return {**meta, "patient_rev": p["_rev"]}
+
+
+def _when(m: dict) -> tuple:
+    """(first, last) date a document covers, from what its pages say; else the
+    day it was added."""
+    def d(s):
+        try:
+            return datetime.strptime(str(s or ""), "%m/%d/%Y").date()
+        except ValueError:
+            return None
+    a = d(m.get("from")) or d(m.get("doc_date")) or d(m.get("date"))
+    b = d(m.get("to")) or a
+    return a, b
+
+
+def send_records(pid: str, cats: list, frm: str, to: str, recipient: str, user: str) -> tuple[bytes, dict]:
+    """The records an office asked for, as one PDF, and a note of the
+    disclosure on the patient (who, to whom, what, when)."""
+    if not ID_RE.match(pid) or kind_of(pid) != "patient" or not vault.exists(pid):
+        raise ValueError("no such patient")
+    cats = [c for c in cats if c in DOC_CATEGORIES]
+    if not cats:
+        raise ValueError("pick at least one folder")
+    recipient = str(recipient or "").strip()[:80]
+    if not recipient:
+        raise ValueError("say who the records are for")
+    lo, hi = _when({"date": frm})[0] if frm else None, _when({"date": to})[0] if to else None
+    if (frm and not lo) or (to and not hi):
+        raise ValueError("dates are MM/DD/YYYY")
+    p = vault.get(pid)
+    chosen = []
+    for m in p.get("documents") or []:
+        if docsort.category_of(m.get("category") or "") not in cats:
+            continue
+        a, b = _when(m)
+        if (lo or hi) and not a:
+            continue
+        if lo and b < lo or hi and a > hi:
+            continue
+        chosen.append(m)
+    order = {c: i for i, c in enumerate(DOC_CATEGORIES)}
+    chosen.sort(key=lambda m: (order[docsort.category_of(m.get("category") or "")], _when(m)[0] or date.min))
+    docs = []
+    for m in chosen:
+        doc = vault.get(m["id"])
+        when = (m.get("from", "") + (" - " + m["to"] if m.get("to") and m.get("to") != m.get("from") else "")) if m.get("from") else m.get("doc_date", "")
+        docs.append({"category": docsort.category_of(m.get("category") or ""), "title": m.get("title") or "Document", "when": when,
+                     "pages": [{"type": pg["type"], "raw": base64.b64decode(pg["data"])} for pg in doc.get("pages") or []]})
+    st = get_settings().get("statement") or {}
+    addr = ", ".join(x for x in (st.get("return_addr1"), st.get("return_city"), st.get("return_state"), st.get("return_zip"), st.get("return_phone")) if x)
+    period = (frm or "the first record") + " to " + (to or "today") if (frm or to) else "all dates"
+    try:
+        pdf, pages = packet.build({"practice": st.get("return_name") or "", "practice_addr": addr, "patient": p.get("patient_name", ""),
+                                   "dob": p.get("dob", ""), "account": p.get("account_number", ""), "period": period, "recipient": recipient,
+                                   "prepared": time.strftime("%m/%d/%Y %I:%M %p"), "by": user.upper()}, docs)
+    except packet.PacketError as e:
+        raise ValueError(str(e))
+    entry = {"date": time.strftime("%m/%d/%Y %I:%M %p"), "to": recipient, "by": user, "folders": cats, "period": period,
+             "documents": [m["id"] for m in chosen], "pages": pages}
+    _note_disclosure(pid, entry)
+    return pdf, entry
+
+
+@atomic
+def _note_disclosure(pid: str, entry: dict) -> None:
+    p = vault.get(pid)
+    p.setdefault("disclosures", []).append(entry)
+    put_rec(pid, p, KINDS["patient"]["index"])
+    vault.audit("disclose", pid, True, f"{len(entry['documents'])} documents, {entry['pages']} pages")
+
+
+@atomic
+def move_document(did: str, category: str, user: str) -> dict:
+    """Put a document in another folder (fixing Needs Sorting or a wrong
+    guess). The document and the patient's list change together."""
+    if not ID_RE.match(did) or kind_of(did) != "document" or not vault.exists(did):
+        raise ValueError("no such document")
+    if category not in DOC_CATEGORIES:
+        raise ValueError("unknown folder")
+    doc = vault.get(did)
+    doc.update(category=category, sorted_by=user, how="moved by " + user)
+    put_rec(did, doc, KINDS["document"]["index"])
+    pid = str(doc.get("patient_id") or "")
+    p = vault.get(pid)
+    for m in p.get("documents") or []:
+        if m.get("id") == did:
+            m.update(category=category, sorted_by=user, how="moved by " + user)
+    put_rec(pid, p, KINDS["patient"]["index"])
+    return {"id": did, "category": category, "patient_rev": p["_rev"]}
 
 
 @atomic
@@ -938,8 +1061,10 @@ def _save(kind: str, record_id: str | None, data: dict, user: str = "user") -> d
         data["done"] = data.get("status") == "Completed"
     else:
         if kind == "patient":
-            if record_id and vault.exists(rid):   # the document list is the server's, never the form's
-                data["documents"] = vault.get(rid).get("documents") or []
+            if record_id and vault.exists(rid):   # the document list and what was sent are the server's, never the form's
+                old = vault.get(rid)
+                data["documents"] = old.get("documents") or []
+                data["disclosures"] = old.get("disclosures") or []
             last, first, mi = (str(data.get(k) or "").strip() for k in ("last_name", "first_name", "mi"))
             if last or first:
                 data["patient_name"] = (last + ", " + first + (" " + mi if mi else "")).upper().strip(", ")
@@ -1313,6 +1438,7 @@ PERMS = {
     "delete": "Delete records (and merge patients)",
     "setup": "Change Program Setup",
     "reports": "Run reports",
+    "records": "Send patient records (record packets)",
 }
 
 
@@ -1669,6 +1795,15 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/api/document":
             b = json.loads(self._body() or b"{}")
             return self._send(200, add_document(str(b.get("patient_id") or ""), b, who))
+        if u.path == "/api/records/packet":
+            need(who, "records")
+            b = json.loads(self._body() or b"{}")
+            pdf, entry = send_records(str(b.get("patient_id") or ""), list(b.get("folders") or []), str(b.get("from") or ""),
+                                      str(b.get("to") or ""), str(b.get("recipient") or ""), who)
+            return self._send(200, pdf, "application/pdf", {"X-Packet-Pages": str(entry["pages"]), "X-Packet-Documents": str(len(entry["documents"]))})
+        if u.path == "/api/document/move":
+            b = json.loads(self._body() or b"{}")
+            return self._send(200, move_document(str(b.get("id") or ""), str(b.get("category") or ""), who))
         if u.path == "/api/delete":
             need(who, "delete")
             b = json.loads(self._body() or b"{}")
