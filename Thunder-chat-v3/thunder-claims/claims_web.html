@@ -2624,28 +2624,50 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   $("docFile").onclick = function () { $("docInput").value = ""; $("docInput").click(); };
   $("docInput").addEventListener("change", function () {
     var files = [].slice.call(this.files || []); if (!files.length) return;
+    var pics = files.filter(function (f) { return f.type !== "application/pdf"; });
     var read = function (f) { return new Promise(function (res, rej) { var fr = new FileReader(); fr.onload = function () { res({ type: f.type, data: String(fr.result).split(",")[1], name: f.name.replace(/\.[^.]+$/, "") }); }; fr.onerror = rej; fr.readAsDataURL(f); }); };
-    Promise.all(files.map(read)).then(function (pages) {
+    Promise.all(pics.map(read)).then(function (pages) {
       var imgs = pages.filter(function (x) { return x.type !== "application/pdf"; }), pdfs = pages.filter(function (x) { return x.type === "application/pdf"; });
-      var jobs = (imgs.length ? [imgs] : []).concat(pdfs.map(function (x) { return [x]; }));   // images become one document; each PDF its own
-      return jobs.reduce(function (pr, pg) { return pr.then(function () { return saveDocument(pg.map(function (x) { return { type: x.type, data: x.data }; }), false, pg.length === 1 ? pg[0].name : ""); }); }, Promise.resolve());
+      var job = imgs.length ? saveDocument(imgs.map(function (x) { return { type: x.type, data: x.data }; }), false, imgs.length === 1 ? imgs[0].name : "") : Promise.resolve();
+      return job;   // images become one document
     });
+    // each PDF goes up as itself - hospital records can be hundreds of pages and MB
+    files.filter(function (f) { return f.type === "application/pdf"; }).reduce(function (pr, f) { return pr.then(function () { return uploadFile(f); }); }, Promise.resolve());
   });
-  var dvDoc = null;
+  function uploadFile(f) {
+    var d = cur(); if (!d || d.kind !== "patient" || !d.id) return Promise.resolve();
+    if (f.size > 300 * 1024 * 1024) { $("docMsg").textContent = f.name + " is " + Math.round(f.size / 1048576) + " MB - the limit is 300 MB per file."; return Promise.resolve(); }
+    $("docMsg").textContent = "Uploading " + f.name + " (" + Math.max(1, Math.round(f.size / 1048576)) + " MB), encrypted" + ($("doc_cat").value ? "…" : " - Thunder is reading it to file it…");
+    var q = "patient_id=" + encodeURIComponent(d.id) + "&category=" + encodeURIComponent($("doc_cat").value) + "&title=" + encodeURIComponent($("doc_title").value.trim() || f.name.replace(/\.[^.]+$/, ""));
+    return api("POST", "/api/document/upload?" + q, f, { "Content-Type": f.type }).then(function (m) {
+      if (m.patient_rev) d.data._rev = m.patient_rev; delete m.patient_rev; d.data.documents = (d.data.documents || []).concat([m]); $("doc_title").value = ""; renderDocs(d);
+      $("docMsg").textContent = "Filed under " + m.category + ": " + m.title + " (" + m.pages + " page" + (m.pages === 1 ? "" : "s") + ", " + Math.max(1, Math.round(m.kb / 1024)) + " MB)." + (m.warning ? "  ⚠ " + m.warning : "");
+    }).catch(function (e) { $("docMsg").textContent = "Not saved: " + e.message; });
+  }
+  var dvDoc = null, dvUrls = [];
   $("docRows").addEventListener("click", function (e) {
     var tr = e.target.closest("[data-doc]"); if (!tr) return;
     api("GET", "/api/rec/" + tr.dataset.doc).then(function (r) {
       dvDoc = r; var x = r.data;
       $("dvTitle").textContent = x.title + " - " + docCat(x) + (docWhen(x) ? " - " + docWhen(x) : "");
-      $("dvNote").textContent = x.pages.length + " page(s), added " + x.date + " by " + (x.added_by || "").toUpperCase() +
+      $("dvNote").textContent = (typeof x.pages === "number" ? x.pages : (x.pages || []).length) + " page(s)" + (x.kb > 1024 ? ", " + Math.round(x.kb / 1024) + " MB" : "") + ", added " + x.date + " by " + (x.added_by || "").toUpperCase() +
         (x.sorted_by === "auto" ? " · filed automatically (" + (x.how || "") + ")" : "") + (x.warning ? " · ⚠ " + x.warning : "");
       $("dvMove").value = docCat(x);
       $("dvDelete").disabled = !can("delete"); $("dvDelete").title = can("delete") ? "" : NOPE;
-      $("dvPages").innerHTML = x.pages.map(function (pg, i) {
-        if (pg.type === "application/pdf") { var u = URL.createObjectURL(new Blob([Uint8Array.from(atob(pg.data), function (ch) { return ch.charCodeAt(0); })], { type: "application/pdf" }));
-          return '<iframe src="' + u + '" style="width:100%;height:78vh;border:1px solid #999;background:#fff"></iframe>'; }
-        return '<img src="data:' + pg.type + ';base64,' + pg.data + '" alt="Page ' + (i + 1) + '" style="max-width:100%;border:1px solid #999;margin:0 auto 10px;display:block;background:#fff">'; }).join("");
+      // each file streamed from Main as itself (big records never travel base64 or sit whole in memory)
+      var files = x.parts ? x.parts.map(function (p) { return p.type; }) : (x.pages || []).map(function (p) { return p.type; });
+      $("dvPages").innerHTML = files.map(function (t, i) { return '<div data-dvfile="' + i + '" class="hint" style="padding:20px">Loading page ' + (i + 1) + '…</div>'; }).join("");
+      dvUrls.forEach(URL.revokeObjectURL); dvUrls = [];
       $("docview").hidden = false;
+      files.forEach(function (t, i) {
+        fetch("/api/doc/" + encodeURIComponent(r.id) + "/file/" + i, { headers: { Authorization: "Bearer " + S.token }, cache: "no-store" })
+          .then(function (resp) { if (!resp.ok) throw new Error(resp.statusText); return resp.blob(); })
+          .then(function (b) {
+            var u = URL.createObjectURL(b), el = $("dvPages").querySelector('[data-dvfile="' + i + '"]'); dvUrls.push(u); if (!el) return;
+            el.outerHTML = t === "application/pdf" ? '<iframe src="' + u + '" style="width:100%;height:78vh;border:1px solid #999;background:#fff"></iframe>'
+              : '<img src="' + u + '" alt="Page ' + (i + 1) + '" data-print="1" style="max-width:100%;border:1px solid #999;margin:0 auto 10px;display:block;background:#fff">';
+          }).catch(function (e) { var el = $("dvPages").querySelector('[data-dvfile="' + i + '"]'); if (el) el.textContent = "Couldn’t load page " + (i + 1) + ": " + e.message; });
+      });
     }).catch(function (err) { setMsg("Couldn’t open it: " + err.message); });
   });
   // ---- Send Records: the folders an office asked for, as one PDF ----
@@ -2696,9 +2718,9 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   $("dvClose").onclick = function () { $("docview").hidden = true; $("dvPages").innerHTML = ""; dvDoc = null; };
   $("dvPrint").onclick = function () {
     if (!dvDoc) return; setPageMargin(false);
-    var imgs = dvDoc.data.pages.filter(function (pg) { return pg.type !== "application/pdf"; });
+    var imgs = [].slice.call($("dvPages").querySelectorAll("img[data-print]"));
     if (!imgs.length) return setMsg("Print the PDF from its own toolbar above.");
-    $("print").innerHTML = imgs.map(function (pg) { return '<div style="page-break-after:always;text-align:center"><img src="data:' + pg.type + ';base64,' + pg.data + '" style="max-width:100%;max-height:10in"></div>'; }).join("");
+    $("print").innerHTML = imgs.map(function (im) { return '<div style="page-break-after:always;text-align:center"><img src="' + im.src + '" style="max-width:100%;max-height:10in"></div>'; }).join("");
     window.print();
   };
   $("dvDelete").onclick = function () {

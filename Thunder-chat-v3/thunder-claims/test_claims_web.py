@@ -518,6 +518,78 @@ wrong = text_pdf(["HEALTH INSURANCE CLAIM FORM", "NUCC", "PATIENT'S BIRTH DATE  
 pt_dob = req("GET", f"/api/rec/{SPID}", token=TOK)[1]["data"].get("dob")
 st, m, _ = req("POST", "/api/document", {"patient_id": SPID, "pages": [{"type": "application/pdf", "data": _b64.b64encode(wrong).decode()}]}, token=TOK)
 check("a bill showing another patient's birth date is filed but flagged", st == 200 and m["category"] == "Bills (CMS-1500)" and (not pt_dob or "different date of birth" in m.get("warning", "")), m)
+print("large files (hospital records)")
+def big_pdf(lines, pad):
+    """A real PDF with `pad` bytes of incompressible filler in an unused object."""
+    stream = "BT /F1 12 Tf 50 740 Td 16 TL " + " ".join("(" + l + ") Tj T*" for l in lines) + " ET"
+    filler = os.urandom(pad)
+    objs = [b"<< /Type /Catalog /Pages 2 0 R >>", b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>", f"<< /Length {len(stream)} >>\nstream\n{stream}\nendstream".encode(),
+            b"<< /Length %d >>\nstream\n" % len(filler) + filler + b"\nendstream"]
+    pdf, offs = b"%PDF-1.4\n", []
+    for i, o in enumerate(objs, 1):
+        offs.append(len(pdf))
+        pdf += f"{i} 0 obj\n".encode() + o + b"\nendobj\n"
+    x = len(pdf)
+    pdf += f"xref\n0 {len(objs) + 1}\n0000000000 65535 f \n".encode() + b"".join(f"{o:010d} 00000 n \n".encode() for o in offs)
+    return pdf + f"trailer << /Size {len(objs) + 1} /Root 1 0 R >>\nstartxref\n{x}\n%%EOF\n".encode()
+
+
+def raw_upload(pid, data, mime="application/pdf", **q):
+    from urllib.parse import urlencode
+    c = http.client.HTTPSConnection("localhost", PORT, context=client_ctx, timeout=120)
+    c.request("POST", "/api/document/upload?" + urlencode({"patient_id": pid, **q}), body=data,
+              headers={"Content-Type": mime, "Authorization": "Bearer " + TOK})
+    r = c.getresponse()
+    return r.status, json.loads(r.read() or b"{}")
+
+
+hosp = big_pdf(["TAMPA BAY REGIONAL MEDICAL CENTER - EMERGENCY DEPARTMENT", "DISCHARGE SUMMARY", "Arrival 06/03/2026 Discharge 06/04/2026",
+                "MEDREC-CANARY"], 30 * 1024 * 1024)
+st, m = raw_upload(SPID, hosp)
+check("a 30 MB hospital record uploads as itself and files itself", st == 200 and m["category"] == "Outside Medical Records" and m["kb"] >= 30 * 1024, m)
+HOSP = m.get("id")
+doc = vault.get(HOSP) if HOSP else {}
+pieces = (doc.get("parts") or [{}])[0].get("chunks") or []
+check("...stored as encrypted pieces of 4 MB, not one huge record", len(pieces) == 8 and not isinstance(doc.get("pages"), list), len(pieces))
+check("...and no piece holds readable text", all("MEDREC-CANARY" not in vault.raw(c) for c in pieces))
+c = http.client.HTTPSConnection("localhost", PORT, context=client_ctx, timeout=120)
+c.request("GET", f"/api/doc/{HOSP}/file/0", headers={"Authorization": "Bearer " + TOK})
+r = c.getresponse(); back = r.read()
+check("it streams back byte for byte, as a PDF", r.status == 200 and back == hosp and r.getheader("Content-Type") == "application/pdf", (r.status, len(back)))
+check("the file needs a login", req("GET", f"/api/doc/{HOSP}/file/0")[0] == 401)
+check("a piece cannot be read on its own", req("GET", f"/api/rec/{pieces[0]}", token=TOK)[0] == 404)
+check("pieces cannot be listed", req("GET", "/api/list?kind=docpart", token=TOK)[0] == 400)
+check("pieces cannot be written through save", req("POST", "/api/save", {"kind": "docpart", "data": {"b64": ""}}, token=TOK)[0] == 400)
+check("pieces cannot be deleted on their own", req("POST", "/api/delete", {"id": pieces[0]}, token=TOK)[0] == 400)
+old_max = cw.MAX_FILE
+ndocs = len(req("GET", f"/api/rec/{SPID}", token=TOK)[1]["data"]["documents"])
+cw.MAX_FILE = 5 * 1024 * 1024
+try:
+    st, j = raw_upload(SPID, hosp)
+    refused = st == 400 and "limit" in j.get("error", "")
+except (ConnectionError, ssl.SSLError, OSError):
+    refused, j = True, "connection closed before the body was read"   # refused without reading it: also right
+cw.MAX_FILE = old_max
+check("a file over the limit is refused without being stored", refused and len(req("GET", f"/api/rec/{SPID}", token=TOK)[1]["data"]["documents"]) == ndocs, j)
+check("...and the server carries on", req("GET", "/api/whoami", token=TOK)[0] == 200)
+st, j = raw_upload(SPID, b"MZ" + b"x" * 100, "application/pdf")
+check("a file that only claims to be a PDF is refused", st == 400, j)
+st, j = raw_upload(SPID, hosp[:1000], "text/html")
+check("only JPEG, PNG and PDF files go up", st == 400, j)
+# a document saved before files were kept in pieces still opens
+legacy = "doc-20260101-000000-abcd"
+vault.put(legacy, {"patient_id": SPID, "id": legacy, "title": "old scan", "category": "Patient File", "date": "01/01/2026",
+                   "pages": [{"type": "application/pdf", "data": _b64.b64encode(soap).decode()}]}, [])
+c = http.client.HTTPSConnection("localhost", PORT, context=client_ctx, timeout=60)
+c.request("GET", f"/api/doc/{legacy}/file/0", headers={"Authorization": "Bearer " + TOK})
+r = c.getresponse()
+check("a document saved the old way still opens", r.status == 200 and r.read() == soap)
+st, j, _ = req("POST", "/api/delete", {"id": HOSP}, token=TOK)
+check("deleting a document takes its pieces with it (kept, sealed, under deleted)",
+      st == 200 and not any(vault.exists(c) for c in pieces) and vault.deleted_bodies(pieces[0]), j)
+
 print("send records")
 st, j, _ = req("POST", "/api/records/packet", {"patient_id": SPID, "folders": ["EOB / Carrier Payments", "SOAP / Treatment Notes"], "recipient": ""}, token=TOK)
 check("a packet must say who it is for", st == 400 and "who" in j.get("error", ""), j)

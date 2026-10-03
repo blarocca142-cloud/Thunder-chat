@@ -66,7 +66,9 @@ import reports  # noqa: E402
 import validate  # noqa: E402
 
 PAGE = HERE / "claims_web.html"
-MAX_UPLOAD = 25 * 1024 * 1024
+MAX_UPLOAD = 120 * 1024 * 1024   # a JSON request (scans arrive base64 from the desktop program)
+MAX_FILE = 300 * 1024 * 1024     # one uploaded file, sent as itself - hospital records run to hundreds of pages
+PART = 4 * 1024 * 1024           # stored in encrypted pieces this big, never as one huge record
 ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 # Every kind of record lives in the one vault, told apart by id prefix. Claims
@@ -81,6 +83,7 @@ KINDS = {
     "template": {"prefix": "tpl-", "index": []},
     "task":     {"prefix": "tk-", "index": []},
     "document": {"prefix": "doc-", "index": []},
+    "docpart":  {"prefix": "dp-",  "index": []},   # a piece of a document's file; never listed on its own
 }
 BILLING = ("draft", "sent", "hold", "paid", "partial", "denied")
 METHODS = ("CHECK", "EFT", "CASH", "CREDIT CARD", "MONEY ORDER", "OTHER")
@@ -88,7 +91,7 @@ FIRST_ACCOUNT = 1000  # EZClaim numbers patients from 1000 up
 
 
 def kind_of(record_id: str) -> str:
-    for k in ("patient", "payer", "provider", "payment", "procedure", "template", "task", "document"):
+    for k in ("patient", "payer", "provider", "payment", "procedure", "template", "task", "document", "docpart"):
         if record_id.startswith(KINDS[k]["prefix"]):
             return k
     return "claim"
@@ -695,7 +698,7 @@ DOC_CATEGORIES = docsort.CATEGORIES
 DOC_KEEP = ("category", "title", "doc_date", "from", "to", "sort_date", "how", "warning", "sorted_by", "provider", "provider_kind")
 
 
-def add_document(pid: str, data: dict, user: str) -> dict:
+def add_document(pid: str, data: dict, user: str, raw_pages: list | None = None) -> dict:
     """A scanned or uploaded file, kept encrypted in the vault like every
     other record - this is what replaces emailing scans to Gmail. The
     patient record carries the list (title, dates, pages) so opening a
@@ -704,24 +707,36 @@ def add_document(pid: str, data: dict, user: str) -> dict:
     Unless someone picked a folder, the file is sorted on Main as it comes in
     (docsort: rules first, Thunder's local model only when the rules cannot
     tell, Needs Sorting when neither is sure) - SOAP notes, bills, EOBs,
-    signed forms and so on, dated by what the page says."""
+    signed forms and so on, dated by what the page says.
+
+    Pages arrive base64 in `data["pages"]` (scans, small files) or as bytes
+    in `raw_pages` (a file uploaded as itself - hospital records can be
+    hundreds of MB). Either way they are stored in encrypted pieces."""
     if not ID_RE.match(pid) or kind_of(pid) != "patient" or not vault.exists(pid):
         raise ValueError("save the patient first")
-    pages = data.get("pages") or []
-    if not pages or len(pages) > 200:
+    raws = list(raw_pages or [])
+    if not raws:
+        pages = data.get("pages") or []
+        if not pages or len(pages) > 200:
+            raise ValueError("nothing to save")
+        for pg in pages:
+            mime, b64 = str(pg.get("type") or ""), str(pg.get("data") or "")
+            if mime not in DOC_TYPES:
+                raise ValueError("only JPEG, PNG or PDF files can be kept")
+            raws.append((mime, base64.b64decode(b64, validate=True)))
+    if not raws:
         raise ValueError("nothing to save")
-    clean, raws, total = [], [], 0
-    for pg in pages:
-        mime, b64 = str(pg.get("type") or ""), str(pg.get("data") or "")
+    total = 0
+    for mime, raw in raws:
         if mime not in DOC_TYPES:
             raise ValueError("only JPEG, PNG or PDF files can be kept")
-        raw = base64.b64decode(b64, validate=True)
         sig = {"image/jpeg": b"\xff\xd8", "image/png": b"\x89PNG", "application/pdf": b"%PDF"}[mime]
         if not raw.startswith(sig):
             raise ValueError("that file is not really a " + mime.split("/")[1].upper())
         total += len(raw)
-        clean.append({"type": mime, "data": b64})
-        raws.append((mime, raw))
+    if total > MAX_FILE:
+        raise ValueError(f"too large ({total // (1024 * 1024)} MB) - the limit is {MAX_FILE // (1024 * 1024)} MB per upload")
+    sheets = sum(_sheet_count(m, r) for m, r in raws)
     picked = data.get("category") if data.get("category") in DOC_CATEGORIES else ""
     # Reading the pages takes seconds, so it happens before anything is locked.
     if picked:
@@ -732,7 +747,18 @@ def add_document(pid: str, data: dict, user: str) -> dict:
         doctors = [str(r.get("name") or "") for _, r in records("provider") if str(r.get("role") or "").lower() != "billing"]
         found = sort_document(raws, p0, payers, doctors)
         found["sorted_by"] = "auto"
-    return _store_document(pid, user, data, clean, total, found)
+    return _store_document(pid, user, data, raws, total, sheets, found)
+
+
+def _sheet_count(mime: str, raw: bytes) -> int:
+    """Pages a person would count: a PDF's real page count, 1 per image."""
+    if mime != "application/pdf":
+        return 1
+    try:
+        with tempfile.TemporaryDirectory(prefix="pc_") as t:   # the copy is gone as soon as it is counted
+            return max(1, packet.page_count(raw, Path(t)))
+    except Exception:
+        return 1
 
 
 def sort_document(raws, patient: dict, payers: list[str], doctors: list[str] | None = None) -> dict:
@@ -744,17 +770,36 @@ def sort_document(raws, patient: dict, payers: list[str], doctors: list[str] | N
     return r
 
 
+def _put_parts(did: str, i: int, raw: bytes) -> list[str]:
+    """One file of a document, as encrypted pieces of PART bytes."""
+    ids = []
+    for n, k in enumerate(range(0, max(len(raw), 1), PART)):
+        pid_ = f"dp-{did[4:]}-{i:03d}-{n:04d}"
+        vault.put(pid_, {"doc": did, "file": i, "piece": n, "b64": base64.b64encode(raw[k:k + PART]).decode()}, [])
+        ids.append(pid_)
+    return ids
+
+
+def doc_files(doc: dict):
+    """(mime, bytes) for each file of a document - pieced (now) or inline
+    (documents saved before files were stored in pieces)."""
+    if doc.get("parts"):
+        return [(p["type"], b"".join(base64.b64decode(vault.get(c)["b64"]) for c in p["chunks"])) for p in doc["parts"]]
+    return [(pg["type"], base64.b64decode(pg["data"])) for pg in doc.get("pages") or []]
+
+
 @atomic
-def _store_document(pid: str, user: str, data: dict, clean: list, total: int, found: dict) -> dict:
+def _store_document(pid: str, user: str, data: dict, raws: list, total: int, sheets: int, found: dict) -> dict:
     if not vault.exists(pid):
         raise ValueError("save the patient first")
     title = str(data.get("title") or "").strip()[:80] or found.get("title") or "Scan " + time.strftime("%m/%d/%Y %I:%M %p")
     did = new_id("document")
-    meta = {"id": did, "date": time.strftime("%m/%d/%Y"), "pages": len(clean),
+    parts = [{"type": mime, "size": len(raw), "chunks": _put_parts(did, i, raw)} for i, (mime, raw) in enumerate(raws)]
+    meta = {"id": did, "date": time.strftime("%m/%d/%Y"), "pages": sheets, "files": len(raws),
             "kb": round(total / 1024), "added_by": user, "source": "scanner" if data.get("scanned") else "file",
             **{k: found[k] for k in DOC_KEEP if found.get(k)}, "title": title}
     meta.setdefault("category", docsort.NEEDS)
-    put_rec(did, {"patient_id": pid, **meta, "pages": clean}, KINDS["document"]["index"])
+    put_rec(did, {"patient_id": pid, **meta, "parts": parts}, KINDS["document"]["index"])
     p = vault.get(pid)
     p.setdefault("documents", []).append({k: v for k, v in meta.items()})
     put_rec(pid, p, KINDS["patient"]["index"])
@@ -810,7 +855,7 @@ def send_records(pid: str, cats: list, frm: str, to: str, recipient: str, user: 
         doc = vault.get(m["id"])
         when = (m.get("from", "") + (" - " + m["to"] if m.get("to") and m.get("to") != m.get("from") else "")) if m.get("from") else m.get("doc_date", "")
         docs.append({"category": docsort.category_of(m.get("category") or ""), "title": m.get("title") or "Document", "when": when,
-                     "pages": [{"type": pg["type"], "raw": base64.b64decode(pg["data"])} for pg in doc.get("pages") or []]})
+                     "pages": [{"type": mime, "raw": raw} for mime, raw in doc_files(doc)]})
     st = get_settings().get("statement") or {}
     addr = ", ".join(x for x in (st.get("return_addr1"), st.get("return_city"), st.get("return_state"), st.get("return_zip"), st.get("return_phone")) if x)
     period = (frm or "the first record") + " to " + (to or "today") if (frm or to) else "all dates"
@@ -861,7 +906,7 @@ def delete_record(rid: str, user: str) -> dict:
     money posted to it, or a patient with claims, cannot be deleted until
     those are dealt with. Deleting a payment re-works its claims' balances
     and statuses. Deleted records are kept, encrypted, under deleted/."""
-    if not ID_RE.match(rid) or not vault.exists(rid):
+    if not ID_RE.match(rid) or not vault.exists(rid) or kind_of(rid) == "docpart":
         raise ValueError("no such record")
     kind = kind_of(rid)
     r = vault.get(rid)
@@ -874,6 +919,10 @@ def delete_record(rid: str, user: str) -> dict:
         if linked:
             raise ValueError(f"this patient has {len(linked)} claim(s) - delete or move those first")
     vault.retire(rid)
+    for part in r.get("parts") or [] if kind == "document" else []:   # its file pieces go with it (kept, still sealed)
+        for c in part.get("chunks") or []:
+            if vault.exists(c):
+                vault.retire(c)
     if kind == "document" and vault.exists(str(r.get("patient_id") or "x")):
         p = vault.get(r["patient_id"])
         p["documents"] = [x for x in p.get("documents") or [] if x.get("id") != rid]
@@ -1007,7 +1056,7 @@ def save(kind: str, record_id: str | None, data: dict, user: str = "user") -> di
 
 
 def _save(kind: str, record_id: str | None, data: dict, user: str = "user") -> dict:
-    if kind not in KINDS:
+    if kind not in KINDS or kind == "docpart":   # file pieces are only ever written by add_document
         raise ValueError("unknown record type")
     rid = record_id or new_id(kind)
     if not ID_RE.match(rid) or kind_of(rid) != kind:
@@ -1605,11 +1654,44 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(raw)
 
-    def _body(self) -> bytes:
+    def _body(self, limit: int = MAX_UPLOAD) -> bytes:
         n = int(self.headers.get("Content-Length") or 0)
-        if n > MAX_UPLOAD:
-            raise ValueError("file too large (25 MB max)")
-        return self.rfile.read(n)
+        if n > limit:
+            raise ValueError(f"too large - the limit is {limit // (1024 * 1024)} MB")
+        buf = bytearray()
+        while len(buf) < n:   # a big upload arrives in many reads
+            got = self.rfile.read(min(1024 * 1024, n - len(buf)))
+            if not got:
+                raise ValueError("the upload was cut off")
+            buf += got
+        return bytes(buf)
+
+    def _send_file(self, did: str, i: int) -> None:
+        """One file of a document, streamed piece by piece - a 300 MB hospital
+        record never sits in memory whole, and never goes out base64."""
+        if not ID_RE.match(did) or kind_of(did) != "document" or not vault.exists(did):
+            return self._send(404, {"error": "no such document"})
+        doc = vault.get(did)
+        parts = doc.get("parts") or []
+        if parts:
+            if not 0 <= i < len(parts):
+                return self._send(404, {"error": "no such page"})
+            part = parts[i]
+            self._status = 200
+            self.send_response(200)
+            self.send_header("Content-Type", part["type"])
+            self.send_header("Content-Length", str(part["size"]))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Content-Security-Policy", CSP)
+            self.end_headers()
+            for c in part["chunks"]:
+                self.wfile.write(base64.b64decode(vault.get(c)["b64"]))
+            return
+        files = doc_files(doc)   # saved before files were stored in pieces
+        if not 0 <= i < len(files):
+            return self._send(404, {"error": "no such page"})
+        self._send(200, files[i][1], files[i][0])
 
     def _token(self) -> str:
         h = self.headers.get("Authorization", "")
@@ -1678,7 +1760,7 @@ class Handler(BaseHTTPRequestHandler):
                                     "can_create": (load_users().get(who) or {}).get("role") == "owner"})
         if u.path == "/api/list":
             kind = (parse_qs(u.query).get("kind") or ["claim"])[0]
-            if kind not in KINDS:
+            if kind not in KINDS or kind == "docpart":
                 return self._send(400, {"error": "unknown record type"})
             return self._send(200, {"records": list_records(kind)})
         if u.path == "/api/settings":
@@ -1701,9 +1783,14 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"lines": open_lines(q.get("source", "payer"), q.get("payer", ""), q.get("patient", ""),
                                                         q.get("patient_name", ""), q.get("ignore") == "1", q.get("zero") == "1",
                                                         q.get("payment") or None)})
+        m = re.match(r"^/api/doc/([A-Za-z0-9_-]+)/file/(\d+)$", u.path)
+        if m:
+            return self._send_file(m.group(1), int(m.group(2)))
         m = re.match(r"^/api/rec/([A-Za-z0-9_-]+)$", u.path)
         if m:
             rid = m.group(1)
+            if kind_of(rid) == "docpart":   # pieces are only served as a whole file, via /api/doc/<id>/file/<n>
+                return self._send(404, {"error": "not found"})
             r = vault.get(rid)
             kind = kind_of(rid)
             body = {"id": rid, "kind": kind, "data": r}
@@ -1807,6 +1894,13 @@ class Handler(BaseHTTPRequestHandler):
             pdf, entry = send_records(str(b.get("patient_id") or ""), list(b.get("folders") or []), str(b.get("from") or ""),
                                       str(b.get("to") or ""), str(b.get("recipient") or ""), who, str(b.get("doctor") or ""))
             return self._send(200, pdf, "application/pdf", {"X-Packet-Pages": str(entry["pages"]), "X-Packet-Documents": str(len(entry["documents"]))})
+        if u.path == "/api/document/upload":
+            # one file sent as itself (not base64): ?patient_id=&category=&title=
+            q = {k: v[0] for k, v in parse_qs(u.query).items()}
+            mime = (self.headers.get("Content-Type") or "").split(";")[0].strip()
+            raw = self._body(MAX_FILE)
+            return self._send(200, add_document(q.get("patient_id", ""), {"category": q.get("category", ""), "title": q.get("title", ""),
+                                                                           "scanned": q.get("scanned") == "1"}, who, [(mime, raw)]))
         if u.path == "/api/document/move":
             b = json.loads(self._body() or b"{}")
             return self._send(200, move_document(str(b.get("id") or ""), str(b.get("category") or ""), who))
