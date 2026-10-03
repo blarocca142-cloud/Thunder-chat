@@ -55,10 +55,13 @@ assumed.
   adduser <name>` (also `users`, `passwd`, `disable`, `enable`). Lockout after
   5 wrong tries (15 min), auto-logoff after 15 idle minutes, sessions in memory
   only. `access.log` in the vault dir records who/ip/path/status (ids only),
-  and the vault audit credits the logged-in person. `test_claims_web.py` = 174
+  and the vault audit credits the logged-in person. `test_claims_web.py` = 176
   checks, mostly attacks. **Synthetic patients only**; nothing is ever
   submitted to a payer. The UI mimics EZClaim on purpose - see
   `thunder-claims/EZCLAIM-LOOK.md` (EZClaim's videos studied frame by frame).
+  **The practice is chiropractic WITH MDs and other doctors** (Blayne 2026-10-03)
+  - DC adjustments/therapy plus MD/DO/PA/APRN evaluations, incl. the EMC
+  determination that sets the PIP limit.
   **The office bills only Florida PIP** (13 offices; patients are never billed).
   `fl_pip.py` computes the Fla. Stat. 627.736 clocks on every claim, never
   stored: 14-day initial care, 35-day billing window (75 with a notice of
@@ -144,7 +147,11 @@ assumed.
   list; neither sure -> **Needs Sorting**, never a guess. Folders: SOAP /
   Treatment Notes, Bills (CMS-1500), EOB / Carrier Payments, Signed Forms,
   Legal / Attorney, Insurance Card / ID, X-Ray / Imaging, Outside Medical
-  Records, Correspondence, Needs Sorting (old category names map onto them).
+  Records, Correspondence, EMC Determination (its own folder - the MD finding
+  that sets $10k vs $2.5k), Needs Sorting (old category names map onto them).
+  MD notes (HPI / ROS / exam / A&P) file with treatment notes; notes, EMCs and
+  imaging are tagged with the doctor from the physician library and DC vs MD
+  (MD covers DO, PA, APRN, NP), and Send Records can send "MD only" / "DC only".
   Dated by the page: the from-to a bill/EOB covers, a SOAP note's date of
   service, the signing date - never the DOB or the date of loss. A page with a
   different DOB or another patient's name gets a warning. "Move to" in the
@@ -156,7 +163,7 @@ assumed.
   (`disclosures`: to, by, when, which documents) and in the vault audit -
   the accounting of disclosures. Permission `records`. Demo paperwork:
   `demo_data.py <Company> --paperwork` (through the real upload path).
-  `test_docsort.py` = 31; test_claims_web = 174.
+  `test_docsort.py` = 38; test_claims_web = 176.
   The offices mostly use **Epson ES-400 / ES-500 / FF-680W** (Epson Scan 2 =
   TWAIN, WIA uncertain), so scan.ps1 falls back to the free **NAPS2** console
   (`--driver twain`, one PDF of every page) when WIA sees no scanner. NAPS2
@@ -198,7 +205,7 @@ assumed.
   successful polls are not access-logged. In the program: an untouched open
   record reloads itself, one being typed in gets a yellow "X just saved this -
   Load Their Version" bar, tabs show 👥 / ⚠, and grids refresh the affected
-  kinds. test_claims_web = 174. (4) connect Main to the offices' existing VPN -
+  kinds. test_claims_web = 176. (4) connect Main to the offices' existing VPN -
   **parked (Blayne 2026-10-01): this is a demo to win Dad and the offices
   over, not close to going live.** Favour what makes the demo convincing. **The offices already
   run EZClaim this way**: central system, every office VPNs in, split by office.

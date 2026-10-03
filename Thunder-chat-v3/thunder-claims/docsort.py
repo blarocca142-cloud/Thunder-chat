@@ -39,6 +39,7 @@ CATEGORIES = (
     "Bills (CMS-1500)",
     "EOB / Carrier Payments",
     "Signed Forms",
+    "EMC Determination",
     "Legal / Attorney",
     "Insurance Card / ID",
     "X-Ray / Imaging",
@@ -51,7 +52,7 @@ LEGACY = {"Patient File": NEEDS, "Intake / Forms": "Signed Forms", "PIP Forms": 
           "EOB / Carrier Mail": "EOB / Carrier Payments", "Medical Records": "Outside Medical Records",
           "Attorney": "Legal / Attorney", "Other": NEEDS}
 SHORT = {"SOAP / Treatment Notes": "SOAP", "Bills (CMS-1500)": "Bill", "EOB / Carrier Payments": "EOB",
-         "Signed Forms": "Signed form", "Legal / Attorney": "Legal", "Insurance Card / ID": "Card / ID",
+         "Signed Forms": "Signed form", "EMC Determination": "EMC", "Legal / Attorney": "Legal", "Insurance Card / ID": "Card / ID",
          "X-Ray / Imaging": "X-ray", "Outside Medical Records": "Outside records",
          "Correspondence": "Letter", NEEDS: "Scan"}
 
@@ -124,6 +125,16 @@ RULES = {
         (r"(DAILY|PROGRESS|TREATMENT|OFFICE|VISIT|SOAP) NOTES?", 6), (r"CHIEF COMPLAINT|\bC/C\b", 4),
         (r"PAIN (SCALE|LEVEL)|\bVAS\b|\d+ ?/ ?10\b", 2), (r"SUBLUXATION|SEGMENTS? ADJUSTED|ADJUSTED|PALPATION|RANGE OF MOTION|\bROM\b", 3),
         (r"^\s*[SOAP]\s*:", 2),
+        # an MD's or other physician's visit note reads differently from a chiropractic SOAP note
+        (r"HISTORY OF PRESENT ILLNESS|\bHPI\b", 6), (r"REVIEW OF SYSTEMS|\bROS\b", 4), (r"PHYSICAL EXAM(INATION)?", 3),
+        (r"ASSESSMENT (AND|&|/) ?PLAN|\bA/P\b", 4), (r"(INITIAL|FOLLOW[- ]?UP|NEW PATIENT) (EVALUATION|EXAM|VISIT|CONSULT)", 4),
+    ],
+    # The MD's finding that decides whether PIP pays $10,000 or $2,500
+    # (627.732 / 627.736(1)(a)) - its own folder, because it is the page that
+    # gets mailed to the carrier and asked for most.
+    "EMC Determination": [
+        (r"EMERGENCY MEDICAL CONDITION", 12), (r"\bEMC\b", 5), (r"627\.73[26]", 3),
+        (r"(DOES|DOES NOT|DID|DID NOT) (HAVE|SUFFER|SUSTAIN)", 2),
     ],
     "Signed Forms": [
         (r"ASSIGNMENT OF BENEFITS|I HEREBY ASSIGN", 9), (r"STANDARD DISCLOSURE AND ACKNOWLEDGE?MENT", 10),
@@ -270,6 +281,7 @@ def dates_for(category: str, text: str, dob: str = "") -> dict:
     up = text.upper()
     labels = {"SOAP / Treatment Notes": r"DATE OF SERVICE|\bDOS\b|VISIT DATE|DATE OF VISIT|\bDATE\b",
               "Signed Forms": r"DATE SIGNED|SIGNATURE.{0,40}DATE|\bDATE\b",
+              "EMC Determination": r"DATE OF (EXAM|EVALUATION|DETERMINATION)|DATE SIGNED|\bDATE\b",
               "X-Ray / Imaging": r"EXAM DATE|DATE OF (EXAM|STUDY)|\bDATE\b"}.get(category, r"\bDATE\b")
     # a date labelled as the accident's is never the document's own date
     own = [(pos, d) for pos, d in found if not re.search(r"(LOSS|INJURY|ACCIDENT|COLLISION|D\.?O\.?I)\W{0,12}$", up[max(0, pos - 30):pos])] or found
@@ -315,9 +327,31 @@ def carrier_in(text: str, payers: list[str]) -> str:
     return ""
 
 
-def sort_text(text: str, patient: dict, payers: list[str] | None = None, ask_model=by_model) -> dict:
+DC = re.compile(r"\bD\.?\s?C\.?\b|CHIROPRACT")
+MD = re.compile(r"\b(M\.?\s?D|D\.?\s?O|P\.?\s?A-?C|A\.?R\.?N\.?P|APRN|NP)\b\.?")
+
+
+def provider_in(text: str, providers: list[str]) -> str:
+    """The doctor a note or EMC is from: a name from the office's physician
+    library that appears on the page (longest match wins)."""
+    up = re.sub(r"\s+", " ", text.upper())
+    for p in sorted(providers, key=len, reverse=True):
+        q = re.sub(r"\s+", " ", (p or "").upper()).strip()
+        if len(q) > 4 and q in up:
+            return q
+    return ""
+
+
+def provider_kind(name: str) -> str:
+    """'DC', 'MD' (covers DO, PA, APRN, NP - the ones who can find an EMC), or ''."""
+    up = (name or "").upper()
+    return "DC" if DC.search(up) else "MD" if MD.search(up) else ""
+
+
+def sort_text(text: str, patient: dict, payers: list[str] | None = None, ask_model=by_model,
+              providers: list[str] | None = None) -> dict:
     """What claims_web stores for an upload: category, dates, title, how it
-    was decided, and any wrong-patient warning."""
+    was decided, the doctor it is from, and any wrong-patient warning."""
     if len(text.strip()) < 15:
         cat, how = NEEDS, "no readable text"
     else:
@@ -329,13 +363,18 @@ def sort_text(text: str, patient: dict, payers: list[str] | None = None, ask_mod
     when = dates_for(cat, text, str(patient.get("dob") or "")) if cat != NEEDS else {}
     who = carrier_in(text, payers or []) if cat in ("EOB / Carrier Payments", "Bills (CMS-1500)", "Insurance Card / ID") else ""
     span = (when["from"] + (" – " + when["to"] if when.get("to") != when.get("from") else "")) if when.get("from") else when.get("date", "")
-    title = " ".join(x for x in (SHORT[cat], span, who) if x)
-    return {"category": cat, "how": how, "title": title, "warning": patient_check(text, patient) if text.strip() else "",
-            "sort_date": when.get("to") or when.get("date") or "", **when}
+    doc = provider_in(text, providers or []) if cat in ("SOAP / Treatment Notes", "EMC Determination", "X-Ray / Imaging") else ""
+    title = " ".join(x for x in (SHORT[cat], span, who or doc) if x)
+    out = {"category": cat, "how": how, "title": title, "warning": patient_check(text, patient) if text.strip() else "",
+           "sort_date": when.get("to") or when.get("date") or "", **when}
+    if doc:
+        out.update(provider=doc, provider_kind=provider_kind(doc))
+    return out
 
 
-def sort_upload(pages: list[tuple[str, bytes]], patient: dict, payers: list[str] | None = None, ask_model=by_model) -> dict:
-    return sort_text(text_of(pages), patient, payers, ask_model)
+def sort_upload(pages: list[tuple[str, bytes]], patient: dict, payers: list[str] | None = None, ask_model=by_model,
+                providers: list[str] | None = None) -> dict:
+    return sort_text(text_of(pages), patient, payers, ask_model, providers)
 
 
 def sort_key(meta: dict) -> tuple:

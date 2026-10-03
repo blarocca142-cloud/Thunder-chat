@@ -692,7 +692,7 @@ def claims_printed(ids: list, when: str, user: str) -> int:
 
 DOC_TYPES = {"image/jpeg", "image/png", "application/pdf"}
 DOC_CATEGORIES = docsort.CATEGORIES
-DOC_KEEP = ("category", "title", "doc_date", "from", "to", "sort_date", "how", "warning", "sorted_by")
+DOC_KEEP = ("category", "title", "doc_date", "from", "to", "sort_date", "how", "warning", "sorted_by", "provider", "provider_kind")
 
 
 def add_document(pid: str, data: dict, user: str) -> dict:
@@ -729,15 +729,16 @@ def add_document(pid: str, data: dict, user: str) -> dict:
     else:
         p0 = vault.get(pid)
         payers = [str(r.get("name") or "") for _, r in records("payer")]
-        found = sort_document(raws, p0, payers)
+        doctors = [str(r.get("name") or "") for _, r in records("provider") if str(r.get("role") or "").lower() != "billing"]
+        found = sort_document(raws, p0, payers, doctors)
         found["sorted_by"] = "auto"
     return _store_document(pid, user, data, clean, total, found)
 
 
-def sort_document(raws, patient: dict, payers: list[str]) -> dict:
+def sort_document(raws, patient: dict, payers: list[str], doctors: list[str] | None = None) -> dict:
     """docsort's answer, renamed for the document list (the list's own
     "date" stays the day it was added; the page's date is doc_date)."""
-    r = docsort.sort_upload(raws, patient, payers)
+    r = docsort.sort_upload(raws, patient, payers, providers=doctors or [])
     if "date" in r:
         r["doc_date"] = r.pop("date")
     return r
@@ -773,7 +774,7 @@ def _when(m: dict) -> tuple:
     return a, b
 
 
-def send_records(pid: str, cats: list, frm: str, to: str, recipient: str, user: str) -> tuple[bytes, dict]:
+def send_records(pid: str, cats: list, frm: str, to: str, recipient: str, user: str, doctor: str = "") -> tuple[bytes, dict]:
     """The records an office asked for, as one PDF, and a note of the
     disclosure on the patient (who, to whom, what, when)."""
     if not ID_RE.match(pid) or kind_of(pid) != "patient" or not vault.exists(pid):
@@ -797,6 +798,10 @@ def send_records(pid: str, cats: list, frm: str, to: str, recipient: str, user: 
             continue
         if lo and b < lo or hi and a > hi:
             continue
+        # "only the MD's notes": notes and EMCs from the other kind of doctor are left out;
+        # bills, EOBs, forms and the rest are not anybody's notes and stay in
+        if doctor in ("DC", "MD") and m.get("provider_kind") and m.get("provider_kind") != doctor:
+            continue
         chosen.append(m)
     order = {c: i for i, c in enumerate(DOC_CATEGORIES)}
     chosen.sort(key=lambda m: (order[docsort.category_of(m.get("category") or "")], _when(m)[0] or date.min))
@@ -816,6 +821,7 @@ def send_records(pid: str, cats: list, frm: str, to: str, recipient: str, user: 
     except packet.PacketError as e:
         raise ValueError(str(e))
     entry = {"date": time.strftime("%m/%d/%Y %I:%M %p"), "to": recipient, "by": user, "folders": cats, "period": period,
+             **({"doctor": doctor} if doctor in ("DC", "MD") else {}),
              "documents": [m["id"] for m in chosen], "pages": pages}
     _note_disclosure(pid, entry)
     return pdf, entry
@@ -1799,7 +1805,7 @@ class Handler(BaseHTTPRequestHandler):
             need(who, "records")
             b = json.loads(self._body() or b"{}")
             pdf, entry = send_records(str(b.get("patient_id") or ""), list(b.get("folders") or []), str(b.get("from") or ""),
-                                      str(b.get("to") or ""), str(b.get("recipient") or ""), who)
+                                      str(b.get("to") or ""), str(b.get("recipient") or ""), who, str(b.get("doctor") or ""))
             return self._send(200, pdf, "application/pdf", {"X-Packet-Pages": str(entry["pages"]), "X-Packet-Documents": str(len(entry["documents"]))})
         if u.path == "/api/document/move":
             b = json.loads(self._body() or b"{}")

@@ -92,6 +92,31 @@ for cat, text in PAGES.items():
     r = docsort.sort_text(text, PT, PAYERS, ask_model=no_model)
     check(f"{cat}", r["category"] == cat, r)
 
+print("a practice with MDs as well as chiropractors")
+DOCS = ["JOHN SAMPLE DC", "ELENA MARSH DC", "MARY EXAMPLE MD"]
+md_note = """SUNSHINE SPINE & REHAB - MEDICAL DEPARTMENT
+INITIAL EVALUATION   Date of service: 06/05/2026
+Patient: Delgado, Rosa
+HISTORY OF PRESENT ILLNESS: 52 y/o female, front passenger in a T-bone collision 06/03/2026.
+REVIEW OF SYSTEMS: negative except as noted.  PHYSICAL EXAMINATION: cervical paraspinal spasm.
+ASSESSMENT AND PLAN: cervical sprain; continue chiropractic care, NSAIDs.
+Mary Example MD"""
+r = docsort.sort_text(md_note, PT, PAYERS, no_model, DOCS)
+check("an MD's visit note (HPI / ROS / exam / A&P) is filed with treatment notes", r["category"] == "SOAP / Treatment Notes", r)
+check("...tagged with the MD who wrote it", r.get("provider") == "MARY EXAMPLE MD" and r.get("provider_kind") == "MD" and "MARY EXAMPLE MD" in r["title"], r)
+r = docsort.sort_text(PAGES["SOAP / Treatment Notes"] + "\nElena Marsh DC", PT, PAYERS, no_model, DOCS)
+check("a chiropractic note is tagged DC", r.get("provider") == "ELENA MARSH DC" and r.get("provider_kind") == "DC", r)
+emc = """EMERGENCY MEDICAL CONDITION DETERMINATION (Fla. Stat. 627.732)
+Patient: Rosa Delgado   Date of exam: 06/05/2026   Date of accident 06/03/2026
+In my medical opinion the patient DID sustain an emergency medical condition as a result of the accident.
+Signed: Mary Example MD"""
+r = docsort.sort_text(emc, PT, PAYERS, no_model, DOCS)
+check("an EMC determination gets its own folder", r["category"] == "EMC Determination", r)
+check("...dated by the exam, not the accident, and tagged with the MD", r.get("date") == "06/05/2026" and r.get("provider_kind") == "MD", r)
+check("the kinds of doctor who can find an EMC count as MD", [docsort.provider_kind(x) for x in ("JANE DOE DO", "AL SMITH PA-C", "B JONES APRN", "C LEE D.C.")] == ["MD", "MD", "MD", "DC"])
+r = docsort.sort_text(PAGES["Outside Medical Records"] + "\nHISTORY OF PRESENT ILLNESS: MVC", PT, PAYERS, no_model, DOCS)
+check("an ER record with an HPI still files as outside records", r["category"] == "Outside Medical Records", r)
+
 print("dates from the page")
 r = docsort.sort_text(PAGES["Bills (CMS-1500)"], PT, PAYERS, no_model)
 check("bill: first and last service date, never the birth date", r.get("from") == "08/04/2026" and r.get("to") == "08/06/2026", r)

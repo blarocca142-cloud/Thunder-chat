@@ -385,9 +385,25 @@ def paperwork(company: str) -> int:
     pays = [pm for _, pm in cw.records("payment")]
     added = scans = 0
     for n, (pid, p) in enumerate(sorted(cw.records("patient"), key=lambda kv: kv[1].get("account_number", ""))):
+        name = f"{p.get('last_name', '')}, {p.get('first_name', '')}"
+        # the MD's side of a combined practice: initial evaluation and EMC determination
+        md = []
+        if p.get("emc") == "yes" and not any(x.get("category") == "EMC Determination" for x in p.get("documents") or []):
+            seen = (p.get("emc_by") or "").split()[-1] if p.get("emc_by") else (p.get("first_treatment") or d(0))
+            md.append(_pdf(["SUNSHINE SPINE & REHAB - MEDICAL DEPARTMENT", f"INITIAL EVALUATION   Date of service: {seen}", f"Patient: {name}",
+                            f"HISTORY OF PRESENT ILLNESS: {(p.get('accident_type') or '').replace('Auto accident - ', '')}.",
+                            "REVIEW OF SYSTEMS: negative except as noted.   PHYSICAL EXAMINATION: paraspinal spasm, reduced range of motion.",
+                            "ASSESSMENT AND PLAN: injuries consistent with the accident; continue chiropractic care, follow up in 4 weeks.",
+                            "MARY EXAMPLE MD"]))
+            md.append(_pdf(["EMERGENCY MEDICAL CONDITION DETERMINATION (Fla. Stat. 627.732)",
+                            f"Patient: {name}   Date of exam: {seen}   Date of accident {p.get('date_of_injury', '')}",
+                            "In my medical opinion the patient DID sustain an emergency medical condition as a result of the accident.",
+                            "Signed: MARY EXAMPLE MD"]))
+        for raw in md:
+            cw.add_document(pid, {"pages": [{"type": "application/pdf", "data": base64.b64encode(raw).decode()}]}, USER)
+            added += 1
         if p.get("documents"):
             continue
-        name = f"{p.get('last_name', '')}, {p.get('first_name', '')}"
         mine = sorted((cl for cl in claims if cl.get("patient_id") == pid), key=lambda cl: datetime_of(cl["date_of_service"]))
         visits = sorted({ln["date"] for cl in mine for ln in cl.get("procedures") or []}, key=datetime_of)
         docs = []
@@ -403,7 +419,8 @@ def paperwork(company: str) -> int:
             page = [f"{practice} - DAILY NOTE", f"Patient: {name}    Date of service: {v}",
                     f"S: {['Neck and back pain 7/10 since the accident', 'Pain 6/10, sleeping better', 'Pain 5/10, stiffness in the morning', 'Pain 4/10, back to light duty'][k]}",
                     "O: Palpation tenderness and muscle spasm, range of motion reduced.",
-                    f"A: {dx} - improving as expected.", "P: Segments adjusted. Continue care plan, re-exam in 4 weeks."]
+                    f"A: {dx} - improving as expected.", "P: Segments adjusted. Continue care plan, re-exam in 4 weeks.",
+                    p.get("treating_provider") or "JOHN SAMPLE DC"]
             if k == 1 and n % 4 == 0:      # some arrive from the scanner, not as PDFs
                 docs.append(("image/png", _scan(page)))
                 scans += 1

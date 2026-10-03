@@ -861,6 +861,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
       <label for="rv_to">For (who asked):</label><input id="rv_to" placeholder="e.g. Bay Area Injury Law, or Dr. Example's office">
       <label for="rv_from">Dates from:</label><input id="rv_from" placeholder="MM/DD/YYYY - blank = all" style="width:130px">
       <label for="rv_until">to:</label><input id="rv_until" placeholder="MM/DD/YYYY" style="width:110px">
+      <label for="rv_doc">Notes from:</label><select id="rv_doc" class="span3" style="max-width:340px"><option value="">All doctors</option><option value="DC">Chiropractic (DC) only</option><option value="MD">Medical (MD, DO, PA, APRN) only</option></select>
     </div>
     <div id="rvFolders" style="padding:0 8px 8px;display:flex;flex-wrap:wrap;gap:4px 14px"></div>
     <div class="pvpage" id="rvOut" style="text-align:center"></div>
@@ -2577,7 +2578,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   // ============ patient documents (scans) ============
   // Folders, in the order the patient's file is kept. Files are sorted into
   // them on Main as they come in (docsort.py); "Auto" is the default.
-  var DOC_CATS = ["SOAP / Treatment Notes", "Bills (CMS-1500)", "EOB / Carrier Payments", "Signed Forms", "Legal / Attorney",
+  var DOC_CATS = ["SOAP / Treatment Notes", "Bills (CMS-1500)", "EOB / Carrier Payments", "Signed Forms", "EMC Determination", "Legal / Attorney",
                   "Insurance Card / ID", "X-Ray / Imaging", "Outside Medical Records", "Correspondence", "Needs Sorting"];
   var DOC_OLD = { "Patient File": "Needs Sorting", "Intake / Forms": "Signed Forms", "PIP Forms": "Signed Forms", "EOB / Carrier Mail": "EOB / Carrier Payments",
                   "Medical Records": "Outside Medical Records", "Attorney": "Legal / Attorney", "Other": "Needs Sorting" };
@@ -2669,7 +2670,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
     if (!$("rv_to").value.trim()) { $("rvNote").textContent = "Say who the records are for - it goes on the cover page and in the patient's record of what was sent."; return; }
     $("rvNote").textContent = "Putting the packet together on Main…"; $("rvMake").disabled = true;
     fetch("/api/records/packet", { method: "POST", cache: "no-store", headers: { "Content-Type": "application/json", Authorization: "Bearer " + S.token },
-      body: JSON.stringify({ patient_id: d.id, folders: folders, from: $("rv_from").value.trim(), to: $("rv_until").value.trim(), recipient: $("rv_to").value.trim() }) })
+      body: JSON.stringify({ patient_id: d.id, folders: folders, from: $("rv_from").value.trim(), to: $("rv_until").value.trim(), recipient: $("rv_to").value.trim(), doctor: $("rv_doc").value }) })
       .then(function (r) {
         if (!r.ok) return r.json().catch(function () { return {}; }).then(function (j) { throw new Error(j.error || r.statusText); });
         var pages = r.headers.get("X-Packet-Pages"), n = r.headers.get("X-Packet-Documents");
