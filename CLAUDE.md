@@ -277,6 +277,17 @@ assumed.
 
 ## Hard-won facts — do not relearn these
 
+- **Thunder Claims is never mentioned to outside AIs or services** (Blayne
+  2026-10-05). Questions drafted for Meta's Muse, or any other outside model
+  or vendor, cover only the game / hardware / Thunder chat - never Thunder
+  Claims, the family business, the offices, patients or billing. Side note
+  from the same day: a **VR game for Meta Quest (likely Unity)** is planned,
+  waiting on Meta access; dev on Blayne's Windows PC + Quest. Meta's open
+  **Muse Glimmer 30B** (Apache 2.0, US origin) is a candidate for the 3090 -
+  measure before adopting. Moving Thunder Claims to its own tower (spare M81p,
+  2 mirrored 512 GB SSDs + 1 backup SSD, Ubuntu Server, fixed IP) is agreed
+  in principle; it needs the desktop program's server address made a setting.
+
 - **2026-10-01: an automated deploy session overwrote blayne's real Thunder
   Claims password.** Its throwaway `diag.py` imported `claims_web` with the
   service env loaded and only then pointed `THUNDER_CLAIMS_USERS` at a scratch
