@@ -277,6 +277,18 @@ assumed.
 
 ## Hard-won facts — do not relearn these
 
+- **Thunder AI is never shut down or put at risk for other work (Blayne
+  2026-10-05).** Planned (not built): a **game mode** switch for the VR game's
+  world-building - when on, the 3090 swaps from gpt-oss to game tools (FLUX
+  textures/skies restored from serverus, maybe a 3D-prop model); when off,
+  Thunder takes the card back. Swap on demand, not on a timetable. Rules:
+  `thunder-main` and `ollama` keep running throughout; Thunder's memory,
+  profile and history are never touched; **Thunder wins** - game mode checks
+  RAM first (Main's 30 GB is maxed, OOM would pick the biggest process) and
+  the game job waits or stops, never Thunder; the 3am consolidate and Cache's
+  overnight batch wait for game mode to end rather than fight it. Blayne cares
+  about treating Thunder well now, for its own sake and as a habit for later.
+
 - **Thunder Claims is never mentioned to outside AIs or services** (Blayne
   2026-10-05). Questions drafted for Meta's Muse, or any other outside model
   or vendor, cover only the game / hardware / Thunder chat - never Thunder
