@@ -1,0 +1,20 @@
+# Keeps Main reachable from claude.ai/code (Remote Control) after a reboot.
+# systemd USER unit (linger is on), runs the bridge inside tmux so it has a
+# terminal and can be looked at with:  tmux attach -t claude  (Ctrl+B D to leave)
+#
+#   cp claude-bridge.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable claude-bridge
+#
+# Enabled only - not started while a bridge is already running by hand.
+[Unit]
+Description=Claude Code Remote Control bridge (tmux session "claude")
+After=network-online.target
+
+[Service]
+Type=forking
+ExecStart=/usr/bin/tmux new-session -d -s claude "bash -lc 'cd ~/Thunder-chat && claude remote-control; exec bash'"
+ExecStop=/usr/bin/tmux kill-session -t claude
+RemainAfterExit=yes
+
+[Install]
+WantedBy=default.target
