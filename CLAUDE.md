@@ -288,6 +288,13 @@ assumed.
   the game job waits or stops, never Thunder; the 3am consolidate and Cache's
   overnight batch wait for game mode to end rather than fight it. Blayne cares
   about treating Thunder well now, for its own sake and as a habit for later.
+  **Done 2026-10-05:** FLUX.1-schnell copied back to Main at
+  `/home/genai/genai/models/flux1-schnell/` (53.9 GiB, 78 files, sha256
+  matched serverus; serverus copy untouched, Kontext still only there).
+  **Muse Glimmer 30B** downloaded and imported into Ollama (~30 GB - larger
+  than the card, would spill to RAM; a smaller quant may suit better), **not
+  loaded, not live**. Meta's usage policy restricts medical/sensitive data -
+  game use only, never Thunder Claims. Game-mode switch itself: not built.
 
 - **Thunder Claims is never mentioned to outside AIs or services** (Blayne
   2026-10-05). Questions drafted for Meta's Muse, or any other outside model
