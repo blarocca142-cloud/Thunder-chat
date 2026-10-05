@@ -330,6 +330,20 @@ assumed.
   a time and a finished session left open blocked the next ("pending/
   disconnected", looks like Main is down) - still archive every session on
   Main as soon as it reports.
+- **Office laptop + remote access (2026-10-05, in progress).** Blayne's
+  office laptop is Windows "Biglil" (user LT-03), bridge env
+  `env_01M42hnv22L3LcNihA6awMUc`, Claude Code in `C:\Users\LT-03\thunder-laptop`
+  only (his work/personal files are off-limits). `ThunderClaims-Setup.exe` is
+  downloaded there, sha256-verified; installs need Blayne (auto mode blocks
+  installers). Remote access plan = **Tailscale** (WireGuard), because the
+  routers/wifi aren't his - nothing changes on any network. Main joins with
+  `--hostname=main --advertise-routes=10.168.168.10/32` (ONLY that address):
+  the desktop program checks the cert is for the IP it dials, and Main's cert
+  covers 10.168.168.10, so the laptop must reach that address, not Main's
+  100.x. Then restrict the tailnet ACL to laptop -> 10.168.168.10:8770.
+  **Main dropped off at 2026-10-05 16:35 UTC** ("computer_unreachable" on
+  its bridge session); cause unknown - check uptime/journal when home
+  (reboot from the pending "restart required"? claude-bridge failing at boot?).
 
 - **No Chinese-origin or anonymously-modified weights in any live role
   (2026-09-29 audit + cleanup). Origin is judged by architecture/base blob, not
