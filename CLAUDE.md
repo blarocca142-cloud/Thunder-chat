@@ -301,11 +301,16 @@ assumed.
   list, prefs, settings, company vaults or the PostgreSQL database. It does
   now (`claims_db.sql` via `pg_dump` as blayne), and `--verify` reports both. **Sessions sent to
   Main must never write ad-hoc scripts that touch `~/.thunder/`.**
-- **The Main bridge (`env_01CnekYPScAaZgsrdrkv2bps`) runs ONE session at a
-  time.** A finished session left open blocks the next one, which then sits
-  "pending/disconnected" and looks like Main is down. Archive every session on
-  Main as soon as it reports; a session created while it was blocked may never
-  be picked up - archive it and create it again.
+- **The Main bridge** is `claude remote-control` in tmux session `claude` on
+  Main (re-created 2026-10-05 after the laptop/Main updates dropped the old
+  `env_01CnekYPScAaZgsrdrkv2bps`; it is now **`env_01L2vhUKiuXgU17MYEGFxpeR`**,
+  "Capacity 1/32"). It starts at boot from the user unit
+  `thunder-main-api/claude-bridge.service` (linger is on). If Main vanishes
+  from list_environments: SSH to Main (not a Windows prompt) and
+  `systemctl --user restart claude-bridge`. The old bridge ran ONE session at
+  a time and a finished session left open blocked the next ("pending/
+  disconnected", looks like Main is down) - still archive every session on
+  Main as soon as it reports.
 
 - **No Chinese-origin or anonymously-modified weights in any live role
   (2026-09-29 audit + cleanup). Origin is judged by architecture/base blob, not
