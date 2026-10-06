@@ -76,8 +76,19 @@ input.yes { border-color: #3c9a6a; } input.no { border-color: var(--block); back
 .rs .i { display: inline-block; width: 18px; }
 
 /* ---- main split ---- */
-.main { flex: 1; display: grid; grid-template-columns: 500px 1fr; min-height: 0; }
-@media (max-width: 900px) { .main { grid-template-columns: 1fr; } body { height: auto; } }
+.main { flex: 1; display: grid; grid-template-columns: var(--leftw, 500px) 5px minmax(0, 1fr); min-height: 0; }
+@media (max-width: 900px) { .main { grid-template-columns: 1fr; } body { height: auto; } .vsplit, .hsplit, .c2split { display: none; } }
+/* stretch / shrink: drag the bars between panes, the bottom-right corner of a box, or a column heading's right edge.
+   Sizes are kept per person (Tools: right-click a heading > Restore Grid resets columns; double-click a bar resets it). */
+.vsplit { cursor: col-resize; background: linear-gradient(90deg, var(--edge-soft), #fff8e6, var(--edge-soft)); }
+.hsplit { cursor: row-resize; height: 5px; flex: none; margin: 0 4px; background: linear-gradient(var(--edge-soft), #fff8e6, var(--edge-soft)); }
+.c2split { cursor: col-resize; border-radius: 2px; background: linear-gradient(90deg, transparent 1px, var(--edge-soft) 1px, var(--edge-soft) 4px, transparent 4px); }
+.vsplit:hover, .hsplit:hover, .c2split:hover, body.dragging .vsplit, body.dragging .hsplit { background: #e7b84a; }
+body.dragging { user-select: none; cursor: grabbing; }
+.gb, .lines, .paygrid, .notes { resize: vertical; overflow: auto; }
+.gb.sized > h2 { position: sticky; top: 0; z-index: 3; }
+table.g th .rz { position: absolute; top: 0; right: -3px; width: 7px; height: 100%; cursor: col-resize; z-index: 4; }
+table.g th:hover .rz { background: rgba(176,138,53,.35); }
 @media (max-width: 640px) { .rtabs { flex-wrap: wrap; } .rtabs .banner { display: none; } .statusbar { flex-wrap: wrap; gap: 4px 12px; } .statusbar .r { margin-left: 0; }
   .ptabs { flex-wrap: wrap; } .flow { grid-template-columns: repeat(2, max-content); gap: 8px 26px; } .fbox { width: 120px; } .cals { flex-direction: column; } }
 
@@ -179,8 +190,8 @@ table.g tr.dochead td { background: #efe9d6; color: #4a3f1f; font-size: 11px; pa
 .split { display: flex; gap: 4px; } .split > * { flex: 1; } .split .s { flex: 0 0 54px; } .split .xs { flex: 0 0 38px; }
 @media (max-width: 640px) { .form { grid-template-columns: max-content 1fr; } .form .span3 { grid-column: auto; } }
 label b, .pg td b { font-family: var(--mono); color: var(--block); font-weight: 400; margin-right: 3px; }
-.cols2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
-@media (max-width: 1100px) { .cols2 { grid-template-columns: 1fr; } }
+.cols2 { display: grid; grid-template-columns: minmax(0, var(--c2l, 1fr)) 6px minmax(0, var(--c2r, 1fr)); gap: 8px 2px; }
+@media (max-width: 1100px) { .cols2 { grid-template-columns: 1fr; } .c2split { display: none; } }
 .dx { display: grid; grid-template-columns: repeat(4, max-content minmax(60px, 1fr)); gap: 4px 6px; align-items: center; }
 .dx label { text-align: right; }
 @media (max-width: 640px) { .dx { grid-template-columns: repeat(2, max-content minmax(60px, 1fr)); } }
@@ -427,7 +438,8 @@ body.locked > :not(.login):not(#print) { display: none !important; }
     <div class="gridwrap" id="gridwrap"><table class="g" id="grid"><colgroup id="gcols"></colgroup>
       <thead id="ghead"></thead><tbody id="gbody"></tbody><tfoot id="gfoot"></tfoot></table></div>
     <div class="gridwrap replist" id="repList" hidden></div>
-    <div class="detail">
+    <div class="hsplit" id="leftSplit" title="Drag to make the list taller or shorter (double-click: back to normal)"></div>
+    <div class="detail" id="detailPane">
       <div class="dtabs2" id="dtabs2">
         <button data-d="details" class="on">Details</button><button data-d="claims">Claims</button><button data-d="payments">Payments</button>
       </div>
@@ -435,6 +447,8 @@ body.locked > :not(.login):not(#print) { display: none !important; }
       <div class="dbody repcrit" id="repCrit" hidden></div>
     </div>
   </div>
+
+  <div class="vsplit" id="mainSplit" title="Drag to make the list wider or narrower (double-click: back to normal)"></div>
 
   <!-- ===== work area ===== -->
   <div class="right">
@@ -535,8 +549,8 @@ body.locked > :not(.login):not(#print) { display: none !important; }
                     <tr class="r"><td>Carrier received bill</td><td><input data-t="received_date" placeholder="MM/DD/YYYY"></td></tr>
                     <tr class="r"><td>Investigation notice <span class="msg">(from carrier)</span></td><td><input data-t="fraud_notice" placeholder="MM/DD/YYYY"></td></tr>
                   </tbody>
-                  <tbody>
-                    <tr><th colspan="2">Claim Information</th></tr>
+                  <tbody class="shut">
+                    <tr><th colspan="2" title="Mostly back-end details - click to show">Claim Information</th></tr>
                     <tr class="r"><td>Original Bill Date</td><td><input data-t="sent_date" placeholder="MM/DD/YYYY"></td></tr>
                     <tr class="r"><td>Status</td><td><select data-t="billing"><option value="draft">Ready to Submit</option><option value="sent">Submitted</option>
                       <option value="hold">On Hold</option><option value="partial">Partly Paid</option><option value="paid">Paid</option><option value="denied">Denied</option></select></td></tr>
@@ -1088,7 +1102,85 @@ body.locked > :not(.login):not(#print) { display: none !important; }
     Object.keys(COLS).forEach(function (k) { var keys = COLS[k].map(function (c) { return c.k; }); if (keys.join() !== DEFCOLS[k].join()) grids[k] = keys; });
     api("POST", "/api/prefs", JSON.stringify({ grids: grids })).catch(function (e) { setMsg("Layout not saved: " + e.message); });
   }
-  function loadLayout() { return api("GET", "/api/prefs").then(function (r) { applyLayout(r.grids || {}); renderGridHead(); renderGridBody(); }).catch(function () {}); }
+  function loadLayout() { return api("GET", "/api/prefs").then(function (r) {
+    applyLayout(r.grids || {}); LY = Object.assign({ split: {}, boxes: {}, cols: {}, open: {} }, r.layout || {}); applyLy(); renderGridHead(); renderGridBody(); }).catch(function () {}); }
+
+  // ============ stretch / shrink (Dad, 2026-10-06): panes, boxes and columns can all be dragged bigger or smaller ============
+  // Kept per person on Main (prefs "layout"), like the column layouts. Double-click a bar or a box heading to put it back.
+  var LY = { split: {}, boxes: {}, cols: {}, open: {} }, lyTimer = null, rzJust = false;
+  function saveLy() {
+    clearTimeout(lyTimer);
+    lyTimer = setTimeout(function () { api("POST", "/api/prefs", JSON.stringify({ layout: LY })).catch(function (e) { setMsg("Layout not saved: " + e.message); }); }, 600);
+  }
+  function colW(kind, c) { var w = (LY.cols[kind] || {})[c.k]; return w ? w + "px" : c.w; }
+  function fixMinW() {
+    var kind = S.tab, cols = COLS[kind]; if (!cols) return;
+    $("grid").style.minWidth = cols.length > 5 || LY.cols[kind] ? (26 + cols.reduce(function (a, c) { return a + (parseInt(colW(kind, c), 10) || 110); }, 0)) + "px" : "";
+  }
+  var RZ = ".gb, .lines, .paygrid";
+  function boxKey(el) {
+    var v = el.closest("[id$=View]"); if (!v) return null;
+    var i = qa(RZ, v).indexOf(el); return i < 0 ? null : v.id.replace(/View$/, "") + ":" + i;
+  }
+  function applyLy() {
+    var m = document.querySelector(".main");
+    if (LY.left) m.style.setProperty("--leftw", LY.left + "px"); else m.style.removeProperty("--leftw");
+    var dp = $("detailPane"); dp.style.flex = LY.detail ? "0 0 " + LY.detail + "px" : ""; dp.style.minHeight = LY.detail ? "60px" : "";
+    qa(".cols2").forEach(function (c) {
+      var p = LY.split[c.dataset.c2];
+      if (p) { c.style.setProperty("--c2l", p + "fr"); c.style.setProperty("--c2r", (100 - p) + "fr"); } else { c.style.removeProperty("--c2l"); c.style.removeProperty("--c2r"); }
+    });
+    qa(RZ).forEach(function (el) { var k = boxKey(el); if (!k) return; var h = LY.boxes[k]; el.style.height = h ? h + "px" : ""; el.classList.toggle("sized", !!h); });
+    qa("#pg tbody").forEach(function (tb) { var th = tb.querySelector("th"); var k = th && th.textContent.trim(); if (k && k in LY.open) tb.classList.toggle("shut", !LY.open[k]); });
+  }
+  function drag(e, move, done) {
+    e.preventDefault(); document.body.classList.add("dragging");
+    function up() { document.removeEventListener("pointermove", move); document.removeEventListener("pointerup", up); document.body.classList.remove("dragging"); done(); }
+    document.addEventListener("pointermove", move); document.addEventListener("pointerup", up);
+  }
+  $("mainSplit").addEventListener("pointerdown", function (e) {
+    var x0 = e.clientX, w0 = document.querySelector(".left").getBoundingClientRect().width;
+    drag(e, function (ev) { LY.left = Math.max(220, Math.min(window.innerWidth - 360, Math.round(w0 + ev.clientX - x0))); applyLy(); }, saveLy);
+  });
+  $("mainSplit").addEventListener("dblclick", function () { delete LY.left; applyLy(); saveLy(); });
+  $("leftSplit").addEventListener("pointerdown", function (e) {
+    var y0 = e.clientY, h0 = $("detailPane").getBoundingClientRect().height;
+    drag(e, function (ev) { LY.detail = Math.max(60, Math.round(h0 - (ev.clientY - y0))); applyLy(); }, saveLy);
+  });
+  $("leftSplit").addEventListener("dblclick", function () { delete LY.detail; applyLy(); saveLy(); });
+  qa(".cols2").forEach(function (c) {
+    var v = c.closest("[id$=View]"); c.dataset.c2 = v ? v.id.replace(/View$/, "") : "x";
+    var bar = document.createElement("div"); bar.className = "c2split"; bar.title = "Drag to make one side wider (double-click: back to even)";
+    c.insertBefore(bar, c.children[1]);
+    bar.addEventListener("pointerdown", function (e) {
+      var r = c.getBoundingClientRect();
+      drag(e, function (ev) { LY.split[c.dataset.c2] = Math.max(15, Math.min(85, Math.round((ev.clientX - r.left) / r.width * 100))); applyLy(); }, saveLy);
+    });
+    bar.addEventListener("dblclick", function () { delete LY.split[c.dataset.c2]; applyLy(); saveLy(); });
+  });
+  // boxes: the browser's own corner grip sets an inline height; keep what the person chose
+  document.addEventListener("mouseup", function () {
+    var changed = false;
+    qa(RZ).forEach(function (el) {
+      if (!el.style.height) return; var k = boxKey(el); if (!k) return;
+      var h = Math.round(parseFloat(el.style.height)); if (LY.boxes[k] !== h) { LY.boxes[k] = h; el.classList.add("sized"); changed = true; }
+    });
+    if (changed) saveLy();
+  });
+  document.addEventListener("dblclick", function (e) {
+    var h = e.target.closest(".gb > h2"); if (!h) return;
+    var el = h.parentNode, k = boxKey(el); if (k && LY.boxes[k]) { delete LY.boxes[k]; el.style.height = ""; el.classList.remove("sized"); saveLy(); }
+  });
+  // columns: drag a heading's right edge
+  $("ghead").addEventListener("pointerdown", function (e) {
+    var rz = e.target.closest(".rz"); if (!rz) return; e.stopPropagation();
+    var th = rz.parentNode, kind = S.tab, k = rz.dataset.rz, x0 = e.clientX, w0 = th.getBoundingClientRect().width;
+    var col = $("gcols").children[COLS[kind].map(function (c) { return c.k; }).indexOf(k) + 1];
+    th.draggable = false; rzJust = true;
+    drag(e, function (ev) { var w = Math.max(30, Math.round(w0 + ev.clientX - x0)); (LY.cols[kind] = LY.cols[kind] || {})[k] = w; if (col) col.style.width = w + "px"; fixMinW(); },
+      function () { th.draggable = true; saveLy(); setTimeout(function () { rzJust = false; }, 0); });
+  });
+  $("ghead").addEventListener("click", function (e) { if (rzJust || e.target.closest(".rz")) { e.stopPropagation(); e.preventDefault(); } }, true);
   var cust = null;
   function closeCust() { if (cust) { cust.remove(); cust = null; } }
   function openCust(x, y) {
@@ -1141,12 +1233,12 @@ body.locked > :not(.login):not(#print) { display: none !important; }
 
   function renderGridHead() {
     var kind = S.tab, g = S.grids[kind], cols = COLS[kind];
-    $("grid").style.minWidth = cols.length > 5 ? (26 + cols.reduce(function (a, c) { return a + (parseInt(c.w, 10) || 110); }, 0)) + "px" : "";
-    $("gcols").innerHTML = '<col style="width:26px">' + cols.map(function (c) { return '<col' + (c.w ? ' style="width:' + c.w + '"' : "") + '>'; }).join("");
+    fixMinW();
+    $("gcols").innerHTML = '<col style="width:26px">' + cols.map(function (c) { var w = colW(kind, c); return '<col' + (w ? ' style="width:' + w + '"' : "") + '>'; }).join("");
     $("ghead").innerHTML = '<tr><th class="ic"></th>' + cols.map(function (c) {
       var s = g.sort.filter(function (x) { return x.k === c.k; })[0];
       return '<th draggable="true" data-k="' + c.k + '"' + (c.m ? ' class="n"' : "") + ' title="Click to sort, shift-click to add, right-click for more, drag up to group">' +
-        esc(c.t) + (s ? '<span class="arw">' + (s.dir > 0 ? "▲" : "▼") + '</span>' : "") + '</th>';
+        esc(c.t) + (s ? '<span class="arw">' + (s.dir > 0 ? "▲" : "▼") + '</span>' : "") + '<span class="rz" data-rz="' + c.k + '" title="Drag to widen or narrow this column"></span></th>';
     }).join("") + '</tr><tr class="filter"><td class="x" title="Clear filter">✕</td>' + cols.map(function (c) {
       return '<td><input data-fk="' + c.k + '" value="' + esc(g.f[c.k] || "") + '" placeholder="Filter" aria-label="Filter ' + esc(c.t) + '"></td>';
     }).join("") + '</tr>';
@@ -1259,7 +1351,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
       if (m === "group") { g.group = k; g.shut = {}; }
       if (m === "ungroup") g.group = null;
       if (m === "nofilter") g.f = {};
-      if (m === "restore") { g.sort = []; g.group = null; g.f = {}; COLS[S.tab] = DEFCOLS[S.tab].map(function (key) { return ALLCOLS[S.tab].filter(function (c) { return c.k === key; })[0]; }); saveLayout(); }
+      if (m === "restore") { g.sort = []; g.group = null; g.f = {}; if (LY.cols[S.tab]) { delete LY.cols[S.tab]; saveLy(); } COLS[S.tab] = DEFCOLS[S.tab].map(function (key) { return ALLCOLS[S.tab].filter(function (c) { return c.k === key; })[0]; }); saveLayout(); }
       if (m === "remove") { COLS[S.tab] = COLS[S.tab].filter(function (c) { return c.k !== k; }); if (g.group === k) g.group = null; delete g.f[k];
         g.sort = g.sort.filter(function (x) { return x.k !== k; }); saveLayout(); }
       if (m === "chooser") { var ev0 = ev; setTimeout(function () { openCust(ev0.clientX, ev0.clientY); }, 0); }
@@ -1872,7 +1964,7 @@ body.locked > :not(.login):not(#print) { display: none !important; }
   $("claimView").addEventListener("click", function (e) {
     var t = e.target, d = cur(); if (!d || d.kind !== "claim") return;
     if (t.dataset.rmpx != null) { d.data.procedures.splice(+t.dataset.rmpx, 1); syncDos(); renderLines(); renderCals(); paintCodes(); totals(); changed(); }
-    var th = t.closest("#pg th"); if (th) th.closest("tbody").classList.toggle("shut");
+    var th = t.closest("#pg th"); if (th) { var tb = th.closest("tbody"); tb.classList.toggle("shut"); LY.open[th.textContent.trim()] = !tb.classList.contains("shut"); saveLy(); }
     var cb = t.closest("#cals button"); if (cb && !cb.disabled) {
       if (cb.dataset.calmove) { d.cal.setMonth(d.cal.getMonth() + +cb.dataset.calmove); renderCals(); }
       else if (cb.dataset.day) {

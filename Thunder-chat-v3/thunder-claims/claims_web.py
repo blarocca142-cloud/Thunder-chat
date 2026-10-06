@@ -1553,7 +1553,8 @@ def get_prefs(user: str) -> dict:
     except (FileNotFoundError, ValueError):
         allp = {}
     return {"print": {**PRINT_DEFAULTS, **(allp.get(user, {}).get("print") or {})},
-            "grids": allp.get(user, {}).get("grids") or {}}
+            "grids": allp.get(user, {}).get("grids") or {},
+            "layout": allp.get(user, {}).get("layout") or {}}
 
 
 def set_prefs(user: str, body: dict) -> dict:
@@ -1575,6 +1576,8 @@ def set_prefs(user: str, body: dict) -> dict:
         mine["grids"] = grids
     if "print" in (body or {}):
         mine["print"] = _clean_print((body or {}).get("print") or {})
+    if "layout" in (body or {}):
+        mine["layout"] = _clean_layout((body or {}).get("layout") or {})
     _prefs_file().parent.mkdir(parents=True, exist_ok=True)
     tmp = _prefs_file().with_suffix(".tmp")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
@@ -1582,6 +1585,47 @@ def set_prefs(user: str, body: dict) -> dict:
         json.dump(allp, f, indent=2)
     os.replace(tmp, _prefs_file())
     return get_prefs(user)
+
+
+def _clean_layout(src) -> dict:
+    """Box sizes a person dragged (pane splits, column widths, box heights,
+    which sections are folded). Numbers in pixels/percent, clamped; keys are
+    checked against fixed shapes so nothing else can ride along."""
+    if not isinstance(src, dict):
+        return {}
+
+    def num(v, lo, hi):
+        try:
+            n = int(float(v))
+        except (TypeError, ValueError, OverflowError):
+            return None
+        return max(lo, min(hi, n))
+
+    def table(v, keyre, lo, hi, most):
+        out = {}
+        for k, x in (v.items() if isinstance(v, dict) else []):
+            n = num(x, lo, hi)
+            if n is not None and re.fullmatch(keyre, str(k)) and len(out) < most:
+                out[str(k)] = n
+        return out
+    out = {}
+    for k, lo, hi in (("left", 220, 2400), ("detail", 60, 2400)):
+        n = num(src.get(k), lo, hi)
+        if n is not None:
+            out[k] = n
+    out["split"] = table(src.get("split"), r"[A-Za-z]{1,20}", 15, 85, 20)       # two-column views, % for the left one
+    out["boxes"] = table(src.get("boxes"), r"[A-Za-z]{1,20}:\d{1,3}", 40, 4000, 120)
+    out["cols"] = {}
+    for kind, widths in (src.get("cols") or {}).items() if isinstance(src.get("cols"), dict) else []:
+        if kind in KINDS:
+            w = table(widths, r"[a-z0-9_]{1,24}", 30, 1200, 40)
+            if w:
+                out["cols"][kind] = w
+    out["open"] = {}
+    for k, v in (src.get("open") or {}).items() if isinstance(src.get("open"), dict) else []:
+        if re.fullmatch(r"[A-Za-z0-9 &().,/-]{1,60}", str(k)) and len(out["open"]) < 60:
+            out["open"][str(k)] = bool(v)
+    return {k: v for k, v in out.items() if v != {}}
 
 
 def _clean_print(src: dict) -> dict:

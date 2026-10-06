@@ -55,7 +55,7 @@ assumed.
   adduser <name>` (also `users`, `passwd`, `disable`, `enable`). Lockout after
   5 wrong tries (15 min), auto-logoff after 15 idle minutes, sessions in memory
   only. `access.log` in the vault dir records who/ip/path/status (ids only),
-  and the vault audit credits the logged-in person. `test_claims_web.py` = 191
+  and the vault audit credits the logged-in person. `test_claims_web.py` = 194
   checks, mostly attacks. **Synthetic patients only**; nothing is ever
   submitted to a payer. The UI mimics EZClaim on purpose - see
   `thunder-claims/EZCLAIM-LOOK.md` (EZClaim's videos studied frame by frame).
@@ -124,6 +124,13 @@ assumed.
   phones, invented streets, fictional carriers/attorney, generated NPIs.
   Refuses a company that already has records; never touches Main. A test
   checks every claim it makes passes `assess` as CLEAN.
+  **Stretch / shrink (Dad, 2026-10-06):** drag the bar between list and work
+  area, between list and detail pane, between the two halves of Claim /
+  Patient / Payment, a column heading's right edge, or any box's corner grip.
+  Kept per person in prefs `layout` (`_clean_layout` clamps it); double-click
+  a bar or box heading to reset. The claim screen's **Claim Information**
+  section (bill date, status, method, Claim ID...) starts folded - Dad: it is
+  back-end detail; a click opens it and that choice is remembered.
   **Column Chooser** (right-click a grid heading, as in EZClaim's
   "Customization"): add hidden columns, Remove This Column, Restore Grid.
   Layouts are saved per person in `~/.thunder/claims_prefs.json` (`grids`).

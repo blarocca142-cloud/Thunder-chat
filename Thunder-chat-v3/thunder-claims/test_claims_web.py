@@ -431,6 +431,16 @@ check("a column layout saves per person, junk keys and kinds dropped", st == 200
 check("saving a layout leaves the printer settings alone", j["print"]["form"] == "never" and j["print"]["dx"] == 0.05, j["print"])
 st, j, _ = req("POST", "/api/prefs", {"grids": {}}, token=TOK)
 check("Restore Grid clears it", j["grids"] == {})
+st, j, _ = req("POST", "/api/prefs", {"layout": {"left": 99999, "detail": "abc", "split": {"claim": 30, "../x": 50, "pat": 5},
+                                                  "boxes": {"claim:3": 420, "<b>:1": 300, "pay:2": -10},
+                                                  "cols": {"claim": {"name": 260, "bad key": 90}, "nosuchkind": {"name": 100}},
+                                                  "open": {"Claim Information": 1, "<script>": True}, "extra": "dropped"}}, token=TOK)
+check("box sizes save per person, clamped, junk keys dropped",
+      st == 200 and j["layout"] == {"left": 2400, "split": {"claim": 30, "pat": 15}, "boxes": {"claim:3": 420, "pay:2": 40},
+                                    "cols": {"claim": {"name": 260}}, "open": {"Claim Information": True}}, j.get("layout"))
+check("saving box sizes leaves column layouts and printer settings alone", j["grids"] == {} and j["print"]["form"] == "never", j)
+st, j, _ = req("POST", "/api/prefs", {"layout": "not a dict"}, token=TOK)
+check("a bad layout is simply cleared", st == 200 and j["layout"] == {}, j.get("layout"))
 
 print("permissions")
 os.environ["CLAIMS_NEW_PASSWORD"] = "limited clerk passphrase 3"
