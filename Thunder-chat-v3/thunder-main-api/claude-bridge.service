@@ -1,20 +1,30 @@
 # Keeps Main reachable from claude.ai/code (Remote Control) after a reboot.
-# systemd USER unit (linger is on), runs the bridge inside tmux so it has a
-# terminal and can be looked at with:  tmux attach -t claude  (Ctrl+B D to leave)
+# systemd USER unit (linger is on). The bridge runs inside tmux session
+# "claude" so it has a terminal; look at it with:  tmux attach -t claude
+# (Ctrl+B then D to leave it running). The loop itself is claude-bridge.sh.
 #
 #   cp claude-bridge.service ~/.config/systemd/user/
-#   systemctl --user daemon-reload && systemctl --user enable claude-bridge
+#   systemctl --user daemon-reload && systemctl --user enable --now claude-bridge
 #
-# Enabled only - not started while a bridge is already running by hand.
+# 2026-10-06: the first version was Type=forking and stopped with tmux
+# kill-session. tmux's server daemonises, systemd lost track of it, declared
+# the unit dead and ran the stop command - which killed the bridge (same
+# session name) and took Main off claude.ai on 2026-10-05. So now:
+# - starting never touches a bridge that is already running (has-session);
+# - stopping never kills it (KillMode=process: only the short-lived starter);
+# - if `claude remote-control` itself exits, claude-bridge.sh restarts it.
+# To deliberately restart the bridge:
+#   tmux kill-session -t claude; systemctl --user restart claude-bridge
 [Unit]
 Description=Claude Code Remote Control bridge (tmux session "claude")
 After=network-online.target
 
 [Service]
-Type=forking
-ExecStart=/usr/bin/tmux new-session -d -s claude "bash -lc 'cd ~/Thunder-chat && claude remote-control; exec bash'"
-ExecStop=/usr/bin/tmux kill-session -t claude
+Type=oneshot
 RemainAfterExit=yes
+KillMode=process
+ExecStart=/bin/sh -c 'tmux has-session -t claude 2>/dev/null || exec tmux new-session -d -s claude %h/Thunder-chat/Thunder-chat-v3/thunder-main-api/claude-bridge.sh'
+ExecStop=/bin/true
 
 [Install]
 WantedBy=default.target

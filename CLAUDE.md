@@ -333,7 +333,7 @@ assumed.
   "Capacity 1/32"). It starts at boot from the user unit
   `thunder-main-api/claude-bridge.service` (linger is on). If Main vanishes
   from list_environments: SSH to Main (not a Windows prompt) and
-  `systemctl --user restart claude-bridge`. The old bridge ran ONE session at
+  `tmux kill-session -t claude; systemctl --user restart claude-bridge`. The old bridge ran ONE session at
   a time and a finished session left open blocked the next ("pending/
   disconnected", looks like Main is down) - still archive every session on
   Main as soon as it reports.
@@ -348,9 +348,12 @@ assumed.
   the desktop program checks the cert is for the IP it dials, and Main's cert
   covers 10.168.168.10, so the laptop must reach that address, not Main's
   100.x. Then restrict the tailnet ACL to laptop -> 10.168.168.10:8770.
-  **Main dropped off at 2026-10-05 16:35 UTC** ("computer_unreachable" on
-  its bridge session); cause unknown - check uptime/journal when home
-  (reboot from the pending "restart required"? claude-bridge failing at boot?).
+  **Main dropped off at 2026-10-05 16:35 UTC** - cause found 2026-10-06:
+  the first claude-bridge.service (Type=forking, stop = tmux kill-session)
+  lost track of tmux's daemonised server, was declared dead, and its stop
+  command killed the running bridge. Rewritten: oneshot + has-session (never
+  touches a running bridge), KillMode=process (stopping never kills it), and
+  `claude-bridge.sh` restarts `claude remote-control` 30 s after any exit.
 
 - **No Chinese-origin or anonymously-modified weights in any live role
   (2026-09-29 audit + cleanup). Origin is judged by architecture/base blob, not
