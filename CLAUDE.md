@@ -329,7 +329,7 @@ assumed.
   Main must never write ad-hoc scripts that touch `~/.thunder/`.**
 - **The Main bridge** is `claude remote-control` in tmux session `claude` on
   Main (re-created 2026-10-05 after the laptop/Main updates dropped the old
-  `env_01CnekYPScAaZgsrdrkv2bps`; it is now **`env_01L2vhUKiuXgU17MYEGFxpeR`**,
+  `env_01CnekYPScAaZgsrdrkv2bps`; now **`env_01F25FfFDPRwFrWrvBZWS1YN`** (re-created again 2026-10-06; was `env_01L2vhUKiuXgU17MYEGFxpeR`),
   "Capacity 1/32"). It starts at boot from the user unit
   `thunder-main-api/claude-bridge.service` (linger is on). If Main vanishes
   from list_environments: SSH to Main (not a Windows prompt) and
