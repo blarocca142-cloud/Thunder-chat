@@ -59,6 +59,13 @@ assumed.
   checks, mostly attacks. **Synthetic patients only**; nothing is ever
   submitted to a payer. The UI mimics EZClaim on purpose - see
   `thunder-claims/EZCLAIM-LOOK.md` (EZClaim's videos studied frame by frame).
+  **Blayne's own EZClaim screen recordings** (2026-10-07): run
+  `thunder-claims/video_frames.py <video>` - one still per screen change plus
+  3x3 timestamped contact sheets in `~/ezclaim-study/<name>/`. Read the
+  `sheet_*.png` files first (seconds, not minutes), then single frames.
+  **Demo company only** - a recording of the offices' real EZClaim shows real
+  patients, and sending that to any cloud AI (Claude included) is PHI without
+  a BAA. Never store frames in the repo.
   **The practice is chiropractic WITH MDs and other doctors** (Blayne 2026-10-03)
   - DC adjustments/therapy plus MD/DO/PA/APRN evaluations, incl. the EMC
   determination that sets the PIP limit.
