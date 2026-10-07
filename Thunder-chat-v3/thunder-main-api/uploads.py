@@ -25,17 +25,24 @@ import json
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 MAX_BYTES = 25 * 1024 * 1024
+# A phone screen recording of EZClaim is bigger than a photo. The app holds the
+# whole file plus its base64 in memory, so this stays well under a phone's
+# heap: about a minute of 720p screen recording.
+VIDEO_MAX_BYTES = 60 * 1024 * 1024
+VIDEO_FRAMES = Path(__file__).resolve().parent.parent / "thunder-claims" / "video_frames.py"
 # Long edge for what goes to the vision model. Small enough to be quick, big
 # enough that printed text survives - a phone photo at full size is mostly
 # wasted tokens, and a page shrunk too far loses the codes.
 VISION_LONG_EDGE = 1600
 
+VIDEO_EXT = {".mp4", ".mov", ".webm", ".mkv", ".3gp", ".m4v"}
 IMAGE_EXT = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tif", ".tiff", ".heic"}
 TEXT_EXT = {".txt", ".md", ".csv", ".json", ".py", ".kt", ".java", ".js", ".ts",
             ".html", ".css", ".sh", ".yml", ".yaml", ".toml", ".ini", ".log",
@@ -67,6 +74,8 @@ def classify(name: str, blob: bytes) -> str:
     ext = Path(name).suffix.lower()
     if ext in IMAGE_EXT:
         return "image"
+    if ext in VIDEO_EXT:
+        return "video"
     if ext == ".pdf":
         return "pdf"
     if ext in TEXT_EXT:
@@ -122,6 +131,18 @@ def pdf_text(path: Path) -> tuple[str, str]:
         shutil.rmtree(work, ignore_errors=True)
 
 
+def video_study(path: Path, out: Path) -> dict:
+    """Cut a screen recording into stills and contact sheets for Claude to read
+    (thunder-claims/video_frames.py). Thunder itself does not watch it."""
+    said = run([sys.executable, str(VIDEO_FRAMES), str(path), "--out", str(out)], timeout=600)
+    sheets = sorted(out.glob("sheet_*.png"))
+    if not said or not sheets:
+        return {"how_read": "video saved, but it could not be cut into stills"}
+    screens = len(list((out / "frames").glob("*.png")))
+    return {"study_dir": str(out), "sheets": len(sheets),
+            "how_read": f"cut into {screens} screens on {len(sheets)} sheet(s) - saved for Claude"}
+
+
 class Uploads:
     def __init__(self, root: Path):
         self.root = root
@@ -148,9 +169,10 @@ class Uploads:
             raise ValueError("the file content is not valid base64")
         if not blob:
             raise ValueError("the file is empty")
-        if len(blob) > MAX_BYTES:
+        limit = VIDEO_MAX_BYTES if classify(safe_name(filename), b"") == "video" else MAX_BYTES
+        if len(blob) > limit:
             raise ValueError(f"{len(blob) // 1024 // 1024} MB is over the "
-                             f"{MAX_BYTES // 1024 // 1024} MB limit")
+                             f"{limit // 1024 // 1024} MB limit")
 
         name = safe_name(filename)
         uid = hashlib.sha256(blob).hexdigest()[:16]
@@ -177,6 +199,8 @@ class Uploads:
             (folder / "extracted.txt").write_text(text)
             record["text_chars"] = len(text)
             record["how_read"] = "read as text"
+        elif kind == "video":
+            record.update(video_study(path, folder / "study"))
         else:
             record["how_read"] = "not readable - unknown binary format"
 

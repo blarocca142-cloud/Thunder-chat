@@ -1993,13 +1993,13 @@ def upload(body: UploadIn):
     except ValueError as e:
         raise HTTPException(400, str(e))
     log_event("upload", f"{rec['name']} ({rec['kind']}, {rec['bytes']} bytes)")
-    return {k: v for k, v in rec.items() if k not in ("path", "vision_path")}
+    return {k: v for k, v in rec.items() if k not in ("path", "vision_path", "study_dir")}
 
 
 @app.get("/uploads")
 def upload_list():
     return {"uploads": [{k: v for k, v in r.items()
-                         if k not in ("path", "vision_path")}
+                         if k not in ("path", "vision_path", "study_dir")}
                         for r in UPLOADS.listing()]}
 
 
