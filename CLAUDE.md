@@ -224,6 +224,19 @@ a running box, and a blind index leaks equality. Both are documented in
 Also wanted: Thunder as an overnight batch worker (his original Cache plan) —
 queue work, draft and flag, submit nothing, report in the morning.
 
+## Thunder works only on assigned tasks (Blayne, 2026-10-10)
+
+**Thunder makes what it is told to make, and nothing else.** No self-generated
+work, no "when the queue is empty, invent something" fallback, no loops that run
+forever. Empty queue = idle GPU.
+
+Why: Grok's `HomeCity\MUSE_COUNCIL\ThunderWorker.ps1` on the laptop (kept alive
+by the scheduled task `HomeCityThunderWorker`) auto-drafted "GRUNT" set-dressing
+JSON every ~20s from 2026-10-09 03:20 to 2026-10-10: ~5,550 jobs, 5,542 files,
+nothing imported after v217. It held the 3090 at ~360W/77°C for a day and warmed
+the room for nothing. Blayne stopped it. Any worker that feeds Thunder must idle
+when it has no assigned task.
+
 ## Memory
 
 Most of the distance between Thunder and a frontier model is context, not
